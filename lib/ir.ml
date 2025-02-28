@@ -22,6 +22,7 @@ module Make (Params : Parameters.S) = struct
       ; dom : int Vec.t
       ; ancestor : int Vec.t
       ; label : int Vec.t
+      ; dominance_frontier : Int.Hash_set.t Vec.t
       }
 
     let dfs block =
@@ -53,7 +54,10 @@ module Make (Params : Parameters.S) = struct
       let dom = Vec.map blocks ~f:(fun _ -> -1) in
       let ancestor = Vec.map semi ~f:(fun _ -> -1) in
       let label = Vec.map semi ~f:Fn.id in
-      { parent; blocks; bucket; dom; semi; ancestor; label }
+      let dominance_frontier =
+        Vec.map semi ~f:(fun _ -> Int.Hash_set.create ())
+      in
+      { parent; blocks; bucket; dom; semi; ancestor; label; dominance_frontier }
     ;;
 
     let link st v w = Vec.set st.ancestor w v
@@ -109,6 +113,21 @@ module Make (Params : Parameters.S) = struct
       st
     ;;
 
-    let run block = block |> dfs |> step_2_3 |> step_4
+    let dominance_frontier st =
+      Vec.iter st.blocks ~f:(fun block ->
+        let b = Option.value_exn block.Block.dfs_id in
+        if Vec.length block.Block.parents >= 2
+        then
+          Vec.iter block.parents ~f:(fun p ->
+            let runner = ref (Option.value_exn p.Block.dfs_id) in
+            while !runner <> Vec.get st.dom b do
+              Hash_set.add (Vec.get st.dominance_frontier !runner) b;
+              runner := Vec.get st.dom !runner
+            done)
+        else ());
+      st
+    ;;
+
+    let run block = block |> dfs |> step_2_3 |> step_4 |> dominance_frontier
   end
 end
