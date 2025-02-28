@@ -1,0 +1,4 @@
+(test
+ (name test_nod)
+  (preprocess (pps ppx_jane))
+ (libraries nod core))
