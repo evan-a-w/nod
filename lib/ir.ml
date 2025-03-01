@@ -4,17 +4,33 @@ module Make (Params : Parameters.S) = struct
   include Params
 
   module Block = struct
-    type t =
-      { parents : t Vec.t
-      ; children : t Vec.t
-      ; instructions : Instr.t Vec.t
-      ; mutable terminal : Instr.t
-      ; mutable dfs_id : int option
-      }
+    module T = struct
+      type t =
+        { args : string Vec.t
+        ; parents : t Vec.t
+        ; children : t Vec.t
+        ; mutable instructions : Instr.t Vec.t
+        ; mutable terminal : Instr.t
+        ; mutable dfs_id : int option
+        }
+
+      let compare t1 t2 =
+        Option.value_exn t1.dfs_id - Option.value_exn t2.dfs_id
+      ;;
+
+      let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
+      let hash t = Int.hash (Option.value_exn t.dfs_id)
+      let t_of_sexp _ = failwith ":()"
+      let sexp_of_t t = Sexp.Atom (Int.to_string (Option.value_exn t.dfs_id))
+    end
+
+    include T
+    include Comparable.Make (T)
+    include Hashable.Make (T)
   end
 
   module Dominator = struct
-    type st =
+    type t =
       { parent : int Vec.t
       ; semi : int Vec.t
       ; blocks : Block.t Vec.t
@@ -128,6 +144,117 @@ module Make (Params : Parameters.S) = struct
       st
     ;;
 
-    let run block = block |> dfs |> step_2_3 |> step_4 |> dominance_frontier
+    let create block = block |> dfs |> step_2_3 |> step_4 |> dominance_frontier
+  end
+
+  module Def_uses = struct
+    type t =
+      { dominator : Dominator.t
+      ; vars : String.Hash_set.t
+      ; uses : Block.Hash_set.t String.Table.t
+      ; defs : Block.Hash_set.t String.Table.t
+      ; root : Block.t
+      }
+    [@@deriving fields]
+
+    let update_def_uses t ~block =
+      Vec.iter block.Block.instructions ~f:(fun instr ->
+        let uses = Instr.uses instr in
+        let defs = Instr.defs instr in
+        let update tbl x =
+          Hash_set.add t.vars x;
+          Hash_set.add
+            (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
+            block
+        in
+        List.iter uses ~f:(update t.uses);
+        List.iter defs ~f:(update t.defs))
+    ;;
+
+    let calc_def_uses t =
+      let seen = Block.Hash_set.create () in
+      let rec go block =
+        if not (Hash_set.mem seen block)
+        then (
+          Hash_set.add seen block;
+          update_def_uses t ~block;
+          Vec.iter block.Block.children ~f:go)
+      in
+      go t.root;
+      t
+    ;;
+
+    let create root =
+      let t =
+        { dominator = Dominator.create root
+        ; vars = String.Hash_set.create ()
+        ; uses = String.Table.create ()
+        ; defs = String.Table.create ()
+        ; root
+        }
+      in
+      t |> calc_def_uses
+    ;;
+
+    let df t ~block =
+      Vec.get
+        t.dominator.dominance_frontier
+        (Option.value_exn block.Block.dfs_id)
+      |> Hash_set.to_list
+      |> List.map ~f:(fun i -> Vec.get t.dominator.blocks i)
+    ;;
+
+    let rec uniq_name t name =
+      if not (Hash_set.mem t.vars name)
+      then (
+        Hash_set.add t.vars name;
+        name)
+      else (
+        let no_number = String.rstrip name ~drop:(fun c -> Char.is_digit c) in
+        let number = String.chop_prefix_exn name ~prefix:no_number in
+        if String.equal number ""
+        then uniq_name t (name ^ "1")
+        else uniq_name t (no_number ^ Int.to_string (Int.of_string number + 1)))
+    ;;
+  end
+
+  module Ssa = struct
+    let insert_args (def_uses : Def_uses.t) =
+      Hash_set.iter def_uses.vars ~f:(fun var ->
+        match Hashtbl.find def_uses.defs var with
+        | None -> ()
+        | Some defs ->
+          List.iter (Hash_set.to_list defs) ~f:(fun d ->
+            Def_uses.df def_uses ~block:d
+            |> List.iter ~f:(fun block ->
+              if not (Vec.mem block.args var ~compare:String.compare)
+              then Vec.push block.args var;
+              Hash_set.add defs block)))
+    ;;
+
+    let rename (def_uses : Def_uses.t) ~root =
+      let stack = String.Table.create () in
+      let rec rename block =
+        block.Block.instructions
+        <- Vec.map block.Block.instructions ~f:(fun instr ->
+             let instr =
+               Instr.map_uses instr ~f:(fun s ->
+                 Hashtbl.find stack s
+                 |> Option.map ~f:Stack.top_exn
+                 |> Option.value ~default:s)
+             in
+             let instr =
+               Instr.map_defs instr ~f:(fun s ->
+                 let new_name = Def_uses.uniq_name def_uses s in
+                 let stack =
+                   Hashtbl.find_or_add stack s ~default:Stack.create
+                 in
+                 Stack.push stack new_name;
+                 new_name)
+             in
+             instr)
+      in
+      rename root
+    ;;
   end
 end

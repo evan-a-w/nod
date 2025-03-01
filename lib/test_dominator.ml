@@ -2,6 +2,9 @@ open! Core
 
 module Triv_instr = struct
   type t = int
+
+  let defs _ = []
+  let uses _ = []
 end
 
 module Ir = Ir.Make (struct
@@ -9,7 +12,8 @@ module Ir = Ir.Make (struct
   end)
 
 let make instrs =
-  { Ir.Block.parents = Vec.create ()
+  { args = Vec.create ()
+  ; Ir.Block.parents = Vec.create ()
   ; children = Vec.create ()
   ; instructions = Vec.of_list instrs
   ; dfs_id = None
@@ -53,7 +57,7 @@ let%expect_test "dfs" =
 ;;
 
 let dominator_test things =
-  let st = Ir.Dominator.run things.(0) in
+  let st = Ir.Dominator.create things.(0) in
   let block_number block = Vec.get block.Ir.Block.instructions 0 in
   Array.iter things ~f:(fun block ->
     let dom =
@@ -78,8 +82,10 @@ let%expect_test "dominator" =
     |}]
 ;;
 
-let%expect_test "dominator3" = simple_graph3 () |> dominator_test;
-  [%expect {|
+let%expect_test "dominator3" =
+  simple_graph3 () |> dominator_test;
+  [%expect
+    {|
     Block 1: dominator is Block 1
     Block 2: dominator is Block 1
     Block 3: dominator is Block 2
@@ -87,9 +93,10 @@ let%expect_test "dominator3" = simple_graph3 () |> dominator_test;
     Block 5: dominator is Block 2
     Block 6: dominator is Block 1
     |}]
+;;
 
 let dominance_test things =
-  let st = Ir.Dominator.run things.(0) in
+  let st = Ir.Dominator.create things.(0) in
   let block_number block = Vec.get block.Ir.Block.instructions 0 in
   Array.iter things ~f:(fun block ->
     print_s
@@ -129,8 +136,10 @@ let%expect_test "dominance frontier2" =
     |}]
 ;;
 
-let%expect_test "dominance frontier 3" = simple_graph3 () |> dominance_test;
-  [%expect {|
+let%expect_test "dominance frontier 3" =
+  simple_graph3 () |> dominance_test;
+  [%expect
+    {|
     (("block_number block" 1) (frontier ()))
     (("block_number block" 2) (frontier (6)))
     (("block_number block" 3) (frontier (5)))
@@ -138,3 +147,4 @@ let%expect_test "dominance frontier 3" = simple_graph3 () |> dominance_test;
     (("block_number block" 5) (frontier (6)))
     (("block_number block" 6) (frontier ()))
     |}]
+;;

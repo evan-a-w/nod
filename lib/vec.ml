@@ -109,3 +109,21 @@ let%expect_test "push" =
 
 let sexp_of_t (type a) sexp_of_a t = [%sexp_of: a list] (to_list t)
 let t_of_sexp (type a) a_of_sexp sexp = [%of_sexp: a list] sexp |> of_list
+
+let mem t v ~compare =
+  let rec loop i =
+    if i = t.length
+    then false
+    else if compare t.arr.(i) v = 0
+    then true
+    else loop (i + 1)
+  in
+  loop 0
+;;
+
+let take t ~other =
+  t.arr <- other.arr;
+  t.length <- other.length;
+  other.arr <- [||];
+  other.length <- 0
+;;

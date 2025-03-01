@@ -14,3 +14,5 @@ val map : 'a t -> f:('a -> 'b) -> 'b t
 val of_list : 'a list -> 'a t
 val to_list : 'a t -> 'a list
 val to_array : 'a t -> 'a array
+val mem : 'a t -> 'a -> compare:('a -> 'a -> int) -> bool
+val take : 'a t -> other:'a t -> unit
