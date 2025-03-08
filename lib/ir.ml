@@ -6,7 +6,7 @@ module Make (Params : Parameters.S) = struct
   module Block = struct
     module T = struct
       type t =
-        { args : string Vec.t
+        { mutable args : string Vec.t
         ; parents : t Vec.t
         ; children : t Vec.t
         ; mutable instructions : Instr.t Vec.t
@@ -14,10 +14,8 @@ module Make (Params : Parameters.S) = struct
         ; mutable dfs_id : int option
         }
 
-      let compare t1 t2 =
-        Option.value_exn t1.dfs_id - Option.value_exn t2.dfs_id
-      ;;
-
+      let id_exn t = Option.value_exn t.dfs_id
+      let compare t1 t2 = id_exn t1 - id_exn t2
       let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
       let hash t = Int.hash (Option.value_exn t.dfs_id)
       let t_of_sexp _ = failwith ":()"
@@ -27,6 +25,16 @@ module Make (Params : Parameters.S) = struct
     include T
     include Comparable.Make (T)
     include Hashable.Make (T)
+
+    module Pair = struct
+      module T = struct
+        type nonrec t = t * t [@@deriving compare, hash, sexp]
+      end
+
+      include T
+      include Comparable.Make (T)
+      include Hashable.Make (T)
+    end
   end
 
   module Dominator = struct
@@ -219,6 +227,76 @@ module Make (Params : Parameters.S) = struct
   end
 
   module Ssa = struct
+    type t =
+      { reaching_def : string String.Table.t
+      ; definition : Block.t String.Table.t
+      ; def_uses : Def_uses.t
+      ; numbers : int String.Table.t
+      ; immediate_dominees : Block.Hash_set.t Block.Table.t
+      ; dominate_queries : bool Block.Pair.Table.t
+      }
+
+    let calculate_dominator_tree t =
+      let seen = Block.Hash_set.create () in
+      let rec go block =
+        if Hash_set.mem seen block then () else Hash_set.add seen block;
+        let idom =
+          Vec.get t.def_uses.dominator.dom (Block.id_exn block)
+          |> Vec.get t.def_uses.dominator.blocks
+        in
+        Hash_set.add
+          (Hashtbl.find_or_add
+             t.immediate_dominees
+             idom
+             ~default:Block.Hash_set.create)
+          block;
+        Vec.iter block.Block.children ~f:go
+      in
+      go t.def_uses.root
+    ;;
+
+    let rec dominates t block1 block2 =
+      if phys_equal block1 block2
+         || Hashtbl.find t.immediate_dominees block1
+            |> Option.map ~f:(fun set -> Hash_set.mem set block2)
+            |> Option.value ~default:false
+      then true
+      else (
+        match Hashtbl.find t.dominate_queries (block1, block2) with
+        | Some res -> res
+        | None ->
+          (* set to false so dfs doesn't loop *)
+          Hashtbl.set t.dominate_queries ~key:(block1, block2) ~data:false;
+          let res =
+            Hashtbl.find t.immediate_dominees block1
+            |> Option.value ~default:(Block.Hash_set.create ~size:0 ())
+            |> Hash_set.exists ~f:(fun block -> dominates t block block2)
+          in
+          Hashtbl.set t.dominate_queries ~key:(block1, block2) ~data:res;
+          res)
+    ;;
+
+    let create def_uses =
+      let t =
+        { def_uses
+        ; immediate_dominees = Block.Table.create ()
+        ; reaching_def = String.Table.create ()
+        ; definition = String.Table.create ()
+        ; numbers = String.Table.create ()
+        ; dominate_queries = Block.Pair.Table.create ()
+        }
+      in
+      calculate_dominator_tree t;
+      t
+    ;;
+
+    let new_name t v =
+      let v = String.split v ~on:'%' |> List.hd_exn in
+      let n = Hashtbl.find t.numbers v |> Option.value ~default:0 in
+      Hashtbl.set t.numbers ~key:v ~data:(n + 1);
+      v ^ "%" ^ Int.to_string n
+    ;;
+
     let insert_args (def_uses : Def_uses.t) =
       Hash_set.iter def_uses.vars ~f:(fun var ->
         match Hashtbl.find def_uses.defs var with
@@ -232,29 +310,50 @@ module Make (Params : Parameters.S) = struct
               Hash_set.add defs block)))
     ;;
 
-    let rename (def_uses : Def_uses.t) ~root =
-      let stack = String.Table.create () in
-      let rec rename block =
-        block.Block.instructions
-        <- Vec.map block.Block.instructions ~f:(fun instr ->
-             let instr =
-               Instr.map_uses instr ~f:(fun s ->
-                 Hashtbl.find stack s
-                 |> Option.map ~f:Stack.top_exn
-                 |> Option.value ~default:s)
-             in
-             let instr =
-               Instr.map_defs instr ~f:(fun s ->
-                 let new_name = Def_uses.uniq_name def_uses s in
-                 let stack =
-                   Hashtbl.find_or_add stack s ~default:Stack.create
-                 in
-                 Stack.push stack new_name;
-                 new_name)
-             in
-             instr)
+    let update_reaching_def t ~v ~block =
+      let rec go r =
+        match Hashtbl.find t.reaching_def r with
+        | None -> r
+        | Some r' ->
+          if dominates t (Hashtbl.find_exn t.definition r') block
+          then r'
+          else go r'
       in
-      rename root
+      let r = go v in
+      Hashtbl.set t.reaching_def ~key:v ~data:r
+    ;;
+
+    let rename t =
+      let rec go block =
+        let replace_use v =
+          update_reaching_def t ~v ~block;
+          Hashtbl.find_exn t.reaching_def v
+        in
+        let replace_uses instr = Instr.map_uses instr ~f:replace_use in
+        let replace_defs instr =
+          Instr.map_defs instr ~f:(fun v ->
+            update_reaching_def t ~v ~block;
+            let v' = new_name t v in
+            Hashtbl.set t.definition ~key:v' ~data:block;
+            Hashtbl.set
+              t.reaching_def
+              ~key:v'
+              ~data:(Hashtbl.find_exn t.reaching_def v);
+            Hashtbl.set t.reaching_def ~key:v ~data:v';
+            v')
+        in
+        block.args <- Vec.map block.args ~f:replace_use;
+        block.instructions
+        <- Vec.map block.instructions ~f:(fun instr ->
+             instr |> replace_uses |> replace_defs);
+        block.terminal <- replace_defs block.Block.terminal;
+        Vec.iter block.Block.children ~f:(fun child ->
+          child.args <- Vec.map child.args ~f:replace_use);
+        Option.iter
+          (Hashtbl.find t.immediate_dominees block)
+          ~f:(Hash_set.iter ~f:go)
+      in
+      go t.def_uses.root
     ;;
   end
 end

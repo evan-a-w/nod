@@ -5,6 +5,8 @@ module Triv_instr = struct
 
   let defs _ = []
   let uses _ = []
+  let map_uses t ~f:_ = t
+  let map_defs t ~f:_ = t
 end
 
 module Ir = Ir.Make (struct
