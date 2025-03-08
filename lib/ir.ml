@@ -252,7 +252,8 @@ module Make (Params : Parameters.S) = struct
           block;
         Vec.iter block.Block.children ~f:go
       in
-      go t.def_uses.root
+      go t.def_uses.root;
+      t
     ;;
 
     let rec dominates t block1 block2 =
@@ -276,20 +277,6 @@ module Make (Params : Parameters.S) = struct
           res)
     ;;
 
-    let create def_uses =
-      let t =
-        { def_uses
-        ; immediate_dominees = Block.Table.create ()
-        ; reaching_def = String.Table.create ()
-        ; definition = String.Table.create ()
-        ; numbers = String.Table.create ()
-        ; dominate_queries = Block.Pair.Table.create ()
-        }
-      in
-      calculate_dominator_tree t;
-      t
-    ;;
-
     let new_name t v =
       let v = String.split v ~on:'%' |> List.hd_exn in
       let n = Hashtbl.find t.numbers v |> Option.value ~default:0 in
@@ -297,7 +284,8 @@ module Make (Params : Parameters.S) = struct
       v ^ "%" ^ Int.to_string n
     ;;
 
-    let insert_args (def_uses : Def_uses.t) =
+    let insert_args t =
+      let def_uses = t.def_uses in
       Hash_set.iter def_uses.vars ~f:(fun var ->
         match Hashtbl.find def_uses.defs var with
         | None -> ()
@@ -307,7 +295,8 @@ module Make (Params : Parameters.S) = struct
             |> List.iter ~f:(fun block ->
               if not (Vec.mem block.args var ~compare:String.compare)
               then Vec.push block.args var;
-              Hash_set.add defs block)))
+              Hash_set.add defs block)));
+      t
     ;;
 
     let update_reaching_def t ~v ~block =
@@ -353,7 +342,24 @@ module Make (Params : Parameters.S) = struct
           (Hashtbl.find t.immediate_dominees block)
           ~f:(Hash_set.iter ~f:go)
       in
-      go t.def_uses.root
+      go t.def_uses.root;
+      t
     ;;
+
+    let create root =
+      let def_uses = Def_uses.create root in
+      { def_uses
+      ; immediate_dominees = Block.Table.create ()
+      ; reaching_def = String.Table.create ()
+      ; definition = String.Table.create ()
+      ; numbers = String.Table.create ()
+      ; dominate_queries = Block.Pair.Table.create ()
+      }
+      |> calculate_dominator_tree
+      |> insert_args
+      |> rename
+    ;;
+
+    let root t = t.def_uses.root
   end
 end
