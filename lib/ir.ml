@@ -346,8 +346,7 @@ module Make (Params : Parameters.S) = struct
       t
     ;;
 
-    let create root =
-      let def_uses = Def_uses.create root in
+    let create_uninit def_uses =
       { def_uses
       ; immediate_dominees = Block.Table.create ()
       ; reaching_def = String.Table.create ()
@@ -355,6 +354,11 @@ module Make (Params : Parameters.S) = struct
       ; numbers = String.Table.create ()
       ; dominate_queries = Block.Pair.Table.create ()
       }
+    ;;
+
+    let create root =
+      Def_uses.create root
+      |> create_uninit
       |> calculate_dominator_tree
       |> insert_args
       |> rename
