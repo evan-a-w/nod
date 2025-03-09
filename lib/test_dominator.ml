@@ -16,7 +16,7 @@ module Ir = Initial_transform.Make (struct
 
 let make instrs =
   { args = Vec.create ()
-  ; Ir.Block.parents = Vec.create ()
+  ; Block.parents = Vec.create ()
   ; children = Vec.create ()
   ; instructions = Vec.of_list instrs
   ; dfs_id = None
@@ -46,7 +46,7 @@ let%expect_test "dfs" =
   let things = simple_graph () in
   let _st = Ir.Dominator.dfs things.(0) in
   Array.iteri things ~f:(fun i block ->
-    let num = Option.value_exn block.Ir.Block.dfs_id in
+    let num = Ir.Block.id_exn block in
     print_endline [%string {|Block %{i + 1#Int}: %{num#Int}|}]);
   [%expect
     {|
@@ -61,11 +61,9 @@ let%expect_test "dfs" =
 
 let dominator_test things =
   let st = Ir.Dominator.create things.(0) in
-  let block_number block = Vec.get block.Ir.Block.instructions 0 in
+  let block_number block = Vec.get block.Block.instructions 0 in
   Array.iter things ~f:(fun block ->
-    let dom =
-      Vec.get st.Ir.Dominator.dom (Option.value_exn block.Ir.Block.dfs_id)
-    in
+    let dom = Vec.get st.Ir.Dominator.dom (Ir.Block.id_exn block) in
     let dom_block = Vec.get st.blocks dom in
     print_endline
       [%string

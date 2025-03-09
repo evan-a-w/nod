@@ -1,27 +1,18 @@
 open! Core
 
-module Block = struct
-  module Block = struct
-    type 'instr t =
-      { mutable args : string Vec.t
-      ; parents : 'instr t Vec.t
-      ; children : 'instr t Vec.t
-      ; mutable instructions : 'instr Vec.t
-      ; mutable terminal : 'instr
-      ; mutable dfs_id : int option
-      }
-  end
-end
-
 module Make (Params : Parameters.S) = struct
   include Params
 
   module Block = struct
     module T = struct
+      include Block
+
+      type t = Instr.t Block.block
+
       let id_exn t = Option.value_exn t.dfs_id
       let compare t1 t2 = id_exn t1 - id_exn t2
       let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
-      let hash t = Int.hash (Option.value_exn t.dfs_id)
+      let hash t = Int.hash (Option.value_exn t.Block.dfs_id)
       let t_of_sexp _ = failwith ":()"
       let sexp_of_t t = Sexp.Atom (Int.to_string (Option.value_exn t.dfs_id))
     end
@@ -59,22 +50,19 @@ module Make (Params : Parameters.S) = struct
       let semi = Vec.create () in
       let i = ref 0 in
       let rec go block =
-        match block.Block.dfs_id with
+        match Block.dfs_id block with
         | None ->
-          block.Block.dfs_id <- Some !i;
+          Block.set_dfs_id block (Some !i);
           Vec.push semi !i;
           incr i;
           Vec.push blocks block;
-          Vec.iter block.Block.children ~f:(fun b ->
+          Vec.iter (Block.children block) ~f:(fun b ->
             go b;
             Vec.fill_to_length
               parent
-              ~length:(Option.value_exn b.Block.dfs_id + 1)
+              ~length:(Block.id_exn block + 1)
               ~f:(fun _ -> -1);
-            Vec.set
-              parent
-              (Option.value_exn b.Block.dfs_id)
-              (Option.value_exn block.Block.dfs_id))
+            Vec.set parent (Block.id_exn b) (Block.id_exn block))
         | Some _ -> ()
       in
       go block;
@@ -111,8 +99,8 @@ module Make (Params : Parameters.S) = struct
     let step_2_3 st =
       for i = Vec.length st.blocks - 1 downto 1 do
         let w = Vec.get st.blocks i in
-        Vec.iter w.Block.parents ~f:(fun v ->
-          let u = eval st (Option.value_exn v.Block.dfs_id) in
+        Vec.iter (Block.parents w) ~f:(fun v ->
+          let u = eval st (Block.id_exn v) in
           if Vec.get st.semi u < Vec.get st.semi i
           then Vec.set st.semi i (Vec.get st.semi u));
         Hash_set.add (Vec.get st.bucket (Vec.get st.semi i)) i;
@@ -143,11 +131,11 @@ module Make (Params : Parameters.S) = struct
 
     let dominance_frontier st =
       Vec.iter st.blocks ~f:(fun block ->
-        let b = Option.value_exn block.Block.dfs_id in
-        if Vec.length block.Block.parents >= 2
+        let b = Block.id_exn block in
+        if Vec.length (Block.parents block) >= 2
         then
           Vec.iter block.parents ~f:(fun p ->
-            let runner = ref (Option.value_exn p.Block.dfs_id) in
+            let runner = ref (Block.id_exn p) in
             while !runner <> Vec.get st.dom b do
               Hash_set.add (Vec.get st.dominance_frontier !runner) b;
               runner := Vec.get st.dom !runner
@@ -170,7 +158,7 @@ module Make (Params : Parameters.S) = struct
     [@@deriving fields]
 
     let update_def_uses t ~block =
-      Vec.iter block.Block.instructions ~f:(fun instr ->
+      Vec.iter (Block.instructions block) ~f:(fun instr ->
         let uses = Instr.uses instr in
         let defs = Instr.defs instr in
         let update tbl x =
@@ -190,7 +178,7 @@ module Make (Params : Parameters.S) = struct
         then (
           Hash_set.add seen block;
           update_def_uses t ~block;
-          Vec.iter block.Block.children ~f:go)
+          Vec.iter (Block.children block) ~f:go)
       in
       go t.root;
       t
@@ -209,9 +197,7 @@ module Make (Params : Parameters.S) = struct
     ;;
 
     let df t ~block =
-      Vec.get
-        t.dominator.dominance_frontier
-        (Option.value_exn block.Block.dfs_id)
+      Vec.get t.dominator.dominance_frontier (Block.id_exn block)
       |> Hash_set.to_list
       |> List.map ~f:(fun i -> Vec.get t.dominator.blocks i)
     ;;
@@ -254,7 +240,7 @@ module Make (Params : Parameters.S) = struct
              idom
              ~default:Block.Hash_set.create)
           block;
-        Vec.iter block.Block.children ~f:go
+        Vec.iter (Block.children block) ~f:go
       in
       go t.def_uses.root;
       t
@@ -303,6 +289,16 @@ module Make (Params : Parameters.S) = struct
       t
     ;;
 
+    let add_args_to_calls t =
+      let rec go block =
+        Block.set_terminal block (Block.terminal block |> Instr.add_block_args);
+        Option.iter
+          (Hashtbl.find t.immediate_dominees block)
+          ~f:(Hash_set.iter ~f:go)
+      in
+      go t.def_uses.root
+    ;;
+
     let update_reaching_def t ~v ~block =
       let rec go r =
         match Hashtbl.find t.reaching_def r with
@@ -339,9 +335,9 @@ module Make (Params : Parameters.S) = struct
         block.instructions
         <- Vec.map block.instructions ~f:(fun instr ->
              instr |> replace_uses |> replace_defs);
-        block.terminal <- replace_defs block.Block.terminal;
-        Vec.iter block.Block.children ~f:(fun child ->
-          child.args <- Vec.map child.args ~f:replace_use);
+        Block.terminal block |> replace_defs |> Block.set_terminal block;
+        Vec.iter (Block.children block) ~f:(fun child ->
+          Block.args child |> Vec.map ~f:replace_use |> Block.set_args child);
         Option.iter
           (Hashtbl.find t.immediate_dominees block)
           ~f:(Hash_set.iter ~f:go)
