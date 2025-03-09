@@ -10,3 +10,4 @@ type t =
 let create ~file = { line = 0; col = 0; file }
 let advance_line pos = { pos with line = pos.line + 1; col = 0 }
 let advance_column pos = { pos with col = pos.col + 1 }
+let to_string t = Sexp.to_string (sexp_of_t t)

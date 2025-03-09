@@ -62,25 +62,32 @@ end
 
 module Branch = struct
   type 'block t =
-    { cond : Lit_or_var.t
-    ; if_true : 'block Call_block.t
-    ; if_false : 'block Call_block.t
-    }
+    | Cond of
+        { cond : Lit_or_var.t
+        ; if_true : 'block Call_block.t
+        ; if_false : 'block Call_block.t
+        }
+    | Uncond of 'block Call_block.t
   [@@deriving sexp, compare, equal]
 
-  let uses { cond; if_true; if_false } =
-    List.concat
-      [ Lit_or_var.vars cond
-      ; Call_block.uses if_true
-      ; Call_block.uses if_false
-      ]
+  let uses = function
+    | Cond { cond; if_true; if_false } ->
+      List.concat
+        [ Lit_or_var.vars cond
+        ; Call_block.uses if_true
+        ; Call_block.uses if_false
+        ]
+    | Uncond call -> Call_block.uses call
   ;;
 
-  let map_uses { cond; if_true; if_false } ~f =
-    { cond = Lit_or_var.map_vars ~f cond
-    ; if_true = Call_block.map_uses if_true ~f
-    ; if_false = Call_block.map_uses if_false ~f
-    }
+  let map_uses ~f = function
+    | Cond { cond; if_true; if_false } ->
+      Cond
+        { cond = Lit_or_var.map_vars ~f cond
+        ; if_true = Call_block.map_uses if_true ~f
+        ; if_false = Call_block.map_uses if_false ~f
+        }
+    | Uncond call -> Uncond (Call_block.map_uses call ~f)
   ;;
 end
 
@@ -132,6 +139,11 @@ module T = struct
     | Branch b -> Branch (Branch.map_uses b ~f)
     | Unreachable -> t
   ;;
+
+  let is_terminal = function
+    | Branch _ | Unreachable -> true
+    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ -> false
+  ;;
 end
 
 include T
@@ -143,17 +155,20 @@ module rec Instr : Instr_.S = struct
 
   type t = Block.t t'
 
-  let add_block_args = function
+  let add_block_args =
+    let on_call_block { Call_block.block; args = _ } =
+      { Call_block.block; args = Vec.to_list block.Block.args }
+    in
+    function
     | (Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Unreachable) as t -> t
-    | Branch { Branch.cond; if_true; if_false } ->
-      let on_call_block { Call_block.block; args = _ } =
-        { Call_block.block; args = Vec.to_list block.Block.args }
-      in
+    | Branch (Branch.Cond { cond; if_true; if_false }) ->
       Branch
-        { Branch.cond
-        ; if_true = on_call_block if_true
-        ; if_false = on_call_block if_false
-        }
+        (Branch.Cond
+           { cond
+           ; if_true = on_call_block if_true
+           ; if_false = on_call_block if_false
+           })
+    | Branch (Branch.Uncond call) -> Branch (Branch.Uncond (on_call_block call))
   ;;
 end
 

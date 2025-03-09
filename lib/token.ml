@@ -36,3 +36,4 @@ type t =
 [@@deriving sexp, compare, equal]
 
 let keywords = [ "return" ]
+let to_string t = Sexp.to_string (sexp_of_t t)

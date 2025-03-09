@@ -136,3 +136,6 @@ let switch t1 t2 =
   t2.arr <- arr;
   t2.length <- length
 ;;
+
+let last_exn t = get t (length t - 1)
+let last t = if length t = 0 then None else Some (get t (length t - 1))
