@@ -2,35 +2,7 @@ open! Core
 
 module Make (Params : Parameters.S) = struct
   include Params
-
-  module Block = struct
-    module T = struct
-      include Block
-
-      type t = Instr.t Block.block
-
-      let id_exn t = Option.value_exn t.dfs_id
-      let compare t1 t2 = id_exn t1 - id_exn t2
-      let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
-      let hash t = Int.hash (Option.value_exn t.Block.dfs_id)
-      let t_of_sexp _ = failwith ":()"
-      let sexp_of_t t = Sexp.Atom (Int.to_string (Option.value_exn t.dfs_id))
-    end
-
-    include T
-    include Comparable.Make (T)
-    include Hashable.Make (T)
-
-    module Pair = struct
-      module T = struct
-        type nonrec t = t * t [@@deriving compare, hash, sexp]
-      end
-
-      include T
-      include Comparable.Make (T)
-      include Hashable.Make (T)
-    end
-  end
+  module Block = Block.Make (Instr)
 
   module Dominator = struct
     type t =
