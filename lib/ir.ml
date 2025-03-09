@@ -94,7 +94,7 @@ module T = struct
     | Move of Var.t * Lit_or_var.t
     | Branch of 'block Branch.t
     | Unreachable
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, variants]
 
   let defs = function
     | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
@@ -134,6 +134,7 @@ module T = struct
   ;;
 end
 
+include T
 module Instr_ = Instr
 module Block_ = Block
 

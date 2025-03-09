@@ -127,3 +127,12 @@ let take t ~other =
   other.arr <- [||];
   other.length <- 0
 ;;
+
+let switch t1 t2 =
+  let arr = t1.arr in
+  let length = t1.length in
+  t1.arr <- t2.arr;
+  t1.length <- t2.length;
+  t2.arr <- arr;
+  t2.length <- length
+;;

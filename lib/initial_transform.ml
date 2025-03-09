@@ -32,7 +32,7 @@ module Make (Params : Parameters.S) = struct
             go b;
             Vec.fill_to_length
               parent
-              ~length:(Block.id_exn block + 1)
+              ~length:(Block.id_exn b + 1)
               ~f:(fun _ -> -1);
             Vec.set parent (Block.id_exn b) (Block.id_exn block))
         | Some _ -> ()

@@ -16,3 +16,4 @@ val to_list : 'a t -> 'a list
 val to_array : 'a t -> 'a array
 val mem : 'a t -> 'a -> compare:('a -> 'a -> int) -> bool
 val take : 'a t -> other:'a t -> unit
+val switch : 'a t -> 'a t -> unit
