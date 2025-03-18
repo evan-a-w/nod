@@ -36,18 +36,20 @@ let process ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
       |> List.iter ~f:(fun block' ->
         let block' = Map.find_exn blocks block' in
         Vec.push block.children block';
-        Vec.push block'.parents block)
+        Vec.push block'.parents block);
+      block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
     in
     Vec.iter
       (Map.find instrs label |> Option.value_or_thunk ~default:Vec.create)
       ~f:(fun instr ->
         if !found_terminal
         then ()
-        else (
-          let new_instr = Ir.map_blocks instr ~f:(Map.find_exn blocks) in
-          if Ir.is_terminal instr
-          then add_terminal instr
-          else Vec.push block.instructions new_instr));
+        else if Ir.is_terminal instr
+        then add_terminal instr
+        else
+          Vec.push
+            block.instructions
+            (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with
