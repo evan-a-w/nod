@@ -3,6 +3,7 @@ type 'a t [@@deriving sexp]
 val create : ?capacity:int -> unit -> 'a t
 val length : 'a t -> int
 val get : 'a t -> int -> 'a
+val get_opt : 'a t -> int -> 'a option
 val set : 'a t -> int -> 'a -> unit
 val iter : 'a t -> f:('a -> unit) -> unit
 val iteri : 'a t -> f:(int -> 'a -> unit) -> unit

@@ -56,7 +56,9 @@ module Call_block = struct
     }
   [@@deriving sexp, compare, equal, fields]
 
+  let blocks { block; _ } = [ block ]
   let map_uses t ~f = { t with args = List.map t.args ~f }
+  let map_blocks t ~f = { t with block = f t.block }
   let uses = args
 end
 
@@ -69,6 +71,12 @@ module Branch = struct
         }
     | Uncond of 'block Call_block.t
   [@@deriving sexp, compare, equal]
+
+  let blocks = function
+    | Uncond c -> Call_block.blocks c
+    | Cond { cond = _; if_true; if_false } ->
+      Call_block.blocks if_true @ Call_block.blocks if_false
+  ;;
 
   let uses = function
     | Cond { cond; if_true; if_false } ->
@@ -89,6 +97,16 @@ module Branch = struct
         }
     | Uncond call -> Uncond (Call_block.map_uses call ~f)
   ;;
+
+  let map_blocks ~f = function
+    | Cond { cond; if_true; if_false } ->
+      Cond
+        { cond
+        ; if_true = Call_block.map_blocks if_true ~f
+        ; if_false = Call_block.map_blocks if_false ~f
+        }
+    | Uncond call -> Uncond (Call_block.map_blocks call ~f)
+  ;;
 end
 
 module T = struct
@@ -107,6 +125,11 @@ module T = struct
     | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
     | Move (var, _) -> [ var ]
     | Branch _ | Unreachable -> []
+  ;;
+
+  let blocks = function
+    | Branch b -> Branch.blocks b
+    | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Move (_, _) | Unreachable -> []
   ;;
 
   let uses = function
@@ -144,16 +167,28 @@ module T = struct
     | Branch _ | Unreachable -> true
     | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ -> false
   ;;
+
+  let map_blocks (t : 'a t') ~f : 'b t' =
+    match t with
+    | Add a -> Add a
+    | Mul a -> Mul a
+    | Div a -> Div a
+    | Mod a -> Mod a
+    | Sub a -> Sub a
+    | Move (var, b) -> Move (var, b)
+    | Branch b -> Branch (Branch.map_blocks b ~f)
+    | Unreachable -> Unreachable
+  ;;
 end
 
 include T
 module Instr_ = Instr
 module Block_ = Block
 
-module rec Instr : Instr_.S = struct
+module rec Instr : (Instr_.S with type t = Block.t t') = struct
   include T
 
-  type t = Block.t t'
+  type t = Block.t t' [@@deriving sexp]
 
   let add_block_args =
     let on_call_block { Call_block.block; args = _ } =
@@ -172,4 +207,4 @@ module rec Instr : Instr_.S = struct
   ;;
 end
 
-and Block : Block_.S = Block_.Make (Instr)
+and Block : (Block_.S with type instr := Instr.t) = Block_.Make (Instr)

@@ -56,6 +56,11 @@ let lit_or_var_or_ident () =
 
 let seen_label ~label =
   let%bind state = get_state () in
+  let%bind () =
+    if Map.mem state.State.blocks label
+    then fail (`Duplicate_label label)
+    else return ()
+  in
   if Vec.length state.State.current_instrs = 0
   then set_state { state with State.current_block = label }
   else (

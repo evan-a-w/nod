@@ -1,7 +1,7 @@
 open! Core
 
 module type S = sig
-  type t
+  type t [@@deriving sexp_of]
 
   val defs : t -> string list
   val uses : t -> string list

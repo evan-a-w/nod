@@ -1,7 +1,7 @@
 open! Core
 
 module Triv_instr = struct
-  type t = int
+  type t = int [@@deriving sexp]
 
   let defs _ = []
   let uses _ = []
@@ -15,7 +15,8 @@ module Ir = Initial_transform.Make (struct
   end)
 
 let make instrs =
-  { args = Vec.create ()
+  { id_hum = ""
+  ; args = Vec.create ()
   ; Ir.Block.parents = Vec.create ()
   ; children = Vec.create ()
   ; instructions = Vec.of_list instrs

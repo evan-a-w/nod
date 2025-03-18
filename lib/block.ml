@@ -1,10 +1,13 @@
 open! Core
 
 module type S = sig
-  module Instr : Instr.S
+  type instr
+
+  module Instr : Instr.S with type t = instr
 
   type t =
-    { mutable args : string Vec.t
+    { id_hum : string
+    ; mutable args : string Vec.t
     ; parents : t Vec.t
     ; children : t Vec.t
     ; mutable instructions : Instr.t Vec.t
@@ -26,12 +29,13 @@ module type S = sig
   end
 end
 
-module Make (Instr : Instr.S) : S with module Instr = Instr = struct
-  module Instr = Instr
+module Make (Arg : Instr.S) : S with type instr := Arg.t = struct
+  module Instr = Arg
 
   module T = struct
     type t =
-      { mutable args : string Vec.t
+      { id_hum : string
+      ; mutable args : string Vec.t
       ; parents : t Vec.t
       ; children : t Vec.t
       ; mutable instructions : Instr.t Vec.t
@@ -45,7 +49,7 @@ module Make (Instr : Instr.S) : S with module Instr = Instr = struct
     let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
     let hash t = Int.hash (Option.value_exn t.dfs_id)
     let t_of_sexp _ = failwith ":()"
-    let sexp_of_t t = Sexp.Atom (Int.to_string (Option.value_exn t.dfs_id))
+    let sexp_of_t t = [%sexp_of: string * int option] (t.id_hum, t.dfs_id)
   end
 
   include T
