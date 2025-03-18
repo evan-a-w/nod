@@ -1,8 +1,7 @@
 open! Core
 
-module Make (Params : Parameters.S) = struct
+module Make_with_block (Params : Parameters.S_with_block) = struct
   include Params
-  module Block = Block.Make (Instr)
 
   module Dominator = struct
     type t =
@@ -54,8 +53,9 @@ module Make (Params : Parameters.S) = struct
       if Vec.get st.ancestor (Vec.get st.ancestor v) <> -1
       then (
         compress st (Vec.get st.ancestor v);
-        if Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
-           < Vec.get st.semi (Vec.get st.label v)
+        if
+          Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
+          < Vec.get st.semi (Vec.get st.label v)
         then Vec.set st.label v (Vec.get st.label (Vec.get st.ancestor v));
         Vec.set st.ancestor v (Vec.get st.ancestor (Vec.get st.ancestor v)))
     ;;
@@ -192,6 +192,7 @@ module Make (Params : Parameters.S) = struct
     type t =
       { reaching_def : string String.Table.t
       ; definition : Block.t String.Table.t
+      ; in_order : Block.t Vec.t
       ; def_uses : Def_uses.t
       ; numbers : int String.Table.t
       ; immediate_dominees : Block.Hash_set.t Block.Table.t
@@ -219,10 +220,11 @@ module Make (Params : Parameters.S) = struct
     ;;
 
     let rec dominates t block1 block2 =
-      if phys_equal block1 block2
-         || Hashtbl.find t.immediate_dominees block1
-            |> Option.map ~f:(fun set -> Hash_set.mem set block2)
-            |> Option.value ~default:false
+      if
+        phys_equal block1 block2
+        || Hashtbl.find t.immediate_dominees block1
+           |> Option.map ~f:(fun set -> Hash_set.mem set block2)
+           |> Option.value ~default:false
       then true
       else (
         match Hashtbl.find t.dominate_queries (block1, block2) with
@@ -318,8 +320,9 @@ module Make (Params : Parameters.S) = struct
       t
     ;;
 
-    let create_uninit def_uses =
+    let create_uninit ~in_order def_uses =
       { def_uses
+      ; in_order
       ; immediate_dominees = Block.Table.create ()
       ; reaching_def = String.Table.create ()
       ; definition = String.Table.create ()
@@ -328,9 +331,9 @@ module Make (Params : Parameters.S) = struct
       }
     ;;
 
-    let create root =
+    let create (root, in_order) =
       Def_uses.create root
-      |> create_uninit
+      |> create_uninit ~in_order
       |> calculate_dominator_tree
       |> insert_args
       |> rename
@@ -338,4 +341,13 @@ module Make (Params : Parameters.S) = struct
 
     let root t = t.def_uses.root
   end
+end
+
+module Make (Params : Parameters.S) = struct
+  module Params_with_block = struct
+    include Params
+    module Block = Block.Make (Instr)
+  end
+
+  include Make_with_block (Params_with_block)
 end
