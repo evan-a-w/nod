@@ -19,7 +19,7 @@ let test s =
       print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
 ;;
 
-let%expect_test "one" =
+let%expect_test "d" =
   test Examples.Textual.d;
   [%expect
     {|
@@ -61,6 +61,63 @@ let%expect_test "one" =
           ((block ((id_hum loop) (args (cond sum%0 i%0))))
            (args (cond%0 sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (end (instrs (Unreachable))) |}]
+;;
+
+let%expect_test "e" =
+  test Examples.Textual.e;
+  [%expect
+    {|
+    (start
+     (instrs
+      ((Move x (Lit 7)) (Move y (Lit 2))
+       (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
+       (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+       (Branch
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+    (ifTrue
+     (instrs
+      ((Move x (Lit 999))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (ifFalse
+     (instrs
+      ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (end (instrs (Unreachable)))
+    =================================
+    (start
+     (instrs
+      ((Move x (Lit 7)) (Move y (Lit 2))
+       (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
+       (Div ((dest x%1) (src1 (Var x%0)) (src2 (Var y))))
+       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+       (Branch
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+    (ifTrue
+     (instrs
+      ((Move x%4 (Lit 999))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args (x%2)))) (args (x%4))))
+         (if_false ((block ((id_hum end) (args (x%2)))) (args (x%4)))))))))
+    (ifFalse
+     (instrs
+      ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
+         (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3)))))))))
     (end (instrs (Unreachable))) |}]
 ;;
 
