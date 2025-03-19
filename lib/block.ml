@@ -49,7 +49,12 @@ module Make (Arg : Instr.S) : S with type instr := Arg.t = struct
     let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
     let hash t = Int.hash (Option.value_exn t.dfs_id)
     let t_of_sexp _ = failwith ":()"
-    let sexp_of_t t = [%sexp_of: string * int option] (t.id_hum, t.dfs_id)
+
+    let sexp_of_t t =
+      let id_hum = t.id_hum in
+      let args = t.args in
+      [%sexp { id_hum : string; args : string Vec.t }]
+    ;;
   end
 
   include T

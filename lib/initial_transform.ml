@@ -202,18 +202,21 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
     let calculate_dominator_tree t =
       let seen = Block.Hash_set.create () in
       let rec go block =
-        if Hash_set.mem seen block then () else Hash_set.add seen block;
-        let idom =
-          Vec.get t.def_uses.dominator.dom (Block.id_exn block)
-          |> Vec.get t.def_uses.dominator.blocks
-        in
-        Hash_set.add
-          (Hashtbl.find_or_add
-             t.immediate_dominees
-             idom
-             ~default:Block.Hash_set.create)
-          block;
-        Vec.iter (Block.children block) ~f:go
+        if Hash_set.mem seen block
+        then ()
+        else (
+          Hash_set.add seen block;
+          let idom =
+            Vec.get t.def_uses.dominator.dom (Block.id_exn block)
+            |> Vec.get t.def_uses.dominator.blocks
+          in
+          Hash_set.add
+            (Hashtbl.find_or_add
+               t.immediate_dominees
+               idom
+               ~default:Block.Hash_set.create)
+            block;
+          Vec.iter (Block.children block) ~f:go)
       in
       go t.def_uses.root;
       t
@@ -243,9 +246,13 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
 
     let new_name t v =
       let v = String.split v ~on:'%' |> List.hd_exn in
-      let n = Hashtbl.find t.numbers v |> Option.value ~default:0 in
-      Hashtbl.set t.numbers ~key:v ~data:(n + 1);
-      v ^ "%" ^ Int.to_string n
+      match Hashtbl.find t.numbers v with
+      | None ->
+        Hashtbl.set t.numbers ~key:v ~data:0;
+        v
+      | Some n ->
+        Hashtbl.set t.numbers ~key:v ~data:(n + 1);
+        v ^ "%" ^ Int.to_string n
     ;;
 
     let insert_args t =
@@ -268,9 +275,12 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
         Block.set_terminal block (Block.terminal block |> Instr.add_block_args);
         Option.iter
           (Hashtbl.find t.immediate_dominees block)
-          ~f:(Hash_set.iter ~f:go)
+          ~f:
+            (Hash_set.iter ~f:(fun block' ->
+               if phys_equal block' block then () else go block'))
       in
-      go t.def_uses.root
+      go t.def_uses.root;
+      t
     ;;
 
     let update_reaching_def t ~v ~block =
@@ -278,7 +288,11 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
         match Hashtbl.find t.reaching_def r with
         | None -> r
         | Some r' ->
-          if dominates t (Hashtbl.find_exn t.definition r') block
+          if
+            dominates
+              t
+              (Hashtbl.find t.definition r' |> Option.value ~default:block)
+              block
           then r'
           else go r'
       in
@@ -293,28 +307,28 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
           Hashtbl.find_exn t.reaching_def v
         in
         let replace_uses instr = Instr.map_uses instr ~f:replace_use in
-        let replace_defs instr =
-          Instr.map_defs instr ~f:(fun v ->
-            update_reaching_def t ~v ~block;
-            let v' = new_name t v in
-            Hashtbl.set t.definition ~key:v' ~data:block;
-            Hashtbl.set
-              t.reaching_def
-              ~key:v'
-              ~data:(Hashtbl.find_exn t.reaching_def v);
-            Hashtbl.set t.reaching_def ~key:v ~data:v';
-            v')
+        let replace_def v =
+          update_reaching_def t ~v ~block;
+          let v' = new_name t v in
+          Hashtbl.set t.definition ~key:v' ~data:block;
+          Hashtbl.set
+            t.reaching_def
+            ~key:v'
+            ~data:(Hashtbl.find_exn t.reaching_def v);
+          Hashtbl.set t.reaching_def ~key:v ~data:v';
+          v'
         in
-        block.args <- Vec.map block.args ~f:replace_use;
+        let replace_defs instr = Instr.map_defs instr ~f:replace_def in
+        block.args <- Vec.map block.args ~f:replace_def;
         block.instructions
         <- Vec.map block.instructions ~f:(fun instr ->
              instr |> replace_uses |> replace_defs);
-        Block.terminal block |> replace_defs |> Block.set_terminal block;
-        Vec.iter (Block.children block) ~f:(fun child ->
-          Block.args child |> Vec.map ~f:replace_use |> Block.set_args child);
+        Block.terminal block |> replace_uses |> Block.set_terminal block;
         Option.iter
           (Hashtbl.find t.immediate_dominees block)
-          ~f:(Hash_set.iter ~f:go)
+          ~f:
+            (Hash_set.iter ~f:(fun block' ->
+               if phys_equal block' block then () else go block'))
       in
       go t.def_uses.root;
       t
@@ -336,6 +350,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       |> create_uninit ~in_order
       |> calculate_dominator_tree
       |> insert_args
+      |> add_args_to_calls
       |> rename
     ;;
 

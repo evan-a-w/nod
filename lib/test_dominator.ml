@@ -43,12 +43,17 @@ let simple_graph3 () =
   of_edges ~num_nodes:6 [ 1, 2; 1, 6; 2, 3; 2, 4; 3, 5; 4, 5; 5, 6 ]
 ;;
 
-let%expect_test "dfs" =
-  let things = simple_graph () in
+let simple_graph4 () = of_edges ~num_nodes:3 [ 1, 2; 2, 2; 2, 3 ]
+
+let dfs_test things =
   let _st = Ir.Dominator.dfs things.(0) in
   Array.iteri things ~f:(fun i block ->
     let num = Ir.Block.id_exn block in
-    print_endline [%string {|Block %{i + 1#Int}: %{num#Int}|}]);
+    print_endline [%string {|Block %{i + 1#Int}: %{num#Int}|}])
+;;
+
+let%expect_test "dfs1" =
+  simple_graph () |> dfs_test;
   [%expect
     {|
     Block 1: 0
@@ -59,6 +64,12 @@ let%expect_test "dfs" =
     Block 6: 5
     |}]
 ;;
+
+let%expect_test "dfs4" = simple_graph4 () |> dfs_test;
+  [%expect {|
+    Block 1: 0
+    Block 2: 1
+    Block 3: 2 |}]
 
 let dominator_test things =
   let st = Ir.Dominator.create things.(0) in
@@ -95,6 +106,15 @@ let%expect_test "dominator3" =
     Block 5: dominator is Block 2
     Block 6: dominator is Block 1
     |}]
+;;
+
+let%expect_test "dominator4" =
+  simple_graph4 () |> dominator_test;
+  [%expect
+    {|
+    Block 1: dominator is Block 1
+    Block 2: dominator is Block 1
+    Block 3: dominator is Block 2 |}]
 ;;
 
 let dominance_test things =
@@ -149,4 +169,13 @@ let%expect_test "dominance frontier 3" =
     (("block_number block" 5) (frontier (6)))
     (("block_number block" 6) (frontier ()))
     |}]
+;;
+
+let%expect_test "dominance frontier 4" =
+  simple_graph4 () |> dominance_test;
+  [%expect
+    {|
+    (("block_number block" 1) (frontier ()))
+    (("block_number block" 2) (frontier (2)))
+    (("block_number block" 3) (frontier ())) |}]
 ;;

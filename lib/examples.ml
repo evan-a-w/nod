@@ -107,8 +107,8 @@ start:
   div %x, %x, %y
 
   (* Then check if y == 2 to decide next path
-     We emulate a check by subtracting 2 from y
-     sub %cond, %y, 2 *)
+     We emulate a check by subtracting 2 from y *)
+  sub %cond, %y, 2
   branch %cond, ifTrue, ifFalse
 
 ifTrue:

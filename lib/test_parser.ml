@@ -254,8 +254,8 @@ let%expect_test "all examples" =
       div %x, %x, %y
 
       (* Then check if y == 2 to decide next path
-         We emulate a check by subtracting 2 from y
-         sub %cond, %y, 2 *)
+         We emulate a check by subtracting 2 from y *)
+      sub %cond, %y, 2
       branch %cond, ifTrue, ifFalse
 
     ifTrue:
@@ -289,6 +289,7 @@ let%expect_test "all examples" =
        ((Move x (Lit 7)) (Move y (Lit 2))
         (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
         (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+        (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
         (Branch
          (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
           (if_false ((block ifFalse) (args ()))))))))

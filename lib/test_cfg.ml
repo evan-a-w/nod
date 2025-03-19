@@ -19,7 +19,8 @@ let%expect_test "all examples" =
     print_endline "=================================";
     test s;
     print_endline "---------------------------------");
-  [%expect {|
+  [%expect
+    {|
     ---------------------------------
 
     a:
@@ -48,20 +49,22 @@ let%expect_test "all examples" =
       ((Move x (Lit 10)) (Move y (Lit 20))
        (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (b ())) (args ())))
-         (if_false ((block (c ())) (args ()))))))))
+        (Cond (cond (Lit 1)) (if_true ((block ((id_hum b) (args ()))) (args ())))
+         (if_false ((block ((id_hum c) (args ()))) (args ()))))))))
     (b
      (instrs
       ((Add ((dest z) (src1 (Var z)) (src2 (Lit 5))))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (end ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (c
      (instrs
       ((Move z (Lit 0))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (end ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     ---------------------------------
     ---------------------------------
@@ -90,14 +93,16 @@ let%expect_test "all examples" =
       ((Move a (Lit 4)) (Move b (Lit 5))
        (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (divide ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum divide) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (divide
      (instrs
       ((Div ((dest c) (src1 (Var c)) (src2 (Lit 2))))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (end ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     ---------------------------------
     ---------------------------------
@@ -157,16 +162,18 @@ let%expect_test "all examples" =
      (instrs
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (loop ())) (args ())))
-         (if_false ((block (loop ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum loop) (args ()))) (args ())))
+         (if_false ((block ((id_hum loop) (args ()))) (args ()))))))))
     (loop
      (instrs
       ((Add ((dest sum) (src1 (Var sum)) (src2 (Var i))))
        (Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
        (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i))))
        (Branch
-        (Cond (cond (Var cond)) (if_true ((block (loop ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum loop) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     ---------------------------------
     ---------------------------------
@@ -180,8 +187,8 @@ let%expect_test "all examples" =
       div %x, %x, %y
 
       (* Then check if y == 2 to decide next path
-         We emulate a check by subtracting 2 from y
-         sub %cond, %y, 2 *)
+         We emulate a check by subtracting 2 from y *)
+      sub %cond, %y, 2
       branch %cond, ifTrue, ifFalse
 
     ifTrue:
@@ -205,21 +212,25 @@ let%expect_test "all examples" =
       ((Move x (Lit 7)) (Move y (Lit 2))
        (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
        (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
        (Branch
-        (Cond (cond (Var cond)) (if_true ((block (ifTrue ())) (args ())))
-         (if_false ((block (ifFalse ())) (args ()))))))))
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
     (ifTrue
      (instrs
       ((Move x (Lit 999))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (end ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (ifFalse
      (instrs
       ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
        (Branch
-        (Cond (cond (Lit 1)) (if_true ((block (end ())) (args ())))
-         (if_false ((block (end ())) (args ()))))))))
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     --------------------------------- |}]
 ;;
