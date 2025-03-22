@@ -6,6 +6,7 @@ module Tag = struct
   type t =
     | None
     | Constant of int
+  [@@deriving sexp]
 end
 
 module Loc = struct
@@ -40,6 +41,7 @@ module Var = struct
     ; mutable loc : Loc.t
     ; uses : Loc.Hash_set.t
     }
+  [@@deriving sexp]
 end
 
 module Opt = struct
@@ -107,7 +109,7 @@ module Opt = struct
     block.Block.instructions
     <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
 
-  and remove_arg (_ : t) ~block ~arg =
+  and remove_arg t ~block ~arg =
     let idx =
       Vec.findi block.Block.args ~f:(fun i s ->
         if String.equal arg s then Some i else None)
@@ -116,7 +118,21 @@ module Opt = struct
     block.args <- Vec.filter block.args ~f:(Fn.non (String.equal arg));
     Vec.iter block.parents ~f:(fun parent ->
       parent.terminal
-      <- Ir.map_args parent.terminal ~f:(List.filteri ~f:(fun i _ -> i <> idx)));
+      <- Ir.map_args
+           parent.terminal
+           ~f:
+             (List.filteri ~f:(fun i id ->
+                match i = idx, Hashtbl.find t.vars id with
+                | false, _ -> true
+                | true, None -> false
+                | true, Some var ->
+                  (* kill the tang *)
+                  Hash_set.filter_inplace var.uses ~f:(fun loc ->
+                    match loc.Loc.where with
+                    | Loc.Block_arg _ -> true
+                    | Instr i -> not (phys_equal i parent.terminal));
+                  try_kill_var t ~id;
+                  false)));
     ()
 
   and kill_definition t ~id =

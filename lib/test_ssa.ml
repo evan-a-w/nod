@@ -12,7 +12,11 @@ let test s =
     let go ssa =
       Vec.iter ssa.Eir.Ssa.in_order ~f:(fun block ->
         let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-        print_s [%message block.id_hum (instrs : Eir.Instr.t list)])
+        print_s
+          [%message
+            block.id_hum
+              ~args:(block.args : string Vec.t)
+              (instrs : Eir.Instr.t list)])
     in
     go ssa;
     print_endline "******************************";
@@ -20,7 +24,85 @@ let test s =
     go ssa
 ;;
 
-let%expect_test "one" =
+let%expect_test "phi pruning" =
+  test Examples.Textual.e;
+  [%expect
+    {|
+    (start
+     (instrs
+      ((Move x (Lit 7)) (Move y (Lit 2))
+       (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
+       (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+       (Branch
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+    (ifTrue
+     (instrs
+      ((Move x (Lit 999))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (ifFalse
+     (instrs
+      ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (end (instrs (Unreachable)))
+    =================================
+    (start (args ())
+     (instrs
+      ((Move x (Lit 7)) (Move y (Lit 2))
+       (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
+       (Div ((dest x%1) (src1 (Var x%0)) (src2 (Var y))))
+       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+       (Branch
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+    (ifTrue (args ())
+     (instrs
+      ((Move x%4 (Lit 999))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args (x%2)))) (args (x%4))))
+         (if_false ((block ((id_hum end) (args (x%2)))) (args (x%4)))))))))
+    (ifFalse (args ())
+     (instrs
+      ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
+         (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3)))))))))
+    (end (args (x%2)) (instrs (Unreachable)))
+    ******************************
+    (start (args ())
+     (instrs
+      ((Move y (Lit 2)) (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+       (Branch
+        (Cond (cond (Var cond))
+         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+    (ifTrue (args ())
+     (instrs
+      ((Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (ifFalse (args ())
+     (instrs
+      ((Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum end) (args ()))) (args ())))
+         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+    (end (args ()) (instrs (Unreachable))) |}]
+;;
+
+let%expect_test "trivial unused vars" =
   test Examples.Textual.c;
   print_endline "";
   print_endline "";
@@ -34,13 +116,13 @@ let%expect_test "one" =
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
    (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
 =================================
-(entry
+(entry (args ())
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
    (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
 ******************************
-(entry (instrs (Unreachable)))
+(entry (args ()) (instrs (Unreachable)))
 
 
 
@@ -50,13 +132,13 @@ let%expect_test "one" =
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
    (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return res))))
 =================================
-(entry
+(entry (args ())
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
    (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return res%0))))
 ******************************
-(entry
+(entry (args ())
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
@@ -93,51 +175,47 @@ let%expect_test "all examples" =
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     =================================
-    (a
+    (a (args ())
      (instrs
       ((Move x (Lit 10)) (Move y (Lit 20))
        (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
        (Branch
         (Cond (cond (Lit 1)) (if_true ((block ((id_hum b) (args ()))) (args ())))
          (if_false ((block ((id_hum c) (args ()))) (args ()))))))))
-    (b
+    (b (args ())
      (instrs
       ((Add ((dest z%2) (src1 (Var z)) (src2 (Lit 5))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (z%0)))) (args (z%2))))
          (if_false ((block ((id_hum end) (args (z%0)))) (args (z%2)))))))))
-    (c
+    (c (args ())
      (instrs
       ((Move z%1 (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (z%0)))) (args (z%1))))
          (if_false ((block ((id_hum end) (args (z%0)))) (args (z%1)))))))))
-    (end (instrs (Unreachable)))
+    (end (args (z%0)) (instrs (Unreachable)))
     ******************************
-    (a
+    (a (args ())
      (instrs
-      ((Move x (Lit 10)) (Move y (Lit 20))
-       (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1)) (if_true ((block ((id_hum b) (args ()))) (args ())))
          (if_false ((block ((id_hum c) (args ()))) (args ()))))))))
-    (b
+    (b (args ())
      (instrs
-      ((Add ((dest z%2) (src1 (Var z)) (src2 (Lit 5))))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (c
+    (c (args ())
      (instrs
-      ((Move z%1 (Lit 0))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
     (%root
@@ -157,7 +235,7 @@ let%expect_test "all examples" =
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     =================================
-    (%root
+    (%root (args ())
      (instrs
       ((Move a (Lit 4)) (Move b (Lit 5))
        (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
@@ -165,31 +243,28 @@ let%expect_test "all examples" =
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum divide) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args (c%0)))) (args (c)))))))))
-    (divide
+    (divide (args ())
      (instrs
       ((Div ((dest c%1) (src1 (Var c)) (src2 (Lit 2))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (c%0)))) (args (c%1))))
          (if_false ((block ((id_hum end) (args (c%0)))) (args (c%1)))))))))
-    (end (instrs (Unreachable)))
+    (end (args (c%0)) (instrs (Unreachable)))
     ******************************
-    (%root
+    (%root (args ())
      (instrs
-      ((Move a (Lit 4)) (Move b (Lit 5))
-       (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum divide) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (divide
+    (divide (args ())
      (instrs
-      ((Div ((dest c%1) (src1 (Var c)) (src2 (Lit 2))))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
     (entry
@@ -198,13 +273,13 @@ let%expect_test "all examples" =
        (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
        (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
     =================================
-    (entry
+    (entry (args ())
      (instrs
       ((Move a (Lit 100)) (Move b (Lit 6))
        (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
        (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
     ******************************
-    (entry (instrs (Unreachable)))
+    (entry (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
     (%root
@@ -225,7 +300,7 @@ let%expect_test "all examples" =
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     =================================
-    (%root
+    (%root (args ())
      (instrs
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
@@ -234,7 +309,7 @@ let%expect_test "all examples" =
           ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))
          (if_false
           ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i)))))))))
-    (loop
+    (loop (args (cond sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
        (Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
@@ -245,9 +320,9 @@ let%expect_test "all examples" =
           ((block ((id_hum loop) (args (cond sum%0 i%0))))
            (args (cond%0 sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (args ()) (instrs (Unreachable)))
     ******************************
-    (%root
+    (%root (args ())
      (instrs
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
@@ -256,7 +331,7 @@ let%expect_test "all examples" =
           ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))
          (if_false
           ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i)))))))))
-    (loop
+    (loop (args (cond sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
        (Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
@@ -267,7 +342,7 @@ let%expect_test "all examples" =
           ((block ((id_hum loop) (args (cond sum%0 i%0))))
            (args (cond%0 sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
     (start
@@ -296,7 +371,7 @@ let%expect_test "all examples" =
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
     =================================
-    (start
+    (start (args ())
      (instrs
       ((Move x (Lit 7)) (Move y (Lit 2))
        (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
@@ -306,47 +381,42 @@ let%expect_test "all examples" =
         (Cond (cond (Var cond))
          (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
          (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
-    (ifTrue
+    (ifTrue (args ())
      (instrs
       ((Move x%4 (Lit 999))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (x%2)))) (args (x%4))))
          (if_false ((block ((id_hum end) (args (x%2)))) (args (x%4)))))))))
-    (ifFalse
+    (ifFalse (args ())
      (instrs
       ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
          (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3)))))))))
-    (end (instrs (Unreachable)))
+    (end (args (x%2)) (instrs (Unreachable)))
     ******************************
-    (start
+    (start (args ())
      (instrs
-      ((Move x (Lit 7)) (Move y (Lit 2))
-       (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
-       (Div ((dest x%1) (src1 (Var x%0)) (src2 (Var y))))
-       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+      ((Move y (Lit 2)) (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
        (Branch
         (Cond (cond (Var cond))
          (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
          (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
-    (ifTrue
+    (ifTrue (args ())
      (instrs
-      ((Move x%4 (Lit 999))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (ifFalse
+    (ifFalse (args ())
      (instrs
-      ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++ |}]
 ;;
