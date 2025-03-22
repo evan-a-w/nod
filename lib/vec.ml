@@ -142,3 +142,33 @@ let switch t1 t2 =
 
 let last_exn t = get t (length t - 1)
 let last t = if length t = 0 then None else Some (get t (length t - 1))
+
+let filter t ~f =
+  let new_ = create () in
+  for i = 0 to t.length - 1 do
+    if f t.arr.(i) then push new_ t.arr.(i)
+  done;
+  new_
+;;
+
+let filter_map t ~f =
+  let new_ = create () in
+  for i = 0 to t.length - 1 do
+    match f t.arr.(i) with
+    | Some x -> push new_ x
+    | None -> ()
+  done;
+  new_
+;;
+
+let findi t ~f =
+  let res = ref None in
+  let i = ref 0 in
+  while !i < t.length && Option.is_none !res do
+    (match f !i t.arr.(!i) with
+     | Some _ as x -> res := x
+     | None -> ());
+    incr i
+  done;
+  !res
+;;

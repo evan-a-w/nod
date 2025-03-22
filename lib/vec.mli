@@ -20,3 +20,6 @@ val take : 'a t -> other:'a t -> unit
 val switch : 'a t -> 'a t -> unit
 val last : 'a t -> 'a option
 val last_exn : 'a t -> 'a
+val filter : 'a t -> f:('a -> bool) -> 'a t
+val filter_map : 'a t -> f:('a -> 'b option) -> 'b t
+val findi : 'a t -> f:(int -> 'a -> 'b option) -> 'b option

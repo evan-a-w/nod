@@ -14,7 +14,7 @@ module type S = sig
     ; mutable terminal : Instr.t
     ; mutable dfs_id : int option
     }
-  [@@deriving fields, compare, hash, sexp]
+  [@@deriving fields, compare, hash, sexp, equal]
 
   val id_exn : t -> int
 

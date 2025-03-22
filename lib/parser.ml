@@ -127,6 +127,9 @@ let instr' = function
     let%map src = lit_or_var () in
     Ir.Move (dest, src)
   | "b" | "branch" -> branch ()
+  | "return" | "ret" ->
+    let%map res = var () in
+    Ir.Return res
   | "unreachable" -> return Ir.Unreachable
   | s -> fail (`Unknown_instruction s)
 ;;

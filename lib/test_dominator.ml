@@ -1,7 +1,7 @@
 open! Core
 
 module Triv_instr = struct
-  type t = int [@@deriving sexp]
+  type t = int [@@deriving sexp, compare, hash]
 
   let defs _ = []
   let uses _ = []
@@ -65,11 +65,14 @@ let%expect_test "dfs1" =
     |}]
 ;;
 
-let%expect_test "dfs4" = simple_graph4 () |> dfs_test;
-  [%expect {|
+let%expect_test "dfs4" =
+  simple_graph4 () |> dfs_test;
+  [%expect
+    {|
     Block 1: 0
     Block 2: 1
     Block 3: 2 |}]
+;;
 
 let dominator_test things =
   let st = Ir.Dominator.create things.(0) in

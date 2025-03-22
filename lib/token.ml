@@ -35,5 +35,5 @@ type t =
     Comment of string
 [@@deriving sexp, compare, equal]
 
-let keywords = [ "return" ]
+let keywords = [ "" ]
 let to_string t = Sexp.to_string (sexp_of_t t)

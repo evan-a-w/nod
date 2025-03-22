@@ -128,5 +128,25 @@ end:
 |}
   ;;
 
+  let c2 =
+    {|
+entry:
+  (* Put 100 into %a *)
+  mov %a, 100
+
+  (* Put 6 into %b *)
+  mov %b, 6
+
+  (* Compute a mod b -> %res *)
+  mod %res, %a, %b
+
+  (* Add 1 to %res *)
+  add %res, %res, 1
+
+  (* End of the program *)
+  return %res
+|}
+  ;;
+
   let all = [ a; b; c; d; e ]
 end

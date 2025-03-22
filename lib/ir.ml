@@ -1,18 +1,18 @@
 open! Core
 
 module Var = struct
-  type t = string [@@deriving sexp, compare, equal]
+  type t = string [@@deriving sexp, compare, equal, hash]
 end
 
 module Lit = struct
-  type t = int [@@deriving sexp, compare, equal]
+  type t = int [@@deriving sexp, compare, equal, hash]
 end
 
 module Lit_or_var = struct
   type t =
     | Lit of Lit.t
     | Var of Var.t
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, hash]
 
   let vars = function
     | Lit _ -> []
@@ -38,7 +38,7 @@ type arith =
   ; src1 : Lit_or_var.t
   ; src2 : Lit_or_var.t
   }
-[@@deriving sexp, compare, equal]
+[@@deriving sexp, compare, equal, hash]
 
 let map_arith_defs t ~f = { t with dest = f t.dest }
 
@@ -56,9 +56,18 @@ module Call_block = struct
     }
   [@@deriving sexp, compare, equal, fields]
 
+  let hash_fold_t (type block) hash_fold_block st t =
+    [%hash_fold: block * Var.t list] st (t.block, t.args)
+  ;;
+
+  let hash (type block) hash_fold_block t =
+    [%hash: block * Var.t list] (t.block, t.args)
+  ;;
+
   let blocks { block; _ } = [ block ]
   let map_uses t ~f = { t with args = List.map t.args ~f }
   let map_blocks t ~f = { t with block = f t.block }
+  let map_args t ~f = { t with args = f t.args }
   let uses = args
 end
 
@@ -70,7 +79,7 @@ module Branch = struct
         ; if_false : 'block Call_block.t
         }
     | Uncond of 'block Call_block.t
-  [@@deriving sexp, compare, equal]
+  [@@deriving sexp, compare, equal, hash]
 
   let blocks = function
     | Uncond c -> Call_block.blocks c
@@ -107,10 +116,21 @@ module Branch = struct
         }
     | Uncond call -> Uncond (Call_block.map_blocks call ~f)
   ;;
+
+  let map_args ~f = function
+    | Cond { cond; if_true; if_false } ->
+      Cond
+        { cond
+        ; if_true = Call_block.map_args if_true ~f
+        ; if_false = Call_block.map_args if_false ~f
+        }
+    | Uncond call -> Uncond (Call_block.map_args call ~f)
+  ;;
 end
 
 module T = struct
   type 'block t' =
+    | Noop
     | Add of arith
     | Sub of arith
     | Mul of arith
@@ -118,18 +138,21 @@ module T = struct
     | Mod of arith
     | Move of Var.t * Lit_or_var.t
     | Branch of 'block Branch.t
+    | Return of Var.t
     | Unreachable
-  [@@deriving sexp, compare, equal, variants]
+  [@@deriving sexp, compare, equal, variants, hash]
 
   let defs = function
     | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
     | Move (var, _) -> [ var ]
-    | Branch _ | Unreachable -> []
+    | Branch _ | Unreachable | Noop | Return _ -> []
   ;;
 
   let blocks = function
     | Branch b -> Branch.blocks b
-    | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Move (_, _) | Unreachable -> []
+    | Add _ | Sub _ | Mul _ | Div _ | Mod _
+    | Move (_, _)
+    | Unreachable | Noop | Return _ -> []
   ;;
 
   let uses = function
@@ -137,7 +160,8 @@ module T = struct
       Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
     | Move (_, src) -> Lit_or_var.vars src
     | Branch b -> Branch.uses b
-    | Unreachable -> []
+    | Return var -> [ var ]
+    | Unreachable | Noop -> []
   ;;
 
   let map_defs t ~f =
@@ -148,7 +172,7 @@ module T = struct
     | Mod a -> Mod (map_arith_defs a ~f)
     | Sub a -> Sub (map_arith_defs a ~f)
     | Move (var, b) -> Move (f var, b)
-    | Branch _ | Unreachable -> t
+    | Branch _ | Unreachable | Noop | Return _ -> t
   ;;
 
   let map_uses t ~f =
@@ -158,14 +182,29 @@ module T = struct
     | Div a -> Div (map_arith_uses a ~f)
     | Mod a -> Mod (map_arith_uses a ~f)
     | Sub a -> Sub (map_arith_uses a ~f)
+    | Return use -> Return (f use)
     | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
     | Branch b -> Branch (Branch.map_uses b ~f)
-    | Unreachable -> t
+    | Unreachable | Noop -> t
   ;;
 
   let is_terminal = function
-    | Branch _ | Unreachable -> true
-    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ -> false
+    | Branch _ | Unreachable | Return _ -> true
+    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Noop -> false
+  ;;
+
+  let map_args t ~f =
+    match t with
+    | Branch b -> Branch (Branch.map_args b ~f)
+    | Unreachable
+    | Add _
+    | Mul _
+    | Div _
+    | Mod _
+    | Sub _
+    | Move _
+    | Noop
+    | Return _ -> t
   ;;
 
   let map_blocks (t : 'a t') ~f : 'b t' =
@@ -177,6 +216,8 @@ module T = struct
     | Sub a -> Sub a
     | Move (var, b) -> Move (var, b)
     | Branch b -> Branch (Branch.map_blocks b ~f)
+    | Noop -> Noop
+    | Return var -> Return var
     | Unreachable -> Unreachable
   ;;
 end
@@ -188,14 +229,22 @@ module Block_ = Block
 module rec Instr : (Instr_.S with type t = Block.t t') = struct
   include T
 
-  type t = Block.t t' [@@deriving sexp]
+  type t = Block.t t' [@@deriving sexp, compare, hash]
 
   let add_block_args =
     let on_call_block { Call_block.block; args = _ } =
       { Call_block.block; args = Vec.to_list block.Block.args }
     in
     function
-    | (Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Unreachable) as t -> t
+    | ( Add _
+      | Mul _
+      | Div _
+      | Mod _
+      | Sub _
+      | Move _
+      | Unreachable
+      | Noop
+      | Return _ ) as t -> t
     | Branch (Branch.Cond { cond; if_true; if_false }) ->
       Branch
         (Branch.Cond
