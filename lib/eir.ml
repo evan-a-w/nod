@@ -166,8 +166,9 @@ module Opt = struct
       let loc =
         Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
       in
-      if phys_equal loc.block var.loc.block
-         && Loc.is_terminal_for_block loc ~block:var.loc.block
+      if
+        phys_equal loc.block var.loc.block
+        && Loc.is_terminal_for_block loc ~block:var.loc.block
       then kill_definition t ~id:var.id
       else ()
     | _ ->
@@ -185,6 +186,47 @@ module Opt = struct
            (* not phi *)
            ()
          | Block_arg _ -> maybe_prune_phi t ~var))
+  ;;
+
+  let replace_defining_instruction t ~var ~new_instr =
+    let old_instr =
+      match var.Var.loc.where with
+      | Block_arg _ -> failwith "Can't replace defining instr for block arg"
+      | Instr instr -> instr
+    in
+    var.loc <- { var.loc with where = Instr new_instr };
+    List.iter (Ir.uses old_instr) ~f:(fun id ->
+      match Hashtbl.find t.vars id with
+      | None -> ()
+      | Some var ->
+        Hash_set.filter_inplace var.uses ~f:(fun loc ->
+          match loc.Loc.where with
+          | Loc.Block_arg _ -> true
+          | Instr i -> not (phys_equal i old_instr)));
+    Vec.map_inplace var.loc.block.Block.instructions ~f:(fun instr ->
+      if phys_equal old_instr instr then new_instr else instr);
+    List.iter (Ir.uses old_instr) ~f:(fun id ->
+      match Hashtbl.find t.vars id with
+      | None -> ()
+      | Some var' -> Hash_set.add var'.uses var.loc)
+  ;;
+
+  let refine_type t ~var = failwith "TODO"
+
+  let tagify t =
+    let seen = String.Hash_set.create () in
+    let rec go var =
+      if Hash_set.mem seen var.Var.id
+      then ()
+      else (
+        Hash_set.add seen var.id;
+        match Loc.where var.loc with
+        | Block_arg _ -> ()
+        | Instr instr ->
+          List.iter (Ir.uses instr) ~f:(Fn.compose go (Hashtbl.find_exn t.vars));
+          refine_type t ~var)
+    in
+    Hashtbl.iter t.vars ~f:go
   ;;
 end
 

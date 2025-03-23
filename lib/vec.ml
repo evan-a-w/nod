@@ -172,3 +172,9 @@ let findi t ~f =
   done;
   !res
 ;;
+
+let map_inplace t ~f =
+  for i = 0 to t.length - 1 do
+    t.arr.(i) <- f t.arr.(i)
+  done
+;;

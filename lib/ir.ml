@@ -49,6 +49,8 @@ let map_arith_uses t ~f =
   }
 ;;
 
+let map_arith_lit_or_vars t ~f = { t with src1 = f t.src1; src2 = f t.src2 }
+
 module Call_block = struct
   type 'block t =
     { mutable block : 'block
@@ -126,6 +128,13 @@ module Branch = struct
         }
     | Uncond call -> Uncond (Call_block.map_args call ~f)
   ;;
+
+  let map_lit_or_vars t ~f =
+    match t with
+    | Uncond _ -> t
+    | Cond { cond; if_true; if_false } ->
+      Cond { cond = f cond; if_true; if_false }
+  ;;
 end
 
 module T = struct
@@ -138,7 +147,7 @@ module T = struct
     | Mod of arith
     | Move of Var.t * Lit_or_var.t
     | Branch of 'block Branch.t
-    | Return of Var.t
+    | Return of Lit_or_var.t
     | Unreachable
   [@@deriving sexp, compare, equal, variants, hash]
 
@@ -160,7 +169,7 @@ module T = struct
       Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
     | Move (_, src) -> Lit_or_var.vars src
     | Branch b -> Branch.uses b
-    | Return var -> [ var ]
+    | Return var -> Lit_or_var.vars var
     | Unreachable | Noop -> []
   ;;
 
@@ -182,7 +191,7 @@ module T = struct
     | Div a -> Div (map_arith_uses a ~f)
     | Mod a -> Mod (map_arith_uses a ~f)
     | Sub a -> Sub (map_arith_uses a ~f)
-    | Return use -> Return (f use)
+    | Return use -> Return (Lit_or_var.map_vars use ~f)
     | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
     | Branch b -> Branch (Branch.map_uses b ~f)
     | Unreachable | Noop -> t
@@ -218,6 +227,20 @@ module T = struct
     | Branch b -> Branch (Branch.map_blocks b ~f)
     | Noop -> Noop
     | Return var -> Return var
+    | Unreachable -> Unreachable
+  ;;
+
+  let map_lit_or_vars t ~f =
+    match t with
+    | Add a -> Add (map_arith_lit_or_vars a ~f)
+    | Mul a -> Mul (map_arith_lit_or_vars a ~f)
+    | Div a -> Div (map_arith_lit_or_vars a ~f)
+    | Mod a -> Mod (map_arith_lit_or_vars a ~f)
+    | Sub a -> Sub (map_arith_lit_or_vars a ~f)
+    | Move (var, b) -> Move (var, f b)
+    | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
+    | Return var -> Return (f var)
+    | Noop -> Noop
     | Unreachable -> Unreachable
   ;;
 end
