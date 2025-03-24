@@ -154,38 +154,45 @@ module Opt = struct
   and try_kill_var t ~id =
     match Hashtbl.find t.vars id with
     | None -> ()
-    | Some var -> if Hash_set.length var.uses = 0 then kill_definition t ~id
+    | Some var ->
+      (match Hash_set.length var.Var.uses, var.loc.where with
+       | 0, _ -> kill_definition t ~id:var.id
+       | 1, Block_arg _ ->
+         let loc =
+           Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
+         in
+         if
+           phys_equal loc.block var.loc.block
+           && Loc.is_terminal_for_block loc ~block:var.loc.block
+         then kill_definition t ~id:var.id
+         else ()
+       | _, _ ->
+         (* can't trim *)
+         ())
   ;;
 
-  let kill_unused_vars t = Set.iter t.vars_set ~f:(fun id -> try_kill_var t ~id)
-
-  let maybe_prune_phi t ~var =
-    match Hash_set.length var.Var.uses with
-    | 0 -> kill_definition t ~id:var.id
-    | 1 ->
-      let loc =
-        Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
-      in
-      if
-        phys_equal loc.block var.loc.block
-        && Loc.is_terminal_for_block loc ~block:var.loc.block
-      then kill_definition t ~id:var.id
-      else ()
-    | _ ->
-      (* can't trim *)
-      ()
-  ;;
-
-  let prune_phis t =
-    Set.iter t.vars_set ~f:(fun id ->
+  let dfs_vars t ~f =
+    let seen = String.Hash_set.create () in
+    let rec go id =
       match Hashtbl.find t.vars id with
       | None -> ()
       | Some var ->
-        (match var.loc.where with
-         | Instr _ ->
-           (* not phi *)
-           ()
-         | Block_arg _ -> maybe_prune_phi t ~var))
+        if Hash_set.mem seen var.Var.id
+        then ()
+        else (
+          Hash_set.add seen var.id;
+          match Loc.where var.loc with
+          | Block_arg _ -> f ~var
+          | Instr instr ->
+            List.iter (Ir.uses instr) ~f:go;
+            f ~var)
+    in
+    Set.iter t.vars_set ~f:go
+  ;;
+
+  let kill_unused_vars t =
+    let f ~var = try_kill_var t ~id:var.Var.id in
+    dfs_vars t ~f
   ;;
 
   let replace_defining_instruction t ~var ~new_instr =
@@ -211,27 +218,15 @@ module Opt = struct
       | Some var' -> Hash_set.add var'.uses var.loc)
   ;;
 
-  let refine_type t ~var = failwith "TODO"
+  (* let refine_type t ~var = failwith "TODO" *)
 
-  let tagify t =
-    let seen = String.Hash_set.create () in
-    let rec go var =
-      if Hash_set.mem seen var.Var.id
-      then ()
-      else (
-        Hash_set.add seen var.id;
-        match Loc.where var.loc with
-        | Block_arg _ -> ()
-        | Instr instr ->
-          List.iter (Ir.uses instr) ~f:(Fn.compose go (Hashtbl.find_exn t.vars));
-          refine_type t ~var)
-    in
-    Hashtbl.iter t.vars ~f:go
-  ;;
+  (* let tagify t = *)
+  (*   let f ~var = refine_type t ~var in *)
+  (*   dfs_vars t ~f *)
+  (* ;; *)
 end
 
 let optimize ssa =
   let opt_state = Opt.create ssa in
-  Opt.prune_phis opt_state;
   Opt.kill_unused_vars opt_state
 ;;

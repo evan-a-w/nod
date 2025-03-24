@@ -130,19 +130,19 @@ let%expect_test "trivial unused vars" =
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-   (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return res))))
+   (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res)))))
 =================================
 (entry (args ())
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-   (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return res%0))))
+   (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res%0)))))
 ******************************
 (entry (args ())
  (instrs
   ((Move a (Lit 100)) (Move b (Lit 6))
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-   (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return res%0)))) |}]
+   (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res%0))))) |}]
 ;;
 
 let%expect_test "all examples" =
