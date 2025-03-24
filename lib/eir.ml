@@ -43,15 +43,30 @@ module Var = struct
   [@@deriving sexp]
 end
 
+module Opt_flags = struct
+  type t =
+    { unused_vars : bool
+    ; constant_propagation : bool
+    }
+  [@@deriving fields]
+
+  let default = { unused_vars = true; constant_propagation = true }
+end
+
 module Opt = struct
   type t =
     { ssa : Ssa.t
     ; vars : Var.t String.Table.t
     ; mutable vars_set : String.Set.t
+    ; opt_flags : Opt_flags.t
     }
 
   let create ssa =
-    { ssa; vars = String.Table.create (); vars_set = String.Set.empty }
+    { ssa
+    ; vars = String.Table.create ()
+    ; vars_set = String.Set.empty
+    ; opt_flags = Opt_flags.default
+    }
   ;;
 
   let rec iter_from t ~block ~f =
@@ -190,8 +205,19 @@ module Opt = struct
     Set.iter t.vars_set ~f:go
   ;;
 
-  let kill_unused_vars t =
-    let f ~var = try_kill_var t ~id:var.Var.id in
+  let refine_type (_ : t) ~var =
+    match var.Var.loc.where with
+    | Block_arg _ -> (* TODO: look at all preds *) ()
+    | Instr instr ->
+      (match instr with
+       | _ -> ())
+  ;;
+
+  let one_pass_var_opts t =
+    let f ~var =
+      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
+      if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id
+    in
     dfs_vars t ~f
   ;;
 
@@ -218,15 +244,10 @@ module Opt = struct
       | Some var' -> Hash_set.add var'.uses var.loc)
   ;;
 
-  (* let refine_type t ~var = failwith "TODO" *)
-
-  (* let tagify t = *)
-  (*   let f ~var = refine_type t ~var in *)
-  (*   dfs_vars t ~f *)
-  (* ;; *)
+  let opt opt_state = one_pass_var_opts opt_state
 end
 
 let optimize ssa =
   let opt_state = Opt.create ssa in
-  Opt.kill_unused_vars opt_state
+  Opt.opt opt_state
 ;;
