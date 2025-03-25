@@ -3,7 +3,7 @@ open! Core
 module Triv_instr = struct
   type t = int [@@deriving sexp, compare, hash]
 
-  let defs _ = []
+  let def _ = None
   let uses _ = []
   let map_uses t ~f:_ = t
   let map_defs t ~f:_ = t

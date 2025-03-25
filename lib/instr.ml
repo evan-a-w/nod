@@ -3,7 +3,7 @@ open! Core
 module type S = sig
   type t [@@deriving sexp, compare, hash]
 
-  val defs : t -> string list
+  val def : t -> string option
   val uses : t -> string list
 
   (** Lookup the args that the block takes, and add them to branch instrs *)

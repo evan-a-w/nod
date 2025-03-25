@@ -97,7 +97,7 @@ module Opt = struct
         define ~loc:{ Loc.block; where = Loc.Block_arg id } id);
       Vec.iter block.instructions ~f:(fun instr ->
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Instr.defs instr) ~f:(define ~loc)));
+        Option.iter (Instr.def instr) ~f:(define ~loc)));
     iter t ~f:(fun block ->
       let use instr =
         let loc = { Loc.block; where = Loc.Instr instr } in
@@ -161,9 +161,7 @@ module Opt = struct
       (match var.loc.where with
        | Instr instr ->
          assert (Hash_set.length var.uses = 0);
-         (match List.filter (Instr.defs instr) ~f:(Hashtbl.mem t.vars) with
-          | [] -> remove_instr t ~block ~instr
-          | _ -> ())
+         remove_instr t ~block ~instr
        | Block_arg arg -> remove_arg t ~block ~arg)
 
   and try_kill_var t ~id =

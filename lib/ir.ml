@@ -151,10 +151,10 @@ module T = struct
     | Unreachable
   [@@deriving sexp, compare, equal, variants, hash]
 
-  let defs = function
-    | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
-    | Move (var, _) -> [ var ]
-    | Branch _ | Unreachable | Noop | Return _ -> []
+  let def = function
+    | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest
+    | Move (var, _) -> Some var
+    | Branch _ | Unreachable | Noop | Return _ -> None
   ;;
 
   let blocks = function

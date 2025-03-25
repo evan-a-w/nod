@@ -132,7 +132,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
     let update_def_uses t ~block =
       Vec.iter (Block.instructions block) ~f:(fun instr ->
         let uses = Instr.uses instr in
-        let defs = Instr.defs instr in
+        let defs = Instr.def instr |> Option.to_list in
         let update tbl x =
           Hash_set.add t.vars x;
           Hash_set.add
