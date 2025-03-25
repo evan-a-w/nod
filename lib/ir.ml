@@ -5,7 +5,7 @@ module Var = struct
 end
 
 module Lit = struct
-  type t = int [@@deriving sexp, compare, equal, hash]
+  type t = Int64.t [@@deriving sexp, compare, equal, hash]
 end
 
 module Lit_or_var = struct
@@ -83,6 +83,19 @@ module Branch = struct
     | Uncond of 'block Call_block.t
   [@@deriving sexp, compare, equal, hash]
 
+  (*
+     [let t' = constant_fold t in
+      not (phys_equal t t') iff t' is simpler than t
+     ]
+  *)
+  let constant_fold = function
+    | Cond { cond = Lit x; if_true = _; if_false } when Int64.(x = zero) ->
+      Uncond if_false
+    | Cond { cond = Lit x; if_true; if_false = _ } when Int64.(x <> zero) ->
+      Uncond if_true
+    | t -> t
+  ;;
+
   let blocks = function
     | Uncond c -> Call_block.blocks c
     | Cond { cond = _; if_true; if_false } ->
@@ -150,6 +163,39 @@ module T = struct
     | Return of Lit_or_var.t
     | Unreachable
   [@@deriving sexp, compare, equal, variants, hash]
+
+  (*
+     [let t' = constant_fold t in
+      not (phys_equal t t') iff t' is simpler than t
+     ]
+  *)
+  let constant_fold = function
+    | Add { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a + b))
+    | Sub { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a - b))
+    | Mul { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a * b))
+    | Div { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a / b))
+    | Mod { src1 = Lit a; src2 = Lit b; dest } ->
+      Move (dest, Lit (Int64.rem a b))
+    (* move to left *)
+    | Add { src1; src2 = Lit _ as src2; dest } ->
+      Add { src1 = src2; src2 = src1; dest }
+    | Mul { src1; src2 = Lit _ as src2; dest } ->
+      Mul { src1 = src2; src2 = src1; dest }
+    | Branch b as t ->
+      let b' = Branch.constant_fold b in
+      if phys_equal b b' then t else Branch b'
+    | t -> t
+  ;;
+
+  let maybe_constant_fold t =
+    let t' = constant_fold t in
+    if phys_equal t t' then None else Some t'
+  ;;
+
+  let constant = function
+    | Move (_, Lit i) -> Some i
+    | _ -> None
+  ;;
 
   let def = function
     | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest

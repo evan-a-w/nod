@@ -100,8 +100,7 @@ let%expect_test "push" =
   push t 4;
   push t 5;
   iter t ~f:(fun x -> Int.to_string x |> print_endline);
-  [%expect
-    {|
+  [%expect {|
     1
     2
     3

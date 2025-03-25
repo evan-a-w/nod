@@ -37,7 +37,7 @@ let lit () =
 
 let lit_or_var () =
   match%bind next () with
-  | Token.Int i, _ -> return (Ir.Lit_or_var.Lit i)
+  | Token.Int i, _ -> return (Ir.Lit_or_var.Lit (Int64.of_int i))
   | Token.Percent, _ ->
     let%map s = ident () in
     Ir.Lit_or_var.Var s
@@ -46,7 +46,7 @@ let lit_or_var () =
 
 let lit_or_var_or_ident () =
   match%bind next () with
-  | Token.Int i, _ -> return (`Lit_or_var (Ir.Lit_or_var.Lit i))
+  | Token.Int i, _ -> return (`Lit_or_var (Ir.Lit_or_var.Lit (Int64.of_int i)))
   | Token.Percent, _ ->
     let%map s = ident () in
     `Lit_or_var (Ir.Lit_or_var.Var s)

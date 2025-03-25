@@ -3,7 +3,7 @@ include Ir
 include Initial_transform.Make_with_block (Ir)
 
 module Tags = struct
-  type t = { constant : int option } [@@deriving sexp]
+  type t = { constant : Int64.t option } [@@deriving sexp]
 
   let empty = { constant = None }
 end
@@ -175,9 +175,8 @@ module Opt = struct
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
-         if
-           phys_equal loc.block var.loc.block
-           && Loc.is_terminal_for_block loc ~block:var.loc.block
+         if phys_equal loc.block var.loc.block
+            && Loc.is_terminal_for_block loc ~block:var.loc.block
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -204,12 +203,93 @@ module Opt = struct
     Set.iter t.vars_set ~f:go
   ;;
 
-  let refine_type (_ : t) ~var =
-    match var.Var.loc.where with
-    | Block_arg _ -> (* TODO: look at all preds *) ()
-    | Instr instr ->
-      (match instr with
-       | _ -> ())
+  let constant_fold t ~instr =
+    let instr =
+      Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
+        match lit_or_var with
+        | Lit _ -> lit_or_var
+        | Var id ->
+          let var = Hashtbl.find_exn t.vars id in
+          (match var.Var.tags.constant with
+           | Some i -> Lit i
+           | None -> lit_or_var))
+    in
+    Ir.constant_fold instr
+  ;;
+
+  let update_uses t ~old_instr ~new_instr ~loc =
+    let old_uses = Ir.uses old_instr in
+    let new_uses = Ir.uses new_instr in
+    List.iter old_uses ~f:(fun id ->
+      match Hashtbl.find t.vars id with
+      | None -> ()
+      | Some var ->
+        Hash_set.filter_inplace var.uses ~f:(fun loc ->
+          match loc.Loc.where with
+          | Loc.Block_arg _ -> true
+          | Instr i -> not (phys_equal i old_instr)));
+    List.iter new_uses ~f:(fun id ->
+      match Hashtbl.find t.vars id with
+      | None -> ()
+      | Some var' -> Hash_set.add var'.uses loc);
+    Set.iter
+      (Set.diff (String.Set.of_list old_uses) (String.Set.of_list new_uses))
+      ~f:(fun id ->
+        if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id)
+  ;;
+
+  (* must be strict subset of uses and such *)
+  let replace_defining_instruction t ~var ~new_instr =
+    let old_instr =
+      match var.Var.loc.where with
+      | Block_arg _ -> failwith "Can't replace defining instr for block arg"
+      | Instr instr -> instr
+    in
+    var.loc <- { var.loc with where = Instr new_instr };
+    Vec.map_inplace var.loc.block.Block.instructions ~f:(fun instr ->
+      if phys_equal old_instr instr then new_instr else instr);
+    update_uses t ~old_instr ~new_instr ~loc:var.loc
+  ;;
+
+  (* must be strict subset of uses and such *)
+  let replace_terminal t ~block ~new_terminal =
+    let old_terminal = block.Block.terminal in
+    let old_blocks = Ir.blocks old_terminal in
+    let new_blocks = Ir.blocks old_terminal in
+    let diff =
+      List.filter old_blocks ~f:(fun block' ->
+        not (List.mem new_blocks block' ~equal:phys_equal))
+    in
+    Vec.switch block.children (Vec.of_list new_blocks);
+    List.iter diff ~f:(fun block' ->
+      Vec.switch
+        block'.parents
+        (Vec.filter block'.parents ~f:(Fn.non (phys_equal block))));
+    let loc = { Loc.block; where = Instr new_terminal } in
+    update_uses t ~old_instr:old_terminal ~new_instr:new_terminal ~loc;
+    block.terminal <- new_terminal
+  ;;
+
+  let rec refine_type t ~var =
+    match var.Var.tags.constant with
+    | Some _ -> ()
+    | None ->
+      (match var.Var.loc.where with
+       | Block_arg _ -> (* TODO: look at all preds *) ()
+       | Instr instr ->
+         let instr = constant_fold t ~instr in
+         replace_defining_instruction t ~var ~new_instr:instr;
+         (match Ir.constant instr with
+          | None -> ()
+          | Some _ as constant ->
+            var.tags <- { constant };
+            let terminal = var.loc.block.terminal in
+            if List.mem (Ir.uses terminal) var.id ~equal:String.equal
+            then refine_terminal t ~block:var.loc.block ~terminal))
+
+  and refine_terminal t ~block ~terminal =
+    let new_terminal = constant_fold t ~instr:terminal in
+    replace_terminal t ~block ~new_terminal
   ;;
 
   let one_pass_var_opts t =
@@ -218,29 +298,6 @@ module Opt = struct
       if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id
     in
     dfs_vars t ~f
-  ;;
-
-  let replace_defining_instruction t ~var ~new_instr =
-    let old_instr =
-      match var.Var.loc.where with
-      | Block_arg _ -> failwith "Can't replace defining instr for block arg"
-      | Instr instr -> instr
-    in
-    var.loc <- { var.loc with where = Instr new_instr };
-    List.iter (Ir.uses old_instr) ~f:(fun id ->
-      match Hashtbl.find t.vars id with
-      | None -> ()
-      | Some var ->
-        Hash_set.filter_inplace var.uses ~f:(fun loc ->
-          match loc.Loc.where with
-          | Loc.Block_arg _ -> true
-          | Instr i -> not (phys_equal i old_instr)));
-    Vec.map_inplace var.loc.block.Block.instructions ~f:(fun instr ->
-      if phys_equal old_instr instr then new_instr else instr);
-    List.iter (Ir.uses old_instr) ~f:(fun id ->
-      match Hashtbl.find t.vars id with
-      | None -> ()
-      | Some var' -> Hash_set.add var'.uses var.loc)
   ;;
 
   let opt opt_state = one_pass_var_opts opt_state

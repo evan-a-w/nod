@@ -82,11 +82,7 @@ let%expect_test "phi pruning" =
     ******************************
     (start (args ())
      (instrs
-      ((Move y (Lit 2)) (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
-       (Branch
-        (Cond (cond (Var cond))
-         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
-         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+      ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
      (instrs
       ((Branch
@@ -138,11 +134,7 @@ let%expect_test "trivial unused vars" =
    (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
    (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res%0)))))
 ******************************
-(entry (args ())
- (instrs
-  ((Move a (Lit 100)) (Move b (Lit 6))
-   (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-   (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res%0))))) |}]
+(entry (args ()) (instrs ((Return (Lit 5))))) |}]
 ;;
 
 let%expect_test "all examples" =
@@ -253,11 +245,7 @@ let%expect_test "all examples" =
     (end (args (c%0)) (instrs (Unreachable)))
     ******************************
     (%root (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum divide) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum divide) (args ()))) (args ())))))))
     (divide (args ())
      (instrs
       ((Branch
@@ -326,15 +314,12 @@ let%expect_test "all examples" =
      (instrs
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
-        (Cond (cond (Lit 1))
-         (if_true
-          ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))
-         (if_false
-          ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i)))))))))
+        (Uncond
+         ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))))))
     (loop (args (cond sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
-       (Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
+       (Add ((dest i%1) (src1 (Lit 1)) (src2 (Var i%0))))
        (Sub ((dest cond%0) (src1 (Lit 10)) (src2 (Var i%1))))
        (Branch
         (Cond (cond (Var cond%0))
@@ -399,11 +384,7 @@ let%expect_test "all examples" =
     ******************************
     (start (args ())
      (instrs
-      ((Move y (Lit 2)) (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
-       (Branch
-        (Cond (cond (Var cond))
-         (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
-         (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+      ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
      (instrs
       ((Branch
