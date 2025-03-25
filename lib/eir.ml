@@ -335,6 +335,7 @@ module Opt = struct
     let f ~var =
       if Opt_flags.constant_propagation t.opt_flags
       then (
+        (* TODO: make terminals considered once all vars are considered, rn is (very) bad heuristic *)
         if not (Hash_set.mem done_terminals var.Var.loc.block)
         then (
           Hash_set.add done_terminals var.loc.block;
