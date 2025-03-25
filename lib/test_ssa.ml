@@ -191,10 +191,7 @@ let%expect_test "all examples" =
     (end (args (z%0)) (instrs (Unreachable)))
     ******************************
     (a (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1)) (if_true ((block ((id_hum b) (args ()))) (args ())))
-         (if_false ((block ((id_hum c) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum b) (args ()))) (args ())))))))
     (b (args ())
      (instrs
       ((Branch

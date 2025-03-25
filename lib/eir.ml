@@ -321,18 +321,25 @@ module Opt = struct
     | None -> ()
     | Some _ as constant ->
       var.tags <- { constant };
-      let terminal = var.loc.block.terminal in
-      if List.mem (Ir.uses terminal) var.id ~equal:String.equal
-      then refine_terminal t ~block:var.loc.block ~terminal
+      if List.mem (Ir.uses var.loc.block.terminal) var.id ~equal:String.equal
+      then refine_terminal t ~block:var.loc.block
 
-  and refine_terminal t ~block ~terminal =
+  and refine_terminal t ~block =
+    let terminal = block.Block.terminal in
     let new_terminal = constant_fold t ~instr:terminal in
     replace_terminal t ~block ~new_terminal
   ;;
 
   let one_pass_var_opts t =
+    let done_terminals = Block.Hash_set.create () in
     let f ~var =
-      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
+      if Opt_flags.constant_propagation t.opt_flags
+      then (
+        if not (Hash_set.mem done_terminals var.Var.loc.block)
+        then (
+          Hash_set.add done_terminals var.loc.block;
+          refine_terminal t ~block:var.loc.block);
+        refine_type t ~var);
       if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id
     in
     dfs_vars t ~f
