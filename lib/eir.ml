@@ -108,6 +108,7 @@ module Opt = struct
     t
   ;;
 
+  (* if [block] is unnecessary, remove it *)
   let kill_block (_ : t) ~block:_ = ()
 
   let rec remove_instr t ~block ~instr =
