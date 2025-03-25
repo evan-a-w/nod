@@ -270,22 +270,60 @@ module Opt = struct
     block.terminal <- new_terminal
   ;;
 
+  let defining_vars_for_block_arg ~block ~arg =
+    let idx =
+      Vec.findi block.Block.args ~f:(fun i s ->
+        if String.equal arg s then Some i else None)
+      |> Option.value_exn
+    in
+    Vec.filter_map block.parents ~f:(fun parent ->
+      match
+        Ir.filter_map_call_blocks
+          parent.terminal
+          ~f:(fun { Ir.Call_block.block = block'; args } ->
+            if phys_equal block' block
+            then Some (List.nth_exn args idx)
+            else None)
+      with
+      | [] -> None
+      | xs -> Some xs)
+    |> Vec.to_list
+    |> List.concat
+  ;;
+
   let rec refine_type t ~var =
     match var.Var.tags.constant with
     | Some _ -> ()
     | None ->
       (match var.Var.loc.where with
-       | Block_arg _ -> (* TODO: look at all preds *) ()
-       | Instr instr ->
-         let instr = constant_fold t ~instr in
-         replace_defining_instruction t ~var ~new_instr:instr;
-         (match Ir.constant instr with
-          | None -> ()
-          | Some _ as constant ->
-            var.tags <- { constant };
-            let terminal = var.loc.block.terminal in
-            if List.mem (Ir.uses terminal) var.id ~equal:String.equal
-            then refine_terminal t ~block:var.loc.block ~terminal))
+       | Block_arg arg -> refine_type_block_arg t ~var ~arg
+       | Instr instr -> refine_type_instr t ~var ~instr)
+
+  and refine_type_block_arg t ~var ~arg =
+    let block = var.Var.loc.block in
+    defining_vars_for_block_arg ~block ~arg
+    |> function
+    | [] -> ()
+    | id :: xs ->
+      let constant id = (Hashtbl.find_exn t.vars id).tags.constant in
+      let constant =
+        List.fold xs ~init:(constant id) ~f:(fun acc id ->
+          match acc, constant id with
+          | Some a, Some b when Int64.equal a b -> acc
+          | _ -> None)
+      in
+      var.tags <- { constant }
+
+  and refine_type_instr t ~var ~instr =
+    let instr = constant_fold t ~instr in
+    replace_defining_instruction t ~var ~new_instr:instr;
+    match Ir.constant instr with
+    | None -> ()
+    | Some _ as constant ->
+      var.tags <- { constant };
+      let terminal = var.loc.block.terminal in
+      if List.mem (Ir.uses terminal) var.id ~equal:String.equal
+      then refine_terminal t ~block:var.loc.block ~terminal
 
   and refine_terminal t ~block ~terminal =
     let new_terminal = constant_fold t ~instr:terminal in

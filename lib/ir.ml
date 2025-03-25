@@ -83,6 +83,13 @@ module Branch = struct
     | Uncond of 'block Call_block.t
   [@@deriving sexp, compare, equal, hash]
 
+  let filter_map_call_blocks t ~f =
+    match t with
+    | Uncond call_block -> f call_block |> Option.to_list
+    | Cond { cond = _; if_true; if_false } ->
+      (f if_true |> Option.to_list) @ (f if_false |> Option.to_list)
+  ;;
+
   (*
      [let t' = constant_fold t in
       not (phys_equal t t') iff t' is simpler than t
@@ -163,6 +170,20 @@ module T = struct
     | Return of Lit_or_var.t
     | Unreachable
   [@@deriving sexp, compare, equal, variants, hash]
+
+  let filter_map_call_blocks t ~f =
+    match t with
+    | Noop
+    | Add _
+    | Sub _
+    | Mul _
+    | Div _
+    | Mod _
+    | Move _
+    | Return _
+    | Unreachable -> []
+    | Branch b -> Branch.filter_map_call_blocks b ~f
+  ;;
 
   (*
      [let t' = constant_fold t in
