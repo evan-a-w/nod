@@ -34,13 +34,19 @@ module Loc = struct
 end
 
 module Var = struct
-  type t =
-    { id : string
-    ; mutable tags : Tags.t
-    ; mutable loc : Loc.t
-    ; uses : Loc.Hash_set.t
-    }
-  [@@deriving sexp]
+  module T = struct
+    type t =
+      { id : string
+      ; mutable tags : Tags.t [@compare.ignore]
+      ; mutable loc : Loc.t [@compare.ignore]
+      ; uses : Loc.Hash_set.t [@compare.ignore]
+      }
+    [@@deriving sexp, hash, compare]
+  end
+
+  include Comparable.Make (T)
+  include Hashable.Make (T)
+  include T
 end
 
 module Opt_flags = struct
@@ -81,6 +87,40 @@ module Opt = struct
   ;;
 
   let iter t ~f = iter_from t ~block:t.ssa.def_uses.root ~f
+
+  module Block_tracker = struct
+    type t =
+      { mutable needed : Var.Set.t Block.Map.t
+      ; once_ready : Block.t -> unit
+      }
+
+    let create ~once_ready opt =
+      let t = { needed = Block.Map.empty; once_ready } in
+      iter opt ~f:(fun block ->
+        let data =
+          Instr.uses block.terminal
+          |> List.filter_map ~f:(Hashtbl.find opt.vars)
+          |> Var.Set.of_list
+        in
+        if Set.length data = 0
+        then once_ready block
+        else t.needed <- Map.set t.needed ~key:block ~data);
+      t
+    ;;
+
+    let ready t ~var =
+      t.needed
+      <- Map.change t.needed var.Var.loc.block ~f:(function
+           | None -> None
+           | Some vars ->
+             let vars = Set.remove vars var in
+             if Set.length vars = 0
+             then (
+               t.once_ready var.loc.block;
+               None)
+             else Some vars)
+    ;;
+  end
 
   let create ssa =
     let t = create ssa in
@@ -175,8 +215,9 @@ module Opt = struct
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
-         if phys_equal loc.block var.loc.block
-            && Loc.is_terminal_for_block loc ~block:var.loc.block
+         if
+           phys_equal loc.block var.loc.block
+           && Loc.is_terminal_for_block loc ~block:var.loc.block
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -184,8 +225,12 @@ module Opt = struct
          ())
   ;;
 
-  let dfs_vars t ~f =
+  let dfs_vars ?on_terminal t ~f =
     let seen = String.Hash_set.create () in
+    let block_tracker =
+      Option.map on_terminal ~f:(fun once_ready ->
+        Block_tracker.create ~once_ready t)
+    in
     let rec go id =
       match Hashtbl.find t.vars id with
       | None -> ()
@@ -194,11 +239,12 @@ module Opt = struct
         then ()
         else (
           Hash_set.add seen var.id;
-          match Loc.where var.loc with
-          | Block_arg _ -> f ~var
-          | Instr instr ->
-            List.iter (Ir.uses instr) ~f:go;
-            f ~var)
+          (match Loc.where var.loc with
+           | Block_arg _ -> f ~var
+           | Instr instr ->
+             List.iter (Ir.uses instr) ~f:go;
+             f ~var);
+          Option.iter block_tracker ~f:(Block_tracker.ready ~var))
     in
     Set.iter t.vars_set ~f:go
   ;;
@@ -331,19 +377,15 @@ module Opt = struct
   ;;
 
   let one_pass_var_opts t =
-    let done_terminals = Block.Hash_set.create () in
-    let f ~var =
+    let on_terminal block =
       if Opt_flags.constant_propagation t.opt_flags
-      then (
-        (* TODO: make terminals considered once all vars are considered, rn is (very) bad heuristic *)
-        if not (Hash_set.mem done_terminals var.Var.loc.block)
-        then (
-          Hash_set.add done_terminals var.loc.block;
-          refine_terminal t ~block:var.loc.block);
-        refine_type t ~var);
+      then refine_terminal t ~block
+    in
+    let f ~var =
+      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
       if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id
     in
-    dfs_vars t ~f
+    dfs_vars ~on_terminal t ~f
   ;;
 
   let opt opt_state = one_pass_var_opts opt_state
