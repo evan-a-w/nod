@@ -148,5 +148,37 @@ entry:
 |}
   ;;
 
-  let all = [ a; b; c; d; e ]
+  let e2 =
+    {|
+start:
+  mov %x, 7
+  mov %y, 2
+
+  mul %x, %x, 3
+
+  div %x, %x, %y
+
+  (* Then check if y == 2 to decide next path
+     We emulate a check by subtracting 2 from y *)
+  sub %cond, %y, 2
+  branch %cond, ifTrue, ifFalse
+
+ifTrue:
+  (* If y != 2, we would land here
+     For illustration, set x = 999 *)
+  mov %x, 999
+  branch 1, end, end
+
+ifFalse:
+  (* If y == 2, we come here
+     Let’s set x = x + 10 *)
+  add %x, %x, 10
+  branch 1, end, end
+
+end:
+  return %x
+|}
+  ;;
+
+  let all = [ a; b; c; d; e; c2; e2 ]
 end

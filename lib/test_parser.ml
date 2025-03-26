@@ -295,5 +295,82 @@ let%expect_test "all examples" =
           (if_false ((block ifFalse) (args ()))))))))
      (start ifTrue ifFalse end))
     ---------------------------------
+    ---------------------------------
+
+    entry:
+      (* Put 100 into %a *)
+      mov %a, 100
+
+      (* Put 6 into %b *)
+      mov %b, 6
+
+      (* Compute a mod b -> %res *)
+      mod %res, %a, %b
+
+      (* Add 1 to %res *)
+      add %res, %res, 1
+
+      (* End of the program *)
+      return %res
+
+    =================================
+    (((entry
+       ((Move a (Lit 100)) (Move b (Lit 6))
+        (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
+        (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res)))))
+     (entry))
+    ---------------------------------
+    ---------------------------------
+
+    start:
+      mov %x, 7
+      mov %y, 2
+
+      mul %x, %x, 3
+
+      div %x, %x, %y
+
+      (* Then check if y == 2 to decide next path
+         We emulate a check by subtracting 2 from y *)
+      sub %cond, %y, 2
+      branch %cond, ifTrue, ifFalse
+
+    ifTrue:
+      (* If y != 2, we would land here
+         For illustration, set x = 999 *)
+      mov %x, 999
+      branch 1, end, end
+
+    ifFalse:
+      (* If y == 2, we come here
+         Let’s set x = x + 10 *)
+      add %x, %x, 10
+      branch 1, end, end
+
+    end:
+      return %x
+
+    =================================
+    (((end ((Return (Var x))))
+      (ifFalse
+       ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+        (Branch
+         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+          (if_false ((block end) (args ())))))))
+      (ifTrue
+       ((Move x (Lit 999))
+        (Branch
+         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+          (if_false ((block end) (args ())))))))
+      (start
+       ((Move x (Lit 7)) (Move y (Lit 2))
+        (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
+        (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+        (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+        (Branch
+         (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
+          (if_false ((block ifFalse) (args ()))))))))
+     (start ifTrue ifFalse end))
+    ---------------------------------
     |}]
 ;;

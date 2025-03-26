@@ -109,6 +109,13 @@ module Opt = struct
               else iter_from t ~block:block' ~f))
   ;;
 
+  let active_var t id =
+    match Hashtbl.find t.vars id with
+    | None -> None
+    | Some var when not var.active -> None
+    | Some _ as x -> x
+  ;;
+
   let iter t ~f = iter_from t ~block:t.ssa.def_uses.root ~f
 
   module Block_tracker = struct
@@ -119,7 +126,7 @@ module Opt = struct
       iter opt ~f:(fun block ->
         let data =
           Instr.uses block.terminal
-          |> List.filter_map ~f:(Hashtbl.find opt.vars)
+          |> List.filter_map ~f:(active_var opt)
           |> Var.Set.of_list
         in
         if Set.length data = 0
@@ -160,12 +167,35 @@ module Opt = struct
     t
   ;;
 
+  (* TODO: implement, call when constant folding terminals and
+     when deleting instructions *)
   (* if [block] is unnecessary, remove it *)
   let kill_block (_ : t) ~block:_ = ()
 
+  let defining_vars_for_block_arg ~block ~arg =
+    let idx =
+      Vec.findi block.Block.args ~f:(fun i s ->
+        if String.equal arg s then Some i else None)
+      |> Option.value_exn
+    in
+    Vec.filter_map block.parents ~f:(fun parent ->
+      match
+        Ir.filter_map_call_blocks
+          parent.terminal
+          ~f:(fun { Ir.Call_block.block = block'; args } ->
+            if phys_equal block' block
+            then Some (List.nth_exn args idx)
+            else None)
+      with
+      | [] -> None
+      | xs -> Some xs)
+    |> Vec.to_list
+    |> List.concat
+  ;;
+
   let rec remove_instr t ~block ~instr =
     List.iter (Ir.uses instr) ~f:(fun id ->
-      match Hashtbl.find t.vars id with
+      match active_var t id with
       | None -> ()
       | Some var ->
         Hash_set.filter_inplace var.uses ~f:(fun loc ->
@@ -184,7 +214,7 @@ module Opt = struct
           parent.Block.terminal
           ~f:
             (List.filteri ~f:(fun i id ->
-               match i = idx, Hashtbl.find t.vars id with
+               match i = idx, active_var t id with
                | false, _ -> true
                | true, None -> false
                | true, Some var ->
@@ -214,7 +244,7 @@ module Opt = struct
       remove_arg_from_parent t ~parent ~idx)
 
   and kill_definition t ~id =
-    match Hashtbl.find t.vars id with
+    match active_var t id with
     | None -> ()
     | Some var ->
       var.Var.active <- false;
@@ -228,19 +258,22 @@ module Opt = struct
       Option.iter t.block_tracker ~f:(Block_tracker.ready ~var)
 
   and try_kill_var t ~id =
-    match Hashtbl.find t.vars id with
+    match active_var t id with
     | None -> ()
-    | Some var when not var.active -> ()
     | Some var ->
       (match Hash_set.length var.Var.uses, var.loc.where with
        | 0, _ -> kill_definition t ~id:var.id
-       | 1, Block_arg _ ->
+       | 1, Block_arg arg ->
+         (* weird case in our ssa algo that is borked, fix it here *)
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
          if
            phys_equal loc.block var.loc.block
            && Loc.is_terminal_for_block loc ~block:var.loc.block
+           && [%equal: string list]
+                [ arg ]
+                (defining_vars_for_block_arg ~block:var.loc.block ~arg)
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -255,7 +288,7 @@ module Opt = struct
       assert (Option.is_none t.block_tracker);
       t.block_tracker <- Some block_tracker);
     let rec go id =
-      match Hashtbl.find t.vars id with
+      match active_var t id with
       | None -> ()
       | Some var ->
         if Hash_set.mem seen var.Var.id
@@ -282,7 +315,10 @@ module Opt = struct
           let var = Hashtbl.find_exn t.vars id in
           (match var.Var.tags.constant with
            | Some i -> Lit i
-           | None -> lit_or_var))
+           | None ->
+             (* var can be inactive if it is constant *)
+             assert var.active;
+             lit_or_var))
     in
     Ir.constant_fold instr
   ;;
@@ -291,7 +327,7 @@ module Opt = struct
     let old_uses = Ir.uses old_instr in
     let new_uses = Ir.uses new_instr in
     List.iter old_uses ~f:(fun id ->
-      match Hashtbl.find t.vars id with
+      match active_var t id with
       | None -> ()
       | Some var ->
         Hash_set.filter_inplace var.uses ~f:(fun loc ->
@@ -299,7 +335,7 @@ module Opt = struct
           | Loc.Block_arg _ -> true
           | Instr i -> not (phys_equal i old_instr)));
     List.iter new_uses ~f:(fun id ->
-      match Hashtbl.find t.vars id with
+      match active_var t id with
       | None -> ()
       | Some var' -> Hash_set.add var'.uses loc);
     Set.iter
@@ -338,27 +374,6 @@ module Opt = struct
     let loc = { Loc.block; where = Instr new_terminal } in
     update_uses t ~old_instr:old_terminal ~new_instr:new_terminal ~loc;
     block.terminal <- new_terminal
-  ;;
-
-  let defining_vars_for_block_arg ~block ~arg =
-    let idx =
-      Vec.findi block.Block.args ~f:(fun i s ->
-        if String.equal arg s then Some i else None)
-      |> Option.value_exn
-    in
-    Vec.filter_map block.parents ~f:(fun parent ->
-      match
-        Ir.filter_map_call_blocks
-          parent.terminal
-          ~f:(fun { Ir.Call_block.block = block'; args } ->
-            if phys_equal block' block
-            then Some (List.nth_exn args idx)
-            else None)
-      with
-      | [] -> None
-      | xs -> Some xs)
-    |> Vec.to_list
-    |> List.concat
   ;;
 
   let rec refine_type t ~var =
@@ -401,15 +416,15 @@ module Opt = struct
   ;;
 
   let one_pass_var_opts t =
-    let on_terminal block =
-      if Opt_flags.constant_propagation t.opt_flags
-      then refine_terminal t ~block
-    in
-    let f ~var =
-      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
-      if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id
-    in
-    dfs_vars ~on_terminal t ~f
+    if Opt_flags.constant_propagation t.opt_flags
+    then (
+      let on_terminal block =
+        if Opt_flags.constant_propagation t.opt_flags
+        then refine_terminal t ~block
+      in
+      dfs_vars ~on_terminal t ~f:(refine_type t));
+    if Opt_flags.unused_vars t.opt_flags
+    then dfs_vars t ~f:(fun ~var -> try_kill_var t ~id:var.Var.id)
   ;;
 
   let opt opt_state = one_pass_var_opts opt_state
