@@ -416,15 +416,13 @@ module Opt = struct
   ;;
 
   let run t =
-    if Opt_flags.constant_propagation t.opt_flags
-    then (
-      let on_terminal block =
-        if Opt_flags.constant_propagation t.opt_flags
-        then refine_terminal t ~block
-      in
-      dfs_vars ~on_terminal t ~f:(refine_type t));
-    if Opt_flags.unused_vars t.opt_flags
-    then dfs_vars t ~f:(fun ~var -> try_kill_var t ~id:var.Var.id)
+    let on_terminal block =
+      if Opt_flags.constant_propagation t.opt_flags
+      then refine_terminal t ~block
+    in
+    dfs_vars ~on_terminal t ~f:(fun ~var ->
+      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
+      if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id)
   ;;
 end
 
