@@ -40,6 +40,7 @@ module Var = struct
       ; mutable tags : Tags.t [@compare.ignore]
       ; mutable loc : Loc.t [@compare.ignore]
       ; uses : Loc.Hash_set.t [@compare.ignore]
+      ; mutable active : bool [@compare.ignore]
       }
     [@@deriving sexp, hash, compare]
   end
@@ -60,18 +61,40 @@ module Opt_flags = struct
 end
 
 module Opt = struct
+  module Block_tracker0 = struct
+    type t =
+      { mutable needed : Var.Set.t Block.Map.t
+      ; once_ready : Block.t -> unit
+      }
+
+    let ready t ~var =
+      t.needed
+      <- Map.change t.needed var.Var.loc.block ~f:(function
+           | None -> None
+           | Some vars ->
+             let vars = Set.remove vars var in
+             if Set.length vars = 0
+             then (
+               t.once_ready var.loc.block;
+               None)
+             else Some vars)
+    ;;
+  end
+
   type t =
     { ssa : Ssa.t
     ; vars : Var.t String.Table.t
-    ; mutable vars_set : String.Set.t
+    ; mutable active_vars : String.Set.t
     ; opt_flags : Opt_flags.t
+    ; mutable block_tracker : Block_tracker0.t option
     }
 
   let create ssa =
     { ssa
     ; vars = String.Table.create ()
-    ; vars_set = String.Set.empty
+    ; active_vars = String.Set.empty
     ; opt_flags = Opt_flags.default
+    ; block_tracker = None
     }
   ;;
 
@@ -89,10 +112,7 @@ module Opt = struct
   let iter t ~f = iter_from t ~block:t.ssa.def_uses.root ~f
 
   module Block_tracker = struct
-    type t =
-      { mutable needed : Var.Set.t Block.Map.t
-      ; once_ready : Block.t -> unit
-      }
+    include Block_tracker0
 
     let create ~once_ready opt =
       let t = { needed = Block.Map.empty; once_ready } in
@@ -107,29 +127,21 @@ module Opt = struct
         else t.needed <- Map.set t.needed ~key:block ~data);
       t
     ;;
-
-    let ready t ~var =
-      t.needed
-      <- Map.change t.needed var.Var.loc.block ~f:(function
-           | None -> None
-           | Some vars ->
-             let vars = Set.remove vars var in
-             if Set.length vars = 0
-             then (
-               t.once_ready var.loc.block;
-               None)
-             else Some vars)
-    ;;
   end
 
   let create ssa =
     let t = create ssa in
     let define ~loc id =
       let var =
-        { Var.id; tags = Tags.empty; loc; uses = Loc.Hash_set.create () }
+        { Var.id
+        ; tags = Tags.empty
+        ; loc
+        ; uses = Loc.Hash_set.create ()
+        ; active = true
+        }
       in
       Hashtbl.set t.vars ~key:id ~data:var;
-      t.vars_set <- Set.add t.vars_set id
+      t.active_vars <- Set.add t.active_vars id
     in
     let use ~loc id = Hash_set.add (Hashtbl.find_exn t.vars id).uses loc in
     iter t ~f:(fun block ->
@@ -165,22 +177,31 @@ module Opt = struct
     <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
 
   and remove_arg_from_parent t ~parent ~idx =
-    parent.Block.terminal
-    <- Ir.map_args
-         parent.Block.terminal
-         ~f:
-           (List.filteri ~f:(fun i id ->
-              match i = idx, Hashtbl.find t.vars id with
-              | false, _ -> true
-              | true, None -> false
-              | true, Some var ->
-                (* kill the tang *)
-                Hash_set.filter_inplace var.uses ~f:(fun loc ->
-                  match loc.Loc.where with
-                  | Loc.Block_arg _ -> true
-                  | Instr i -> not (phys_equal i parent.terminal));
-                try_kill_var t ~id;
-                false))
+    let rec go () =
+      let current = parent.Block.terminal in
+      let new_ =
+        Ir.map_args
+          parent.Block.terminal
+          ~f:
+            (List.filteri ~f:(fun i id ->
+               match i = idx, Hashtbl.find t.vars id with
+               | false, _ -> true
+               | true, None -> false
+               | true, Some var ->
+                 (* kill the tang *)
+                 Hash_set.filter_inplace var.uses ~f:(fun loc ->
+                   match loc.Loc.where with
+                   | Loc.Block_arg _ -> true
+                   | Instr i -> not (phys_equal i parent.terminal));
+                 try_kill_var t ~id;
+                 false))
+      in
+      (* can actually change during execution :() *)
+      if phys_equal current parent.Block.terminal
+      then parent.Block.terminal <- new_
+      else go ()
+    in
+    go ()
 
   and remove_arg t ~block ~arg =
     let idx =
@@ -196,18 +217,20 @@ module Opt = struct
     match Hashtbl.find t.vars id with
     | None -> ()
     | Some var ->
-      Hashtbl.remove t.vars id;
-      t.vars_set <- Set.remove t.vars_set id;
+      var.Var.active <- false;
+      t.active_vars <- Set.remove t.active_vars id;
       let block = var.loc.block in
       (match var.loc.where with
        | Instr instr ->
          assert (Hash_set.length var.uses = 0);
          remove_instr t ~block ~instr
-       | Block_arg arg -> remove_arg t ~block ~arg)
+       | Block_arg arg -> remove_arg t ~block ~arg);
+      Option.iter t.block_tracker ~f:(Block_tracker.ready ~var)
 
   and try_kill_var t ~id =
     match Hashtbl.find t.vars id with
     | None -> ()
+    | Some var when not var.active -> ()
     | Some var ->
       (match Hash_set.length var.Var.uses, var.loc.where with
        | 0, _ -> kill_definition t ~id:var.id
@@ -227,10 +250,10 @@ module Opt = struct
 
   let dfs_vars ?on_terminal t ~f =
     let seen = String.Hash_set.create () in
-    let block_tracker =
-      Option.map on_terminal ~f:(fun once_ready ->
-        Block_tracker.create ~once_ready t)
-    in
+    Option.iter on_terminal ~f:(fun once_ready ->
+      let block_tracker = Block_tracker.create ~once_ready t in
+      assert (Option.is_none t.block_tracker);
+      t.block_tracker <- Some block_tracker);
     let rec go id =
       match Hashtbl.find t.vars id with
       | None -> ()
@@ -244,9 +267,10 @@ module Opt = struct
            | Instr instr ->
              List.iter (Ir.uses instr) ~f:go;
              f ~var);
-          Option.iter block_tracker ~f:(Block_tracker.ready ~var))
+          Option.iter t.block_tracker ~f:(Block_tracker.ready ~var))
     in
-    Set.iter t.vars_set ~f:go
+    Set.iter t.active_vars ~f:go;
+    Option.iter on_terminal ~f:(fun _ -> t.block_tracker <- None)
   ;;
 
   let constant_fold t ~instr =

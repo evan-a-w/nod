@@ -84,17 +84,9 @@ let%expect_test "phi pruning" =
      (instrs
       ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (ifFalse (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable))) |}]
 ;;
 
@@ -193,17 +185,9 @@ let%expect_test "all examples" =
     (a (args ())
      (instrs ((Branch (Uncond ((block ((id_hum b) (args ()))) (args ())))))))
     (b (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (c (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
@@ -244,11 +228,7 @@ let%expect_test "all examples" =
     (%root (args ())
      (instrs ((Branch (Uncond ((block ((id_hum divide) (args ()))) (args ())))))))
     (divide (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
@@ -383,17 +363,9 @@ let%expect_test "all examples" =
      (instrs
       ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (ifFalse (args ())
-     (instrs
-      ((Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum end) (args ()))) (args ())))
-         (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
+     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++ |}]
