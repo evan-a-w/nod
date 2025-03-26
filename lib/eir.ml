@@ -415,7 +415,7 @@ module Opt = struct
     replace_terminal t ~block ~new_terminal
   ;;
 
-  let one_pass_var_opts t =
+  let run t =
     if Opt_flags.constant_propagation t.opt_flags
     then (
       let on_terminal block =
@@ -426,11 +426,9 @@ module Opt = struct
     if Opt_flags.unused_vars t.opt_flags
     then dfs_vars t ~f:(fun ~var -> try_kill_var t ~id:var.Var.id)
   ;;
-
-  let opt opt_state = one_pass_var_opts opt_state
 end
 
 let optimize ssa =
   let opt_state = Opt.create ssa in
-  Opt.opt opt_state
+  Opt.run opt_state
 ;;
