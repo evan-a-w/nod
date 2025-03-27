@@ -422,6 +422,8 @@ module Opt = struct
     replace_terminal t ~block ~new_terminal
   ;;
 
+  let gvn t ~var = failwith "TODO"
+
   let run t =
     let on_terminal block =
       if Opt_flags.constant_propagation t.opt_flags
@@ -429,7 +431,8 @@ module Opt = struct
     in
     dfs_vars ~on_terminal t ~f:(fun ~var ->
       if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
-      if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id)
+      if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id:var.Var.id;
+      if var.Var.active && Opt_flags.gvn t.opt_flags then gvn t ~var)
   ;;
 end
 
