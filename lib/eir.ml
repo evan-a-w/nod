@@ -8,6 +8,8 @@ module Tags = struct
   let empty = { constant = None }
 end
 
+module Instr = Ir.Instr
+
 module Loc = struct
   module T = struct
     type where =
@@ -54,10 +56,11 @@ module Opt_flags = struct
   type t =
     { unused_vars : bool
     ; constant_propagation : bool
+    ; gvn : bool
     }
   [@@deriving fields]
 
-  let default = { unused_vars = true; constant_propagation = true }
+  let default = { unused_vars = true; constant_propagation = true; gvn = true }
 end
 
 module Opt = struct
@@ -87,6 +90,8 @@ module Opt = struct
     ; mutable active_vars : String.Set.t
     ; opt_flags : Opt_flags.t
     ; mutable block_tracker : Block_tracker0.t option
+    ; var_remap : string String.Table.t
+    ; instr_remap : string Instr.Table.t
     }
 
   let create ssa =
@@ -95,6 +100,8 @@ module Opt = struct
     ; active_vars = String.Set.empty
     ; opt_flags = Opt_flags.default
     ; block_tracker = None
+    ; var_remap = String.Table.create ()
+    ; instr_remap = Instr.Table.create ()
     }
   ;;
 

@@ -316,7 +316,7 @@ include T
 module Instr_ = Instr
 module Block_ = Block
 
-module rec Instr : (Instr_.S with type t = Block.t t') = struct
+module rec Instr0 : (Instr_.S with type t = Block.t t') = struct
   include T
 
   type t = Block.t t' [@@deriving sexp, compare, hash]
@@ -346,4 +346,10 @@ module rec Instr : (Instr_.S with type t = Block.t t') = struct
   ;;
 end
 
-and Block : (Block_.S with type instr := Instr.t) = Block_.Make (Instr)
+and Block : (Block_.S with type instr := Instr0.t) = Block_.Make (Instr0)
+
+module Instr = struct
+  include Instr0
+  include Comparable.Make (Instr0)
+  include Hashable.Make (Instr0)
+end
