@@ -190,18 +190,26 @@ module T = struct
       not (phys_equal t t') iff t' is simpler than t
      ]
   *)
-  let constant_fold = function
+  let rec constant_fold = function
+    | Add { src1 = Lit a; src2; dest } when Int64.(equal a zero) ->
+      Move (dest, src2)
     | Add { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a + b))
+    | Sub { src1; src2 = Lit b; dest } when Int64.(equal b zero) ->
+      Move (dest, src1)
     | Sub { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a - b))
+    | Mul { src1 = Lit a; src2; dest } when Int64.(equal a one) ->
+      Move (dest, src2)
     | Mul { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a * b))
+    | Div { src1; src2 = Lit b; dest } when Int64.(equal b one) ->
+      Move (dest, src1)
     | Div { src1 = Lit a; src2 = Lit b; dest } -> Move (dest, Lit Int64.(a / b))
     | Mod { src1 = Lit a; src2 = Lit b; dest } ->
       Move (dest, Lit (Int64.rem a b))
     (* move to left *)
     | Add { src1; src2 = Lit _ as src2; dest } ->
-      Add { src1 = src2; src2 = src1; dest }
+      Add { src1 = src2; src2 = src1; dest } |> constant_fold
     | Mul { src1; src2 = Lit _ as src2; dest } ->
-      Mul { src1 = src2; src2 = src1; dest }
+      Mul { src1 = src2; src2 = src1; dest } |> constant_fold
     | Branch b as t ->
       let b' = Branch.constant_fold b in
       if phys_equal b b' then t else Branch b'
