@@ -275,12 +275,11 @@ module Opt = struct
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
-         if
-           phys_equal loc.block var.loc.block
-           && Loc.is_terminal_for_block loc ~block:var.loc.block
-           && [%equal: string list]
-                [ arg ]
-                (defining_vars_for_block_arg ~block:var.loc.block ~arg)
+         if phys_equal loc.block var.loc.block
+            && Loc.is_terminal_for_block loc ~block:var.loc.block
+            && [%equal: string list]
+                 [ arg ]
+                 (defining_vars_for_block_arg ~block:var.loc.block ~arg)
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -422,7 +421,10 @@ module Opt = struct
     replace_terminal t ~block ~new_terminal
   ;;
 
-  let gvn t ~var = failwith "TODO"
+  let gvn t ~var =
+    let _ = t, var in
+    ()
+  ;;
 
   let run t =
     let on_terminal block =
