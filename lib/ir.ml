@@ -26,6 +26,30 @@ module Lit_or_var = struct
   ;;
 end
 
+module Mem = struct
+  type t =
+    | Stack_slot of int
+    | Lit_or_var of Lit_or_var.t
+  [@@deriving sexp, compare, equal, hash]
+
+  let vars = function
+    | Lit_or_var l -> Lit_or_var.vars l
+    | Stack_slot _ -> []
+  ;;
+
+  let map_vars t ~f =
+    match t with
+    | Lit_or_var l -> Lit_or_var (Lit_or_var.map_vars l ~f)
+    | Stack_slot _ -> t
+  ;;
+
+  let map_lit_or_vars t ~f =
+    match t with
+    | Lit_or_var l -> Lit_or_var (f l)
+    | Stack_slot _ -> t
+  ;;
+end
+
 module Block_id =
   String_id.Make
     (struct
@@ -165,6 +189,8 @@ module T = struct
     | Mul of arith
     | Div of arith
     | Mod of arith
+    | Load of Var.t * Mem.t
+    | Store of Lit_or_var.t * Mem.t
     | Move of Var.t * Lit_or_var.t
     | Branch of 'block Branch.t
     | Return of Lit_or_var.t
@@ -181,6 +207,8 @@ module T = struct
     | Mod _
     | Move _
     | Return _
+    | Load _
+    | Store _
     | Unreachable -> []
     | Branch b -> Branch.filter_map_call_blocks b ~f
   ;;
@@ -228,13 +256,14 @@ module T = struct
 
   let def = function
     | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest
+    | Load (a, _) -> Some a
     | Move (var, _) -> Some var
-    | Branch _ | Unreachable | Noop | Return _ -> None
+    | Branch _ | Unreachable | Noop | Return _ | Store _ -> None
   ;;
 
   let blocks = function
     | Branch b -> Branch.blocks b
-    | Add _ | Sub _ | Mul _ | Div _ | Mod _
+    | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _
     | Move (_, _)
     | Unreachable | Noop | Return _ -> []
   ;;
@@ -242,6 +271,8 @@ module T = struct
   let uses = function
     | Add a | Sub a | Mul a | Div a | Mod a ->
       Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
+    | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
+    | Load (_, b) -> Mem.vars b
     | Move (_, src) -> Lit_or_var.vars src
     | Branch b -> Branch.uses b
     | Return var -> Lit_or_var.vars var
@@ -255,8 +286,9 @@ module T = struct
     | Div a -> Div (map_arith_defs a ~f)
     | Mod a -> Mod (map_arith_defs a ~f)
     | Sub a -> Sub (map_arith_defs a ~f)
+    | Load (a, b) -> Load (f a, b)
     | Move (var, b) -> Move (f var, b)
-    | Branch _ | Unreachable | Noop | Return _ -> t
+    | Branch _ | Unreachable | Noop | Return _ | Store _ -> t
   ;;
 
   let map_uses t ~f =
@@ -266,6 +298,8 @@ module T = struct
     | Div a -> Div (map_arith_uses a ~f)
     | Mod a -> Mod (map_arith_uses a ~f)
     | Sub a -> Sub (map_arith_uses a ~f)
+    | Store (a, b) -> Store (Lit_or_var.map_vars a ~f, Mem.map_vars b ~f)
+    | Load (a, b) -> Load (a, Mem.map_vars b ~f)
     | Return use -> Return (Lit_or_var.map_vars use ~f)
     | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
     | Branch b -> Branch (Branch.map_uses b ~f)
@@ -274,7 +308,8 @@ module T = struct
 
   let is_terminal = function
     | Branch _ | Unreachable | Return _ -> true
-    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Noop -> false
+    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Noop | Load _ | Store _
+      -> false
   ;;
 
   let map_args t ~f =
@@ -288,6 +323,8 @@ module T = struct
     | Sub _
     | Move _
     | Noop
+    | Load _
+    | Store _
     | Return _ -> t
   ;;
 
@@ -297,6 +334,8 @@ module T = struct
     | Mul a -> Mul a
     | Div a -> Div a
     | Mod a -> Mod a
+    | Store (a, b) -> Store (a, b)
+    | Load (a, b) -> Load (a, b)
     | Sub a -> Sub a
     | Move (var, b) -> Move (var, b)
     | Branch b -> Branch (Branch.map_blocks b ~f)
@@ -312,6 +351,8 @@ module T = struct
     | Div a -> Div (map_arith_lit_or_vars a ~f)
     | Mod a -> Mod (map_arith_lit_or_vars a ~f)
     | Sub a -> Sub (map_arith_lit_or_vars a ~f)
+    | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
+    | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
     | Move (var, b) -> Move (var, f b)
     | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
     | Return var -> Return (f var)
@@ -337,6 +378,8 @@ module rec Instr0 : (Instr_.S with type t = Block.t t') = struct
     | ( Add _
       | Mul _
       | Div _
+      | Load _
+      | Store _
       | Mod _
       | Sub _
       | Move _
