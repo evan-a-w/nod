@@ -10,6 +10,7 @@ let create ?(capacity = 0) () =
   { arr = Array.create ~len:capacity (Obj.magic ()); length = 0 }
 ;;
 
+let singleton x = { arr = [| x |]; length = 1 }
 let length t = t.length
 
 let rec push t v =
@@ -176,4 +177,27 @@ let map_inplace t ~f =
   for i = 0 to t.length - 1 do
     t.arr.(i) <- f t.arr.(i)
   done
+;;
+
+let append t t' = iter t' ~f:(push t)
+let append_list t l = List.iter l ~f:(push t)
+
+let concat_map t ~f =
+  let new_ = create () in
+  for i = 0 to t.length do
+    f t.arr.(i) |> append new_
+  done;
+  new_
+;;
+
+let concat t =
+  let new_ = create () in
+  iter t ~f:(iter ~f:(push new_));
+  new_
+;;
+
+let concat_list l =
+  let new_ = create () in
+  List.iter l ~f:(iter ~f:(push new_));
+  new_
 ;;

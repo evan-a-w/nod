@@ -24,3 +24,9 @@ val filter : 'a t -> f:('a -> bool) -> 'a t
 val filter_map : 'a t -> f:('a -> 'b option) -> 'b t
 val findi : 'a t -> f:(int -> 'a -> 'b option) -> 'b option
 val map_inplace : 'a t -> f:('a -> 'a) -> unit
+val singleton : 'a -> 'a t
+val concat_map : 'a t -> f:('a -> 'b t) -> 'b t
+val concat : 'a t t -> 'a t
+val concat_list : 'a t list -> 'a t
+val append_list : 'a t -> 'a list -> unit
+val append : 'a t -> 'a t -> unit
