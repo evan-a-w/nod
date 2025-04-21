@@ -24,7 +24,8 @@ end
 module State = struct
   type t =
     { free_regs : Reg.t list
-    ; live_intervals : Interval.Set.t
+    ; mappings : Reg.t Var.Map.t
+    ; live_intervals : Var.t Interval.Map.t
     ; intervals_by_end_point : Interval.t Int.Map.t
     }
   [@@deriving sexp]

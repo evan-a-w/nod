@@ -1,7 +1,13 @@
 open! Core
 
 module Var = struct
-  type t = string [@@deriving sexp, compare, equal, hash]
+  module T = struct
+    type t = string [@@deriving sexp, compare, equal, hash]
+  end
+
+  include T
+  include Comparable.Make (T)
+  include Hashable.Make (T)
 end
 
 module Lit = struct
