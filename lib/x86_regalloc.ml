@@ -9,8 +9,9 @@ let free_regs =
 module Interval = struct
   module T = struct
     type t =
-      { start : int
+      { prio : int
       ; end_ : int
+      ; start : int
       ; reg : Reg.t
       }
     [@@deriving sexp, equal, compare, hash]
