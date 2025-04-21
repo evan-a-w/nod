@@ -23,7 +23,7 @@ end
 
 module State = struct
   type t =
-    { free_regs : Reg.t
+    { free_regs : Reg.t list
     ; live_intervals : Interval.Set.t
     ; intervals_by_end_point : Interval.t Int.Map.t
     }
