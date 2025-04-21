@@ -1,25 +1,35 @@
 open Core
 open Ir
 
-type reg =
-  | Unallocated of Var.t
-  | RAX
-  | RBX
-  | RCX
-  | RDX
-  | RSI
-  | RDI
-  | RBP
-  | RSP
-[@@deriving sexp, compare, equal]
+module Reg = struct
+  type t =
+    | Unallocated of Var.t
+    | RBP
+    | RSP
+    | RAX
+    | RBX
+    | RCX
+    | RDX
+    | RSI
+    | RDI
+    | R8
+    | R9
+    | R10
+    | R11
+    | R12
+    | R13
+    | R14
+    | R15
+  [@@deriving sexp, equal, compare, hash]
+end
 
 type operand =
-  | Reg of reg
+  | Reg of Reg.t
   | Imm of Int64.t
-  | Mem of reg * int (* [reg + disp] *)
-[@@deriving sexp]
+  | Mem of Reg.t * int (* [reg + disp] *)
+[@@deriving sexp, equal, compare, hash]
 
-type insn =
+type t =
   | MOV of operand * operand
   | ADD of operand * operand
   | SUB of operand * operand
@@ -31,4 +41,4 @@ type insn =
   | JE of string
   | JNE of string
   | RET of operand
-[@@deriving sexp]
+[@@deriving sexp, equal, compare, hash]
