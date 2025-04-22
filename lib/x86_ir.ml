@@ -62,7 +62,7 @@ let vars_of_operand = function
 
 let map_reg r ~f =
   match r with
-  | Reg.Unallocated v -> Reg.Unallocated (f v)
+  | Reg.Unallocated v -> f v
   | _ -> r
 ;;
 
@@ -92,19 +92,9 @@ let uses (ins : t) : Var.Set.t =
   | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
 ;;
 
-let map_defs (ins : t) ~(f : Var.t -> Var.t) : t =
+let map_operands (ins : t) ~(f : Var.t -> Reg.t) : t =
   match ins with
-  | MOV (dst, src) -> MOV (map_operand dst ~f, src)
-  | ADD (dst, src) -> ADD (map_operand dst ~f, src)
-  | SUB (dst, src) -> SUB (map_operand dst ~f, src)
-  | MUL (dst, src) -> MUL (map_operand dst ~f, src)
-  | IDIV _ | LABEL _ | JMP _ | CMP (_, _) | JE _ | JNE _ | RET _ ->
-    ins (* no virtual‑defs *)
-;;
-
-let map_uses (ins : t) ~(f : Var.t -> Var.t) : t =
-  match ins with
-  | MOV (dst, src) -> MOV (dst, map_operand src ~f)
+  | MOV (dst, src) -> MOV (map_operand dst ~f, map_operand src ~f)
   | ADD (dst, src) -> ADD (map_operand dst ~f, map_operand src ~f)
   | SUB (dst, src) -> SUB (map_operand dst ~f, map_operand src ~f)
   | MUL (dst, src) -> MUL (map_operand dst ~f, map_operand src ~f)

@@ -76,7 +76,7 @@ module State = struct
       | Some x ->
         Map.closest_key t.live_intervals `Greater_than x |> Option.value_exn
     in
-    if not (Set.mem don't_spill interval.reg)
+    if not (Set.mem !don't_spill interval.reg)
     then (
       t.live_intervals <- Map.remove t.live_intervals interval;
       res)
@@ -102,28 +102,59 @@ module State = struct
   ;;
 end
 
-(* let process ~stack_offset instrs = *)
-(*   let state = State.create ~alloc_from:stack_offset in *)
-(*   Vec.concat_map instrs ~f:(fun instr -> *)
-
-(*       let uses' = uses instr in *)
-(*       let defs' = defs instr in *)
-(*       let both = (Set.union uses' defs') in *)
-(*       let don't_spill = Set.filter_map (module Reg) both ~f:(fun this -> *)
-(*           match Hashtbl.find state.mappings this with *)
-(*           | Some (Reg r) -> Some r *)
-(*           | Some (Stack_slot _) | None -> None *)
-(*         ) in *)
-(*       let allocs_this_time = Set.fold ~init:Var.Set.empty both ~f:(fun acc this -> *)
-(*           match Hashtbl.find state.mappings this with *)
-(*           | Some (Reg r) ->  *)
-
-(*         ) *)
-
-(*       in *)
-(*        let new_mappings = uses instr |> Set.to_list |> List.map ~f:(fun use -> *)
-
-(*         ) *)
-
-(*     ) *)
-(* ;; *)
+let process ~stack_offset instrs =
+  let state = State.create ~alloc_from:stack_offset in
+  Vec.concat_map instrs ~f:(fun instr ->
+    let uses' = uses instr in
+    let defs' = defs instr in
+    let both = Set.union uses' defs' in
+    let find_reg_mapping var =
+      match Hashtbl.find state.mappings var with
+      | Some (Reg r) -> Some r
+      | Some (Stack_slot _) | None -> None
+    in
+    let uses_need_reg =
+      Set.filter uses' ~f:(Fn.compose Option.is_some find_reg_mapping)
+    in
+    let defs_need_reg =
+      Set.diff defs' uses'
+      |> Set.filter ~f:(Fn.compose Option.is_some find_reg_mapping)
+    in
+    let don't_spill =
+      ref (Set.filter_map (module Reg) both ~f:find_reg_mapping)
+    in
+    (* TODO: actually set intervals for the allocs we do *)
+    let spills_and_loads_for_uses =
+      (Set.to_list uses_need_reg |> List.map ~f:(fun x -> x, `Use))
+      @ (Set.to_list defs_need_reg |> List.map ~f:(fun x -> x, `Def))
+      |> List.map ~f:(fun (this, use_or_def) ->
+        let instrs_for_this_var = Vec.create () in
+        let reg =
+          match State.get_reg_or_spill ~don't_spill state with
+          | `Spill (instr, reg) ->
+            Vec.push instrs_for_this_var instr;
+            reg
+          | `Reg reg -> reg
+        in
+        don't_spill := Set.add !don't_spill reg;
+        (match use_or_def, Hashtbl.find state.mappings this with
+         | _, Some (Reg _) -> failwith "impossible"
+         | `Def, _ -> ()
+         | `Use, Some (Stack_slot stack_slot) ->
+           MOV (Reg reg, Mem (RSP, -stack_slot)) |> Vec.push instrs_for_this_var
+         | `Use, None ->
+           MOV (Reg reg, Imm Int64.zero) |> Vec.push instrs_for_this_var);
+        (* TODO: set interval also *)
+        Hashtbl.set state.mappings ~key:this ~data:(Reg reg);
+        instrs_for_this_var)
+      |> Vec.concat_list
+    in
+    let instr =
+      map_operands instr ~f:(fun use ->
+        match Hashtbl.find_exn state.mappings use with
+        | Reg r -> r
+        | Stack_slot _ -> failwith "impossible")
+    in
+    Vec.push spills_and_loads_for_uses instr;
+    spills_and_loads_for_uses)
+;;
