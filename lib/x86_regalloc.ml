@@ -150,7 +150,15 @@ let calculate_live_ranges instrs ~state =
     Set.iter (uses instr) ~f:(fun v -> Hashtbl.set last_use ~key:v ~data:idx));
   Hashtbl.iteri first_def ~f:(fun ~key:var ~data:start ->
     let end_ = Hashtbl.find_or_add last_use var ~default:(fun () -> start) in
-    Hashtbl.set state.State.live_ranges ~key:var ~data:{ Interval.start; end_ })
+    Hashtbl.set state.State.live_ranges ~key:var ~data:{ Interval.start; end_ });
+  Hashtbl.iteri last_use ~f:(fun ~key:var ~data:end_ ->
+    if Hashtbl.mem first_def var
+    then ()
+    else
+      Hashtbl.set
+        state.State.live_ranges
+        ~key:var
+        ~data:{ Interval.start = end_; end_ })
 ;;
 
 let process ~stack_offset instrs =
