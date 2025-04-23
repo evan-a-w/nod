@@ -13,6 +13,7 @@ module Interval = struct
       ; end_ : int
       ; start : int
       ; reg : Reg.t
+      ; var : Var.t
       }
     [@@deriving sexp, equal, compare, hash]
   end
@@ -57,6 +58,7 @@ module State = struct
     { mutable free_regs : Reg.t list
     ; mappings : Mapping.t Var.Table.t
     ; mutable live_intervals : Var.t Interval.Map.t
+    ; mutable live_intervals_by_end_point : Interval.Set.t Int.Map.t
     ; stack_slots : Stack_slots.t
     }
   [@@deriving sexp]
@@ -69,6 +71,21 @@ module State = struct
       Some reg
   ;;
 
+  let remove_interval ~interval t =
+    t.live_intervals <- Map.remove t.live_intervals interval;
+    t.live_intervals_by_end_point
+    <- Map.change t.live_intervals_by_end_point interval.end_ ~f:(function
+         | None -> None
+         | Some s ->
+           let s = Set.remove s interval in
+           if Set.is_empty s then None else Some s)
+  ;;
+
+  let remove_interval_and_mapping ~interval t =
+    remove_interval ~interval t;
+    Hashtbl.remove t.mappings interval.var
+  ;;
+
   let rec to_spill ~don't_spill ?current t =
     let ((interval, _) as res) =
       match current with
@@ -78,7 +95,7 @@ module State = struct
     in
     if not (Set.mem !don't_spill interval.reg)
     then (
-      t.live_intervals <- Map.remove t.live_intervals interval;
+      remove_interval t ~interval;
       res)
     else to_spill ~don't_spill ~current:interval t
   ;;
@@ -97,6 +114,7 @@ module State = struct
     { free_regs
     ; mappings = Var.Table.create ()
     ; live_intervals = Interval.Map.empty
+    ; live_intervals_by_end_point = Int.Map.empty
     ; stack_slots = Stack_slots.create ~alloc_from
     }
   ;;
@@ -104,7 +122,11 @@ end
 
 let process ~stack_offset instrs =
   let state = State.create ~alloc_from:stack_offset in
-  Vec.concat_map instrs ~f:(fun instr ->
+  Vec.concat_mapi instrs ~f:(fun i instr ->
+    Set.iter
+      (Map.find state.live_intervals_by_end_point i
+       |> Option.value ~default:Interval.Set.empty)
+      ~f:(fun interval -> State.remove_interval_and_mapping state ~interval);
     let uses' = uses instr in
     let defs' = defs instr in
     let both = Set.union uses' defs' in

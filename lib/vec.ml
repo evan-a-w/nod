@@ -101,7 +101,8 @@ let%expect_test "push" =
   push t 4;
   push t 5;
   iter t ~f:(fun x -> Int.to_string x |> print_endline);
-  [%expect {|
+  [%expect
+    {|
     1
     2
     3
@@ -181,6 +182,14 @@ let map_inplace t ~f =
 
 let append t t' = iter t' ~f:(push t)
 let append_list t l = List.iter l ~f:(push t)
+
+let concat_mapi t ~f =
+  let new_ = create () in
+  for i = 0 to t.length do
+    f i t.arr.(i) |> append new_
+  done;
+  new_
+;;
 
 let concat_map t ~f =
   let new_ = create () in

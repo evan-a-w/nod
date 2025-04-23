@@ -26,6 +26,7 @@ val findi : 'a t -> f:(int -> 'a -> 'b option) -> 'b option
 val map_inplace : 'a t -> f:('a -> 'a) -> unit
 val singleton : 'a -> 'a t
 val concat_map : 'a t -> f:('a -> 'b t) -> 'b t
+val concat_mapi : 'a t -> f:(int -> 'a -> 'b t) -> 'b t
 val concat : 'a t t -> 'a t
 val concat_list : 'a t list -> 'a t
 val append_list : 'a t -> 'a list -> unit
