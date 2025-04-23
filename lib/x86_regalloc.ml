@@ -9,9 +9,22 @@ let free_regs =
 module Interval = struct
   module T = struct
     type t =
-      { prio : int
-      ; end_ : int
+      { end_ : int
       ; start : int
+      }
+    [@@deriving sexp, equal, compare, hash]
+  end
+
+  include T
+  include Comparable.Make (T)
+  include Hashable.Make (T)
+end
+
+module Allocation = struct
+  module T = struct
+    type t =
+      { prio : int
+      ; interval : Interval.t
       ; reg : Reg.t
       ; var : Var.t
       }
@@ -56,9 +69,10 @@ end
 module State = struct
   type t =
     { mutable free_regs : Reg.t list
+    ; live_ranges : Interval.t Var.Table.t
     ; mappings : Mapping.t Var.Table.t
-    ; mutable live_intervals : Var.t Interval.Map.t
-    ; mutable live_intervals_by_end_point : Interval.Set.t Int.Map.t
+    ; mutable allocations : Var.t Allocation.Map.t
+    ; mutable allocations_by_end_point : Allocation.Set.t Int.Map.t
     ; stack_slots : Stack_slots.t
     }
   [@@deriving sexp]
@@ -71,62 +85,83 @@ module State = struct
       Some reg
   ;;
 
-  let remove_interval ~interval t =
-    t.live_intervals <- Map.remove t.live_intervals interval;
-    t.live_intervals_by_end_point
-    <- Map.change t.live_intervals_by_end_point interval.end_ ~f:(function
+  let remove_allocation ~allocation t =
+    t.allocations <- Map.remove t.allocations allocation;
+    t.allocations_by_end_point
+    <- Map.change
+         t.allocations_by_end_point
+         allocation.interval.end_
+         ~f:(function
          | None -> None
          | Some s ->
-           let s = Set.remove s interval in
+           let s = Set.remove s allocation in
            if Set.is_empty s then None else Some s)
   ;;
 
-  let remove_interval_and_mapping ~interval t =
-    remove_interval ~interval t;
-    Hashtbl.remove t.mappings interval.var
+  let remove_allocation_and_mapping ~allocation t =
+    remove_allocation ~allocation t;
+    Hashtbl.remove t.mappings allocation.var
   ;;
 
   let rec to_spill ~don't_spill ?current t =
-    let ((interval, _) as res) =
+    let ((allocation, _) as res) =
       match current with
-      | None -> Map.min_elt_exn t.live_intervals
+      | None -> Map.min_elt_exn t.allocations
       | Some x ->
-        Map.closest_key t.live_intervals `Greater_than x |> Option.value_exn
+        Map.closest_key t.allocations `Greater_than x |> Option.value_exn
     in
-    if not (Set.mem !don't_spill interval.reg)
+    if not (Set.mem !don't_spill allocation.reg)
     then (
-      remove_interval t ~interval;
+      remove_allocation t ~allocation;
       res)
-    else to_spill ~don't_spill ~current:interval t
+    else to_spill ~don't_spill ~current:allocation t
   ;;
 
   let get_reg_or_spill ~don't_spill t =
     match get_reg t with
     | Some x -> `Reg x
     | None ->
-      let interval, var_to_spill = to_spill ~don't_spill t in
+      let allocation, var_to_spill = to_spill ~don't_spill t in
       let stack_slot = Stack_slots.alloc t.stack_slots in
       Hashtbl.set t.mappings ~key:var_to_spill ~data:(Stack_slot stack_slot);
-      `Spill (MOV (Mem (RSP, -stack_slot), Reg interval.reg), interval.reg)
+      `Spill (MOV (Mem (RSP, -stack_slot), Reg allocation.reg), allocation.reg)
   ;;
 
   let create ~alloc_from =
     { free_regs
+    ; live_ranges = Var.Table.create ()
     ; mappings = Var.Table.create ()
-    ; live_intervals = Interval.Map.empty
-    ; live_intervals_by_end_point = Int.Map.empty
+    ; allocations = Allocation.Map.empty
+    ; allocations_by_end_point = Int.Map.empty
     ; stack_slots = Stack_slots.create ~alloc_from
     }
   ;;
 end
 
+let calculate_live_ranges instrs ~state =
+  let first_def = Hashtbl.Poly.create () in
+  let last_use = Hashtbl.Poly.create () in
+  Vec.iteri instrs ~f:(fun idx instr ->
+    Set.iter (defs instr) ~f:(fun v ->
+      Hashtbl.set
+        first_def
+        ~key:v
+        ~data:(Hashtbl.find_or_add first_def v ~default:(fun () -> idx)));
+    Set.iter (uses instr) ~f:(fun v -> Hashtbl.set last_use ~key:v ~data:idx));
+  Hashtbl.iteri first_def ~f:(fun ~key:var ~data:start ->
+    let end_ = Hashtbl.find_or_add last_use var ~default:(fun () -> start) in
+    Hashtbl.set state.State.live_ranges ~key:var ~data:{ Interval.start; end_ })
+;;
+
 let process ~stack_offset instrs =
   let state = State.create ~alloc_from:stack_offset in
+  calculate_live_ranges instrs ~state;
   Vec.concat_mapi instrs ~f:(fun i instr ->
     Set.iter
-      (Map.find state.live_intervals_by_end_point i
-       |> Option.value ~default:Interval.Set.empty)
-      ~f:(fun interval -> State.remove_interval_and_mapping state ~interval);
+      (Map.find state.allocations_by_end_point i
+       |> Option.value ~default:Allocation.Set.empty)
+      ~f:(fun allocation ->
+        State.remove_allocation_and_mapping state ~allocation);
     let uses' = uses instr in
     let defs' = defs instr in
     let both = Set.union uses' defs' in
@@ -145,7 +180,7 @@ let process ~stack_offset instrs =
     let don't_spill =
       ref (Set.filter_map (module Reg) both ~f:find_reg_mapping)
     in
-    (* TODO: actually set intervals for the allocs we do *)
+    (* TODO: actually set allocations for the allocs we do *)
     let spills_and_loads_for_uses =
       (Set.to_list uses_need_reg |> List.map ~f:(fun x -> x, `Use))
       @ (Set.to_list defs_need_reg |> List.map ~f:(fun x -> x, `Def))
@@ -166,7 +201,7 @@ let process ~stack_offset instrs =
            MOV (Reg reg, Mem (RSP, -stack_slot)) |> Vec.push instrs_for_this_var
          | `Use, None ->
            MOV (Reg reg, Imm Int64.zero) |> Vec.push instrs_for_this_var);
-        (* TODO: set interval also *)
+        (* TODO: set allocation also *)
         Hashtbl.set state.mappings ~key:this ~data:(Reg reg);
         instrs_for_this_var)
       |> Vec.concat_list
