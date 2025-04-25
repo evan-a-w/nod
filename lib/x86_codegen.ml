@@ -60,7 +60,7 @@ let sel_instr ~instrs ir =
     | Branch (Cond { cond; if_true; if_false }) ->
       let c = operand_of_lit_or_var cond in
       [ CMP (c, Imm 0L)
-      ; JNE if_true.block.Block.id_hum
+      ; JNE (if_true.block.Block.id_hum, None)
       ; JMP if_false.block.Block.id_hum
       ]
     | Noop -> []
@@ -69,7 +69,6 @@ let sel_instr ~instrs ir =
   Vec.append_list instrs new_
 ;;
 
-(* Compile a block to x86 instructions *)
 let compile_block ~instrs (blk : Block.t) =
   let label = LABEL blk.id_hum in
   Vec.push instrs label;
@@ -77,8 +76,7 @@ let compile_block ~instrs (blk : Block.t) =
   sel_instr ~instrs blk.terminal
 ;;
 
-(* Compile whole CFG *)
-let compile_cfg (blocks : Block.t Vec.t) : Var.t X86_ir.instr Vec.t =
+let compile_cfg (blocks : Block.t Vec.t) : (Var.t, string) X86_ir.instr Vec.t =
   let instrs = Vec.create () in
   Vec.iter blocks ~f:(compile_block ~instrs);
   instrs

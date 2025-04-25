@@ -38,8 +38,9 @@ module T = struct
     | LABEL of 'block
     | JMP of 'block
     | CMP of 'a operand * 'a operand
-    | JE of 'block
-    | JNE of 'block
+      (* second arg is so we can store info of next block in case it's false *)
+    | JE of 'block * 'block option
+    | JNE of 'block * 'block option
     | RET of 'a operand
   [@@deriving sexp, equal, compare, hash]
 end
@@ -115,6 +116,13 @@ module Make (Var : Arg) = struct
     | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
   ;;
 
+  let blocks instr =
+    match instr with
+    | MOV _ | ADD _ | SUB _ | MUL _ | IDIV _ | CMP _ | RET _ -> []
+    | LABEL lbl | JMP lbl -> [ lbl ]
+    | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
+  ;;
+
   let map_blocks (instr : 'a t') ~(f : 'a -> 'b) : 'b t' =
     match instr with
     | MOV (x, y) -> MOV (x, y)
@@ -125,8 +133,8 @@ module Make (Var : Arg) = struct
     | LABEL lbl -> LABEL (f lbl)
     | JMP lbl -> JMP (f lbl)
     | CMP (x, y) -> CMP (x, y)
-    | JE lbl -> JE (f lbl)
-    | JNE lbl -> JNE (f lbl)
+    | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
+    | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
     | RET x -> RET x
   ;;
 

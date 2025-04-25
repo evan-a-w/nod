@@ -365,6 +365,10 @@ module T = struct
     | Noop -> Noop
     | Unreachable -> Unreachable
   ;;
+
+  let jump_to block' =
+    Branch (Branch.Uncond { Call_block.block = block'; args = [] })
+  ;;
 end
 
 include T
