@@ -1,10 +1,9 @@
 open Core
-open Ir
 
-module Reg = struct
-  module T = struct
-    type t =
-      | Unallocated of Var.t
+module T = struct
+  module Reg = struct
+    type 'a t =
+      | Unallocated of 'a
       | RBP
       | RSP
       | RAX
@@ -24,82 +23,101 @@ module Reg = struct
     [@@deriving sexp, equal, compare, hash]
   end
 
-  include T
-  include Comparable.Make (T)
-  include Hashable.Make (T)
+  type 'a operand =
+    | Reg of 'a Reg.t
+    | Imm of Int64.t
+    | Mem of 'a Reg.t * int (* [reg + disp] *)
+  [@@deriving sexp, equal, compare, hash]
+
+  type 'a instr =
+    | MOV of 'a operand * 'a operand
+    | ADD of 'a operand * 'a operand
+    | SUB of 'a operand * 'a operand
+    | MUL of 'a operand * 'a operand
+    | IDIV of 'a operand (* divide RAX by 'a operand  result in RAX, RDX *)
+    | LABEL of string
+    | JMP of string
+    | CMP of 'a operand * 'a operand
+    | JE of string
+    | JNE of string
+    | RET of 'a operand
+  [@@deriving sexp, equal, compare, hash]
 end
 
-type operand =
-  | Reg of Reg.t
-  | Imm of Int64.t
-  | Mem of Reg.t * int (* [reg + disp] *)
-[@@deriving sexp, equal, compare, hash]
+include T
 
-type t =
-  | MOV of operand * operand
-  | ADD of operand * operand
-  | SUB of operand * operand
-  | MUL of operand * operand
-  | IDIV of operand (* divide RAX by operand, result in RAX, RDX *)
-  | LABEL of string
-  | JMP of string
-  | CMP of operand * operand
-  | JE of string
-  | JNE of string
-  | RET of operand
-[@@deriving sexp, equal, compare, hash]
+module type Arg = sig
+  type t [@@deriving sexp, equal, compare, hash]
 
-let vars_of_reg = function
-  | Reg.Unallocated v -> Var.Set.singleton v
-  | _ -> Var.Set.empty
-;;
+  module Set : Set.S with type Elt.t = t
+end
 
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ -> Var.Set.empty
-  | Mem (r, _disp) -> vars_of_reg r
-;;
+module Make (Var : Arg) = struct
+  include T
 
-let map_reg r ~f =
-  match r with
-  | Reg.Unallocated v -> f v
-  | _ -> r
-;;
+  type t = Var.t instr [@@deriving sexp, equal, compare, hash]
 
-let map_operand op ~f =
-  match op with
-  | Reg r -> Reg (map_reg r ~f)
-  | Imm _ -> op
-  | Mem (r, disp) -> Mem (map_reg r ~f, disp)
-;;
+  module Reg_comparable = struct
+    module T = struct
+      type t = Var.t Reg.t [@@deriving sexp, compare]
+    end
 
-let defs (ins : t) : Var.Set.t =
-  match ins with
-  | MOV (dst, _) -> vars_of_operand dst
-  | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
-  | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
-  | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
-;;
+    include T
+    include Comparable.Make (T)
+  end
 
-let uses (ins : t) : Var.Set.t =
-  match ins with
-  | MOV (_, src) -> vars_of_operand src
-  | ADD (dst, src) | SUB (dst, src) | MUL (dst, src) ->
-    Set.union (vars_of_operand dst) (vars_of_operand src)
-  | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
-  | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
-  | RET op -> vars_of_operand op
-  | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
-;;
+  let vars_of_reg = function
+    | Reg.Unallocated v -> Var.Set.singleton v
+    | _ -> Var.Set.empty
+  ;;
 
-let map_operands (ins : t) ~(f : Var.t -> Reg.t) : t =
-  match ins with
-  | MOV (dst, src) -> MOV (map_operand dst ~f, map_operand src ~f)
-  | ADD (dst, src) -> ADD (map_operand dst ~f, map_operand src ~f)
-  | SUB (dst, src) -> SUB (map_operand dst ~f, map_operand src ~f)
-  | MUL (dst, src) -> MUL (map_operand dst ~f, map_operand src ~f)
-  | IDIV op -> IDIV (map_operand op ~f)
-  | CMP (a, b) -> CMP (map_operand a ~f, map_operand b ~f)
-  | RET op -> RET (map_operand op ~f)
-  | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
-;;
+  let vars_of_operand = function
+    | Reg r -> vars_of_reg r
+    | Imm _ -> Var.Set.empty
+    | Mem (r, _disp) -> vars_of_reg r
+  ;;
+
+  let map_reg r ~f =
+    match r with
+    | Reg.Unallocated v -> f v
+    | _ -> r
+  ;;
+
+  let map_operand op ~f =
+    match op with
+    | Reg r -> Reg (map_reg r ~f)
+    | Imm _ -> op
+    | Mem (r, disp) -> Mem (map_reg r ~f, disp)
+  ;;
+
+  let defs (ins : t) : Var.Set.t =
+    match ins with
+    | MOV (dst, _) -> vars_of_operand dst
+    | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
+    | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
+    | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+  ;;
+
+  let uses (ins : t) : Var.Set.t =
+    match ins with
+    | MOV (_, src) -> vars_of_operand src
+    | ADD (dst, src) | SUB (dst, src) | MUL (dst, src) ->
+      Set.union (vars_of_operand dst) (vars_of_operand src)
+    | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
+    | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
+    | RET op -> vars_of_operand op
+    | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+  ;;
+
+  let map_operands (ins : t) ~(f : Var.t -> Var.t Reg.t) : t =
+    match ins with
+    | MOV (dst, src) -> MOV (map_operand dst ~f, map_operand src ~f)
+    | ADD (dst, src) -> ADD (map_operand dst ~f, map_operand src ~f)
+    | SUB (dst, src) -> SUB (map_operand dst ~f, map_operand src ~f)
+    | MUL (dst, src) -> MUL (map_operand dst ~f, map_operand src ~f)
+    | IDIV op -> IDIV (map_operand op ~f)
+    | CMP (a, b) -> CMP (map_operand a ~f, map_operand b ~f)
+    | RET op -> RET (map_operand op ~f)
+    | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+  ;;
+end

@@ -4,7 +4,7 @@ open X86_ir
 open Lit_or_var
 open Mem
 
-let reg_of_var (v : Var.t) : Reg.t = Unallocated v
+let reg_of_var (v : Var.t) : Var.t Reg.t = Unallocated v
 
 let operand_of_lit_or_var = function
   | Lit n -> Imm n
@@ -78,7 +78,7 @@ let compile_block ~instrs (blk : Block.t) =
 ;;
 
 (* Compile whole CFG *)
-let compile_cfg (blocks : Block.t Vec.t) : X86_ir.t Vec.t =
+let compile_cfg (blocks : Block.t Vec.t) : Var.t X86_ir.instr Vec.t =
   let instrs = Vec.create () in
   Vec.iter blocks ~f:(compile_block ~instrs);
   instrs

@@ -1,8 +1,11 @@
 open! Core
 open! Ir
-open! X86_ir
+module Slow_x86_ir = X86_ir.Make (Var)
+module Bit_var = Var
+module X86_ir = X86_ir.Make (Bit_var)
+open X86_ir
 
-let free_regs =
+let free_regs () =
   [ Reg.RAX; RBX; RCX; RDX; RSI; RDI; R8; R9; R10; R11; R12; R13; R14; R15 ]
 ;;
 
@@ -25,8 +28,8 @@ module Allocation = struct
     type t =
       { prio : int
       ; interval : Interval.t
-      ; reg : Reg.t
-      ; var : Var.t
+      ; reg : Bit_var.t Reg.t
+      ; var : Bit_var.t
       }
     [@@deriving sexp, equal, compare, hash]
   end
@@ -61,14 +64,14 @@ end
 
 module Mapping = struct
   type t =
-    | Reg of Reg.t
+    | Reg of Bit_var.t Reg.t
     | Stack_slot of Stack_slot.t
   [@@deriving sexp, compare, equal, hash]
 end
 
 module State = struct
   type t =
-    { mutable free_regs : Reg.t list
+    { mutable free_regs : Bit_var.t Reg.t list
     ; live_ranges : Interval.t Var.Table.t
     ; mappings : Mapping.t Var.Table.t
     ; mutable allocations : Var.t Allocation.Map.t
@@ -124,11 +127,12 @@ module State = struct
       let allocation, var_to_spill = to_spill ~don't_spill t in
       let stack_slot = Stack_slots.alloc t.stack_slots in
       Hashtbl.set t.mappings ~key:var_to_spill ~data:(Stack_slot stack_slot);
-      `Spill (MOV (Mem (RSP, -stack_slot), Reg allocation.reg), allocation.reg)
+      `Spill
+        (X86_ir.MOV (Mem (RSP, -stack_slot), Reg allocation.reg), allocation.reg)
   ;;
 
   let create ~alloc_from =
-    { free_regs
+    { free_regs = free_regs ()
     ; live_ranges = Var.Table.create ()
     ; mappings = Var.Table.create ()
     ; allocations = Allocation.Map.empty
@@ -186,7 +190,8 @@ let process ~stack_offset instrs =
       |> Set.filter ~f:(Fn.compose Option.is_some find_reg_mapping)
     in
     let don't_spill =
-      ref (Set.filter_map (module Reg) both ~f:find_reg_mapping)
+      ref
+        (Set.filter_map (module X86_ir.Reg_comparable) both ~f:find_reg_mapping)
     in
     (* TODO: actually set allocations for the allocs we do *)
     let spills_and_loads_for_uses =
