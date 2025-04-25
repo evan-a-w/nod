@@ -1,5 +1,15 @@
 open! Core
 
+module type Ir = sig
+  type t
+  type 'a t'
+
+  module Block : Block_m.S with type instr := t
+
+  val unreachable : t
+  val blocks : t -> string list
+end
+
 (* go from
 
    [string Ir.t' Vec.t String.Map.t * string Vec.t]
@@ -8,7 +18,9 @@ open! Core
 
    to an actual cfg, [Ir.t]
 *)
-let process ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
+let process
+      (module Ir : Ir)
+      ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
   : Ir.Block.t * Ir.Block.t Vec.t
   =
   let new_block id_hum : Ir.Block.t =
@@ -17,7 +29,7 @@ let process ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
     ; parents = Vec.create ()
     ; children = Vec.create ()
     ; instructions = Vec.create ()
-    ; terminal = Ir.Unreachable
+    ; terminal = Ir.unreachable
     ; dfs_id = None
     }
   in

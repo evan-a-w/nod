@@ -3,7 +3,7 @@ open! Core
 module type S = sig
   type instr
 
-  module Instr : Instr.S with type t = instr
+  module Instr : Instr_m.S_plain with type t = instr
 
   type t =
     { id_hum : string
@@ -29,7 +29,7 @@ module type S = sig
   end
 end
 
-module Make (Arg : Instr.S) : S with type instr := Arg.t = struct
+module Make (Arg : Instr_m.S_plain) : S with type instr := Arg.t = struct
   module Instr = Arg
 
   module T = struct

@@ -361,7 +361,7 @@ end
 module Make (Params : Parameters.S) = struct
   module Params_with_block = struct
     include Params
-    module Block = Block.Make (Instr)
+    module Block = Block_m.Make (Instr)
   end
 
   include Make_with_block (Params_with_block)

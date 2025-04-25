@@ -29,17 +29,17 @@ module T = struct
     | Mem of 'a Reg.t * int (* [reg + disp] *)
   [@@deriving sexp, equal, compare, hash]
 
-  type 'a instr =
+  type ('a, 'block) instr =
     | MOV of 'a operand * 'a operand
     | ADD of 'a operand * 'a operand
     | SUB of 'a operand * 'a operand
     | MUL of 'a operand * 'a operand
     | IDIV of 'a operand (* divide RAX by 'a operand  result in RAX, RDX *)
-    | LABEL of string
-    | JMP of string
+    | LABEL of 'block
+    | JMP of 'block
     | CMP of 'a operand * 'a operand
-    | JE of string
-    | JNE of string
+    | JE of 'block
+    | JNE of 'block
     | RET of 'a operand
   [@@deriving sexp, equal, compare, hash]
 end
@@ -55,7 +55,13 @@ end
 module Make (Var : Arg) = struct
   include T
 
-  type t = Var.t instr [@@deriving sexp, equal, compare, hash]
+  type 'block t' = (Var.t, 'block) instr [@@deriving sexp, equal, compare, hash]
+
+  module rec Instr : (Instr_m.S_plain with type t = Block.t t') = struct
+    type t = Block.t t' [@@deriving sexp, compare, hash]
+  end
+
+  and Block : (Block_m.S with type instr := Instr.t) = Block_m.Make (Instr)
 
   module Reg_comparable = struct
     module T = struct
@@ -90,7 +96,7 @@ module Make (Var : Arg) = struct
     | Mem (r, disp) -> Mem (map_reg r ~f, disp)
   ;;
 
-  let defs (ins : t) : Var.Set.t =
+  let defs ins : Var.Set.t =
     match ins with
     | MOV (dst, _) -> vars_of_operand dst
     | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
@@ -98,7 +104,7 @@ module Make (Var : Arg) = struct
     | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
   ;;
 
-  let uses (ins : t) : Var.Set.t =
+  let uses ins : Var.Set.t =
     match ins with
     | MOV (_, src) -> vars_of_operand src
     | ADD (dst, src) | SUB (dst, src) | MUL (dst, src) ->
@@ -109,7 +115,22 @@ module Make (Var : Arg) = struct
     | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
   ;;
 
-  let map_operands (ins : t) ~(f : Var.t -> Var.t Reg.t) : t =
+  let map_blocks (instr : 'a t') ~(f : 'a -> 'b) : 'b t' =
+    match instr with
+    | MOV (x, y) -> MOV (x, y)
+    | ADD (x, y) -> ADD (x, y)
+    | SUB (x, y) -> SUB (x, y)
+    | MUL (x, y) -> MUL (x, y)
+    | IDIV x -> IDIV x
+    | LABEL lbl -> LABEL (f lbl)
+    | JMP lbl -> JMP (f lbl)
+    | CMP (x, y) -> CMP (x, y)
+    | JE lbl -> JE (f lbl)
+    | JNE lbl -> JNE (f lbl)
+    | RET x -> RET x
+  ;;
+
+  let map_operands ins ~(f : Var.t -> Var.t Reg.t) =
     match ins with
     | MOV (dst, src) -> MOV (map_operand dst ~f, map_operand src ~f)
     | ADD (dst, src) -> ADD (map_operand dst ~f, map_operand src ~f)

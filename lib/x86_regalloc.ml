@@ -1,6 +1,8 @@
 open! Core
 open! Ir
 module Slow_x86_ir = X86_ir.Make (Var)
+
+(* will eventually make it a bitset, no need rn *)
 module Bit_var = Var
 module X86_ir = X86_ir.Make (Bit_var)
 open X86_ir

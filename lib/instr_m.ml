@@ -1,5 +1,9 @@
 open! Core
 
+module type S_plain = sig
+  type t [@@deriving sexp, compare, hash]
+end
+
 module type S = sig
   type t [@@deriving sexp, compare, hash]
 
