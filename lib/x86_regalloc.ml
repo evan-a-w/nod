@@ -144,7 +144,17 @@ module State = struct
   ;;
 end
 
-let defs_and_uses _block = Bit_var.Set.empty, Bit_var.Set.empty
+(* uses = uses that aren't yet defined in block *)
+let defs_and_uses block =
+  Vec.fold
+    block.X86_ir.Block.instructions
+    ~init:(Bit_var.Set.empty, Bit_var.Set.empty)
+    ~f:(fun (defs, uses) instr ->
+      let new_uses = Set.diff (X86_ir.uses instr) defs in
+      let uses = Set.union uses new_uses in
+      let defs = Set.union defs (X86_ir.defs instr) in
+      defs, uses)
+;;
 
 let liveness blocks =
   let worklist = Queue.create () in
