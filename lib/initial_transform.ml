@@ -53,8 +53,9 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       if Vec.get st.ancestor (Vec.get st.ancestor v) <> -1
       then (
         compress st (Vec.get st.ancestor v);
-        if Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
-           < Vec.get st.semi (Vec.get st.label v)
+        if
+          Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
+          < Vec.get st.semi (Vec.get st.label v)
         then Vec.set st.label v (Vec.get st.label (Vec.get st.ancestor v));
         Vec.set st.ancestor v (Vec.get st.ancestor (Vec.get st.ancestor v)))
     ;;
@@ -222,10 +223,11 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
     ;;
 
     let rec dominates t block1 block2 =
-      if phys_equal block1 block2
-         || Hashtbl.find t.immediate_dominees block1
-            |> Option.map ~f:(fun set -> Hash_set.mem set block2)
-            |> Option.value ~default:false
+      if
+        phys_equal block1 block2
+        || Hashtbl.find t.immediate_dominees block1
+           |> Option.map ~f:(fun set -> Hash_set.mem set block2)
+           |> Option.value ~default:false
       then true
       else (
         match Hashtbl.find t.dominate_queries (block1, block2) with
@@ -286,10 +288,11 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
         match Hashtbl.find t.reaching_def r with
         | None -> r
         | Some r' ->
-          if dominates
-               t
-               (Hashtbl.find t.definition r' |> Option.value ~default:block)
-               block
+          if
+            dominates
+              t
+              (Hashtbl.find t.definition r' |> Option.value ~default:block)
+              block
           then r'
           else go r'
       in
@@ -342,7 +345,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       }
     ;;
 
-    let create (root, in_order) =
+    let create (root, _block_by_label, in_order) =
       Def_uses.create root
       |> create_uninit ~in_order
       |> calculate_dominator_tree

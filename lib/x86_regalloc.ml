@@ -144,59 +144,95 @@ module State = struct
   ;;
 end
 
-(* uses = uses that aren't yet defined in block *)
-let defs_and_uses block =
-  let f =
-    fun (defs, uses) instr ->
-    let new_uses = Set.diff (X86_ir.uses instr) defs in
-    let uses = Set.union uses new_uses in
-    let defs = Set.union defs (X86_ir.defs instr) in
-    defs, uses
-  in
-  let acc =
-    Vec.fold
-      block.X86_ir.Block.instructions
-      ~init:(Bit_var.Set.empty, Bit_var.Set.empty)
-      ~f
-  in
-  f acc block.terminal
-;;
+module Block_info = struct
+  type t =
+    { block_starts : int String.Map.t
+    ; block_ends : int String.Map.t
+    ; block_adj : String.t list String.Table.t
+    ; live_in : Bit_var.Set.t String.Table.t
+    ; live_out : Bit_var.Set.t String.Table.t
+    }
 
-let liveness blocks =
-  let worklist = Queue.create () in
-  let live_in = X86_ir.Block.Table.create () in
-  let live_out = X86_ir.Block.Table.create () in
-  let block_defs = X86_ir.Block.Table.create () in
-  let block_uses = X86_ir.Block.Table.create () in
-  Vec.iter blocks ~f:(fun block ->
-    let defs, uses = defs_and_uses block in
-    Hashtbl.set block_defs ~key:block ~data:defs;
-    Hashtbl.set block_uses ~key:block ~data:uses);
-  let find_set tbl block =
-    Hashtbl.find_or_add tbl block ~default:(fun () -> Bit_var.Set.empty)
-  in
-  Vec.iter blocks ~f:(Queue.enqueue worklist);
-  while not (Queue.is_empty worklist) do
-    let block = Queue.dequeue_exn worklist in
-    (* live_out[b] = U LIVE_IN[succ] *)
-    let new_live_out =
-      X86_ir.blocks block.Block.terminal
-      |> List.map ~f:(find_set live_in)
-      |> Bit_var.Set.union_list
+  (* uses = uses that aren't yet defined in block *)
+  let defs_uses_and_end ~block_start ~instrs =
+    let rec go ~acc:((defs, uses) as acc) i =
+      if i < Vec.length instrs
+      then acc, i
+      else (
+        match Vec.get instrs i with
+        | LABEL _ -> acc, i
+        | instr ->
+          let new_uses = Set.diff (X86_ir.uses instr) defs in
+          let uses = Set.union uses new_uses in
+          let defs = Set.union defs (X86_ir.defs instr) in
+          go ~acc:(defs, uses) (i + 1))
     in
-    (* live_in[b]  = use U (live_out / def) *)
-    let new_live_in =
-      Set.union
-        (Hashtbl.find_exn block_uses block)
-        (Set.diff new_live_out (Hashtbl.find_exn block_defs block))
+    go ~acc:(Bit_var.Set.empty, Bit_var.Set.empty) (block_start + 1)
+  ;;
+
+  let create ~block_starts ~block_adj ~instrs =
+    let worklist = Queue.create () in
+    let live_in = String.Table.create () in
+    let live_out = String.Table.create () in
+    let block_ends = ref String.Map.empty in
+    let block_defs = String.Table.create () in
+    let block_uses = String.Table.create () in
+    Map.iteri block_starts ~f:(fun ~key:block ~data:block_start ->
+      let (defs, uses), end_ = defs_uses_and_end ~block_start ~instrs in
+      Hashtbl.set block_defs ~key:block ~data:defs;
+      Hashtbl.set block_uses ~key:block ~data:uses;
+      block_ends := Map.set !block_ends ~key:block ~data:end_);
+    let find_set tbl block =
+      Hashtbl.find_or_add tbl block ~default:(fun () -> Bit_var.Set.empty)
     in
-    if not (Bit_var.Set.equal new_live_in (find_set live_in block))
-    then (
-      Hashtbl.set live_in ~key:block ~data:new_live_in;
-      Hashtbl.set live_out ~key:block ~data:new_live_out;
-      (* only needs pred blocks but cbf to compute *)
-      Vec.iter blocks ~f:(Queue.enqueue worklist))
-  done
+    Map.iter_keys block_starts ~f:(Queue.enqueue worklist);
+    while not (Queue.is_empty worklist) do
+      let block = Queue.dequeue_exn worklist in
+      (* live_out[b] = U LIVE_IN[succ] *)
+      let new_live_out =
+        Hashtbl.find_exn block_adj block
+        |> List.map ~f:(find_set live_in)
+        |> Bit_var.Set.union_list
+      in
+      (* live_in[b]  = use U (live_out / def) *)
+      let new_live_in =
+        Set.union
+          (Hashtbl.find_exn block_uses block)
+          (Set.diff new_live_out (Hashtbl.find_exn block_defs block))
+      in
+      if not (Bit_var.Set.equal new_live_in (find_set live_in block))
+      then (
+        Hashtbl.set live_in ~key:block ~data:new_live_in;
+        Hashtbl.set live_out ~key:block ~data:new_live_out;
+        (* only needs pred blocks but cbf to compute *)
+        Map.iter_keys block_starts ~f:(Queue.enqueue worklist))
+    done;
+    { block_starts; block_ends = !block_ends; live_in; live_out; block_adj }
+  ;;
+
+  let liveness_by_instr t ~instrs =
+    let live_before = Vec.map instrs ~f:(Fn.const Bit_var.Set.empty) in
+    let live_after = Vec.map instrs ~f:(Fn.const Bit_var.Set.empty) in
+    Map.iteri t.block_ends ~f:(fun ~key:block ~data:end_ ->
+      let i = ref end_ in
+      let start = Map.find_exn t.block_starts block in
+      let after = ref (Hashtbl.find_exn t.live_out block) in
+      while !i > start do
+        let instr = Vec.get instrs !i in
+        let before =
+          Set.union (X86_ir.uses instr) (Set.diff !after (X86_ir.defs instr))
+        in
+        Vec.set live_before !i before;
+        Vec.set live_after !i !after;
+        after := before
+      done);
+    live_before, live_after
+  ;;
+end
+
+let liveness ~block_starts ~block_adj ~instrs =
+  let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
+  block_info
 ;;
 
 let calculate_live_ranges instrs ~state =

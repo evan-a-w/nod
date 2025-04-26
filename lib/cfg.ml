@@ -21,8 +21,8 @@ module Process (Ir : Ir) = struct
      to an actual cfg, [Ir.t]
   *)
   let process
-    ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
-    : Ir.Block.t * Ir.Block.t Vec.t
+        ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
+    : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
     =
     let new_block id_hum : Ir.Block.t =
       { id_hum
@@ -68,14 +68,14 @@ module Process (Ir : Ir) = struct
         match Vec.get_opt labels (i + 1) with
         | None -> add_terminal Ir.unreachable
         | Some block' -> add_terminal (Ir.jump_to block')));
-    Map.find_exn blocks (Vec.get labels 0), ordered
+    Map.find_exn blocks (Vec.get labels 0), blocks, ordered
   ;;
 
   let process'
-    ~is_label
-    ~add_fall_through_to_terminal
-    (instrs : string Ir.t' Vec.t)
-    : Ir.Block.t * Ir.Block.t Vec.t
+        ~is_label
+        ~add_fall_through_to_terminal
+        (instrs : string Ir.t' Vec.t)
+    : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
     =
     let blocks = Vec.create () in
     let label_n = ref 0 in

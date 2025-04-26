@@ -60,6 +60,12 @@ let iteri t ~f =
   done
 ;;
 
+let iteri_rev t ~f =
+  for i = t.length - 1 downto 0 do
+    f i t.arr.(i)
+  done
+;;
+
 let fold t ~init ~f =
   let r = ref init in
   for i = 0 to t.length - 1 do

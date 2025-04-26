@@ -7,7 +7,7 @@ let test s =
   |> function
   | Error e -> Test_parser.print_error e
   | Ok blocks ->
-    let _, blocks = Cfg.process blocks in
+    let _, _, blocks = Cfg.process blocks in
     Vec.iter blocks ~f:(fun block ->
       let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
       print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
