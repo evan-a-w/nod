@@ -144,6 +144,45 @@ module State = struct
   ;;
 end
 
+let defs_and_uses _block = Bit_var.Set.empty, Bit_var.Set.empty
+
+let liveness blocks =
+  let worklist = Queue.create () in
+  let live_in = X86_ir.Block.Table.create () in
+  let live_out = X86_ir.Block.Table.create () in
+  let block_defs = X86_ir.Block.Table.create () in
+  let block_uses = X86_ir.Block.Table.create () in
+  Vec.iter blocks ~f:(fun block ->
+    let defs, uses = defs_and_uses block in
+    Hashtbl.set block_defs ~key:block ~data:defs;
+    Hashtbl.set block_uses ~key:block ~data:uses);
+  let find_set tbl block =
+    Hashtbl.find_or_add tbl block ~default:(fun () -> Bit_var.Set.empty)
+  in
+  Vec.iter blocks ~f:(Queue.enqueue worklist);
+  while not (Queue.is_empty worklist) do
+    let block = Queue.dequeue_exn worklist in
+    (* live_out[b] = U LIVE_IN[succ] *)
+    let new_live_out =
+      X86_ir.blocks block.Block.terminal
+      |> List.map ~f:(find_set live_in)
+      |> Bit_var.Set.union_list
+    in
+    (* live_in[b]  = use U (live_out / def) *)
+    let new_live_in =
+      Set.union
+        (Hashtbl.find_exn block_uses block)
+        (Set.diff new_live_out (Hashtbl.find_exn block_defs block))
+    in
+    if not (Bit_var.Set.equal new_live_in (find_set live_in block))
+    then (
+      Hashtbl.set live_in ~key:block ~data:new_live_in;
+      Hashtbl.set live_out ~key:block ~data:new_live_out;
+      (* only needs pred blocks but cbf to compute *)
+      Vec.iter blocks ~f:(Queue.enqueue worklist))
+  done
+;;
+
 let calculate_live_ranges instrs ~state =
   let first_def = Hashtbl.Poly.create () in
   let last_use = Hashtbl.Poly.create () in
