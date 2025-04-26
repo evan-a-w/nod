@@ -107,8 +107,7 @@ let%expect_test "push" =
   push t 4;
   push t 5;
   iter t ~f:(fun x -> Int.to_string x |> print_endline);
-  [%expect
-    {|
+  [%expect {|
     1
     2
     3
@@ -215,4 +214,9 @@ let concat_list l =
   let new_ = create () in
   List.iter l ~f:(iter ~f:(push new_));
   new_
+;;
+
+let to_sequence t =
+  Sequence.unfold ~init:0 ~f:(fun i ->
+    get_opt t i |> Option.map ~f:(fun x -> x, i + 1))
 ;;

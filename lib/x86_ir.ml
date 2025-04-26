@@ -51,11 +51,13 @@ include T
 module type Arg = sig
   type t [@@deriving sexp, equal, compare, hash]
 
-  module Set : Set.S with type Elt.t = t
+  include Comparable.S with type t := t
+  include Hashable.S with type t := t
 end
 
 module Make (Var : Arg) = struct
   include T
+  module Var = Var
 
   type 'block t' = (Var.t, 'block) instr [@@deriving sexp, equal, compare, hash]
 
