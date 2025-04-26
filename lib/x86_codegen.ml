@@ -76,8 +76,40 @@ let compile_block ~instrs (blk : Block.t) =
   sel_instr ~instrs blk.terminal
 ;;
 
-let compile_cfg (blocks : Block.t Vec.t) : (Var.t, string) X86_ir.instr Vec.t =
+let compile_linear blocks =
   let instrs = Vec.create () in
   Vec.iter blocks ~f:(compile_block ~instrs);
   instrs
+;;
+
+let compile_cfg (blocks : Block.t Vec.t) =
+  let module Cfg = Cfg.Process (X86_ir.Make (Var)) in
+  let instrs = compile_linear blocks in
+  let is_label = function
+    | LABEL _ -> true
+    | NOOP
+    | MOV (_, _)
+    | ADD (_, _)
+    | SUB (_, _)
+    | MUL (_, _)
+    | IDIV _ | JMP _
+    | CMP (_, _)
+    | JE (_, _)
+    | JNE (_, _)
+    | RET _ -> false
+  in
+  let add_fall_through_to_terminal instr ~fall_through_to_block =
+    match instr with
+    | JNE (a, _) -> JNE (a, Some fall_through_to_block)
+    | JE (a, _) -> JE (a, Some fall_through_to_block)
+    | NOOP
+    | MOV (_, _)
+    | ADD (_, _)
+    | SUB (_, _)
+    | MUL (_, _)
+    | IDIV _ | LABEL _ | JMP _
+    | CMP (_, _)
+    | RET _ -> instr
+  in
+  Cfg.process' ~is_label ~add_fall_through_to_terminal instrs
 ;;

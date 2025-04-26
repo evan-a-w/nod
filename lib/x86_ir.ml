@@ -30,6 +30,7 @@ module T = struct
   [@@deriving sexp, equal, compare, hash]
 
   type ('a, 'block) instr =
+    | NOOP
     | MOV of 'a operand * 'a operand
     | ADD of 'a operand * 'a operand
     | SUB of 'a operand * 'a operand
@@ -102,7 +103,7 @@ module Make (Var : Arg) = struct
     | MOV (dst, _) -> vars_of_operand dst
     | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
     | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
-    | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+    | NOOP | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
   ;;
 
   let uses ins : Var.Set.t =
@@ -113,12 +114,12 @@ module Make (Var : Arg) = struct
     | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
     | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
     | RET op -> vars_of_operand op
-    | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
   ;;
 
   let blocks instr =
     match instr with
-    | MOV _ | ADD _ | SUB _ | MUL _ | IDIV _ | CMP _ | RET _ -> []
+    | NOOP | MOV _ | ADD _ | SUB _ | MUL _ | IDIV _ | CMP _ | RET _ -> []
     | LABEL lbl | JMP lbl -> [ lbl ]
     | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
   ;;
@@ -136,6 +137,7 @@ module Make (Var : Arg) = struct
     | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
     | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
     | RET x -> RET x
+    | NOOP -> NOOP
   ;;
 
   let map_operands ins ~(f : Var.t -> Var.t Reg.t) =
@@ -147,6 +149,20 @@ module Make (Var : Arg) = struct
     | IDIV op -> IDIV (map_operand op ~f)
     | CMP (a, b) -> CMP (map_operand a ~f, map_operand b ~f)
     | RET op -> RET (map_operand op ~f)
-    | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+  ;;
+
+  let unreachable = NOOP
+  let jump_to block = JMP block
+
+  let is_terminal = function
+    | JMP _ | JNE _ | JE _ | RET _ -> true
+    | NOOP
+    | MOV (_, _)
+    | ADD (_, _)
+    | SUB (_, _)
+    | MUL (_, _)
+    | IDIV _ | LABEL _
+    | CMP (_, _) -> false
   ;;
 end
