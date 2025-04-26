@@ -73,7 +73,7 @@ module Make (Var : X86_ir.Arg) = struct
   module State = struct
     type t =
       { mutable free_regs : Var.t Reg.t list
-      ; live_ranges : Interval.t Var.Table.t
+      ; live_ranges : Interval.Set.t Var.Table.t
       ; mappings : Mapping.t Var.Table.t
       ; mutable allocations : Var.t Allocation.Map.t
       ; mutable allocations_by_end_point : Allocation.Set.t Int.Map.t
@@ -230,19 +230,18 @@ module Make (Var : X86_ir.Arg) = struct
     ;;
   end
 
-  let calculate_liveness_info ~block_starts ~block_adj ~instrs =
+  let calculate_liveness_info ~block_starts ~block_adj ~instrs state =
     let events = Vec.map instrs ~f:(fun _ -> Vec.create ()) in
     let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
     let open_idx = Var.Table.create () in
-    let segments = Var.Table.create () in
     let live_before, live_after =
       Block_info.liveness_by_instr block_info ~instrs
     in
     let add_interval var ~end_ =
-      let open_idx = Hashtbl.find_exn open_idx var in
-      Hashtbl.update segments var ~f:(function
-        | None -> Int.Map.singleton open_idx end_
-        | Some m -> Map.set m ~key:open_idx ~data:end_)
+      let start = Hashtbl.find_exn open_idx var in
+      Hashtbl.update state.State.live_ranges var ~f:(function
+        | None -> Interval.Set.singleton { start; end_ }
+        | Some s -> Set.add s { start; end_ })
     in
     Sequence.iteri
       (Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after))
@@ -257,38 +256,14 @@ module Make (Var : X86_ir.Arg) = struct
           Hashtbl.add_exn open_idx ~key ~data:i));
     Hashtbl.iter_keys open_idx ~f:(fun var ->
       add_interval var ~end_:(Vec.length instrs));
-    segments, events
+    events
   ;;
 
-  let calculate_live_ranges instrs ~state =
-    let first_def = Hashtbl.Poly.create () in
-    let last_use = Hashtbl.Poly.create () in
-    Vec.iteri instrs ~f:(fun idx instr ->
-      Set.iter (defs instr) ~f:(fun v ->
-        Hashtbl.set
-          first_def
-          ~key:v
-          ~data:(Hashtbl.find_or_add first_def v ~default:(fun () -> idx)));
-      Set.iter (uses instr) ~f:(fun v -> Hashtbl.set last_use ~key:v ~data:idx));
-    Hashtbl.iteri first_def ~f:(fun ~key:var ~data:start ->
-      let end_ = Hashtbl.find_or_add last_use var ~default:(fun () -> start) in
-      Hashtbl.set
-        state.State.live_ranges
-        ~key:var
-        ~data:{ Interval.start; end_ });
-    Hashtbl.iteri last_use ~f:(fun ~key:var ~data:end_ ->
-      if Hashtbl.mem first_def var
-      then ()
-      else
-        Hashtbl.set
-          state.State.live_ranges
-          ~key:var
-          ~data:{ Interval.start = end_; end_ })
-  ;;
-
-  let process ~stack_offset instrs =
+  let process ~stack_offset ~block_starts ~block_adj ~instrs =
     let state = State.create ~alloc_from:stack_offset in
-    calculate_live_ranges instrs ~state;
+    let _events =
+      calculate_liveness_info ~block_starts ~block_adj ~instrs state
+    in
     Vec.concat_mapi instrs ~f:(fun i instr ->
       Set.iter
         (Map.find state.allocations_by_end_point i
