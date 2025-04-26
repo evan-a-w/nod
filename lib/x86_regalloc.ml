@@ -230,7 +230,8 @@ module Make (Var : X86_ir.Arg) = struct
     ;;
   end
 
-  let liveness_segments ~block_starts ~block_adj ~instrs =
+  let calculate_liveness_info ~block_starts ~block_adj ~instrs =
+    let events = Vec.map instrs ~f:(fun _ -> Vec.create ()) in
     let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
     let open_idx = Var.Table.create () in
     let segments = Var.Table.create () in
@@ -246,12 +247,17 @@ module Make (Var : X86_ir.Arg) = struct
     Sequence.iteri
       (Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after))
       ~f:(fun i (live_before, live_after) ->
-        let opened = Set.diff live_after live_before in
-        Set.iter opened ~f:(fun key -> Hashtbl.add_exn open_idx ~key ~data:i);
         let closed = Set.diff live_before live_after in
-        Set.iter closed ~f:(add_interval ~end_:i));
+        Set.iter closed ~f:(fun key ->
+          Vec.push (Vec.get events i) (`Close key);
+          add_interval ~end_:i key);
+        let opened = Set.diff live_after live_before in
+        Set.iter opened ~f:(fun key ->
+          Vec.push (Vec.get events i) (`Open key);
+          Hashtbl.add_exn open_idx ~key ~data:i));
     Hashtbl.iter_keys open_idx ~f:(fun var ->
-      add_interval var ~end_:(Vec.length instrs))
+      add_interval var ~end_:(Vec.length instrs));
+    segments, events
   ;;
 
   let calculate_live_ranges instrs ~state =
