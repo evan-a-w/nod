@@ -96,5 +96,115 @@ let compile_linear root =
       List.iter (blocks block.terminal) ~f:go)
   in
   go root;
-  block_starts, block_adj, instrs
+  !block_starts, block_adj, instrs
+;;
+
+module Regalloc = X86_regalloc.Make (Var)
+
+let allocation ~mappings ~var ~idx =
+  let allocs = Hashtbl.find_exn mappings var in
+  let alloc, () =
+    Map.closest_key
+      allocs
+      `Less_than
+      (Regalloc.Allocation.fake
+         ~var
+         ~interval:{ start = idx; end_ = 100000000000 })
+    |> Option.value_exn
+  in
+  alloc
+;;
+
+let operand ~mappings ~var ~idx =
+  match (allocation ~mappings ~var ~idx).mapping with
+  | Stack_slot i -> X86_ir.Mem (RSP, -i)
+  | Reg r -> X86_ir.Reg r
+;;
+
+let vars_for_secondary_spill ~mappings ~instr ~idx =
+  let needed = Var.Set.empty in
+  X86_ir.fold_operands instr ~init:needed ~f:(fun acc operand ->
+    match operand with
+    | Mem (Unallocated var, _) ->
+      (match (allocation ~mappings ~var ~idx).mapping with
+       | Reg _ -> acc
+       | Stack_slot _ -> Set.add acc var)
+    | Reg _ | Imm _ | Mem (_, _) -> acc)
+;;
+
+module Var_reg = struct
+  module T = struct
+    type t = Var.t Reg.t [@@deriving sexp, compare]
+  end
+
+  include T
+  include Comparable.Make (T)
+end
+
+let can't_spill ~instr =
+  let needed = Var_reg.Set.empty in
+  X86_ir.fold_operands instr ~init:needed ~f:(fun acc operand ->
+    match operand with
+    | Reg r | Mem (r, _) -> Set.add acc r
+    | _ -> acc)
+;;
+
+let will_exit = function
+  | RET _ -> true
+  | NOOP
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | MUL (_, _)
+  | IDIV _ | LABEL _ | JMP _
+  | CMP (_, _)
+  | JE (_, _)
+  | JNE (_, _) -> false
+;;
+
+let all_regs = Var_reg.Set.of_list (Regalloc.free_regs ())
+
+let compile_and_regalloc root =
+  let block_starts, block_adj, instrs = compile_linear root in
+  let mappings, stack_end =
+    Regalloc.process ~stack_offset:0 ~block_starts ~block_adj ~instrs
+  in
+  let epilogue =
+    if stack_end = 0
+    then Vec.create ()
+    else Vec.of_list [ SUB (Reg RSP, Imm (Int64.of_int 4)) ]
+  in
+  let res = Vec.create () in
+  let push_epilogue () = Vec.iter epilogue ~f:(Vec.push res) in
+  Vec.iteri instrs ~f:(fun idx instr ->
+    if will_exit instr then push_epilogue ();
+    let secondary_spill = vars_for_secondary_spill ~mappings ~instr ~idx in
+    if Set.is_empty secondary_spill
+    then
+      Vec.push
+        res
+        (X86_ir.map_var_operands instr ~f:(fun var ->
+           operand ~mappings ~var ~idx))
+    else (
+      let can't_spill = can't_spill ~instr in
+      let free_regs = ref (Set.diff all_regs can't_spill) in
+      let remap =
+        Set.to_map secondary_spill ~f:(fun _ ->
+          let reg = Set.min_elt_exn !free_regs in
+          free_regs := Set.remove !free_regs reg;
+          reg)
+      in
+      Map.iteri remap ~f:(fun ~key:var ~data:reg ->
+        let op = operand ~mappings ~var ~idx in
+        Vec.push res (MOV (Reg reg, op)));
+      Vec.push
+        res
+        (X86_ir.map_var_operands instr ~f:(fun var ->
+           match Map.find remap var with
+           | Some reg -> Reg reg
+           | None -> operand ~mappings ~var ~idx));
+      Map.iteri remap ~f:(fun ~key:var ~data:reg ->
+        let op = operand ~mappings ~var ~idx in
+        Vec.push res (MOV (op, Reg reg)))));
+  res
 ;;

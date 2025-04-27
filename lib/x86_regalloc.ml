@@ -44,6 +44,9 @@ module Make (Var : X86_ir.Arg) = struct
     end
 
     include T
+
+    let fake ~var ~interval = { interval; mapping = Stack_slot 0; var }
+
     include Comparable.Make (T)
     include Hashable.Make (T)
   end
@@ -194,7 +197,9 @@ module Make (Var : X86_ir.Arg) = struct
     Vec.iteri events ~f:(fun i events ->
       Vec.iter events ~f:(function
         | `Close var ->
-          let allocation = Hashtbl.find_exn mappings var |> Set.max_elt_exn in
+          let allocation, _ =
+            Hashtbl.find_exn mappings var |> Map.max_elt_exn
+          in
           (match allocation.Allocation.mapping with
            | Stack_slot stack_slot ->
              free_stack_slots := stack_slot :: !free_stack_slots
@@ -214,8 +219,8 @@ module Make (Var : X86_ir.Arg) = struct
           in
           let allocation = { Allocation.interval; var; mapping } in
           Hashtbl.update mappings var ~f:(function
-            | None -> Allocation.Set.singleton allocation
-            | Some s -> Set.add s allocation)));
+            | None -> Allocation.Map.singleton allocation ()
+            | Some s -> Map.add_exn s ~key:allocation ~data:())));
     mappings, !stack_slot_min
   ;;
 end

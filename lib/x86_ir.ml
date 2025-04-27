@@ -20,7 +20,7 @@ module T = struct
       | R13
       | R14
       | R15
-    [@@deriving sexp, equal, compare, hash]
+    [@@deriving sexp, equal, compare, hash, variants]
   end
 
   type 'a operand =
@@ -44,6 +44,49 @@ module T = struct
     | JNE of 'block * 'block option
     | RET of 'a operand
   [@@deriving sexp, equal, compare, hash]
+
+  let fold_operand op ~f ~init = f init op
+
+  let fold_operands ins ~f ~init =
+    match ins with
+    | MOV (dst, src)
+    | ADD (dst, src)
+    | SUB (dst, src)
+    | MUL (dst, src)
+    | CMP (dst, src) ->
+      let init = fold_operand dst ~f ~init in
+      fold_operand src ~f ~init
+    | IDIV op | RET op -> fold_operand op ~f ~init
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> init
+  ;;
+
+  let map_reg r ~f =
+    match r with
+    | Reg.Unallocated v -> f v
+    | _ -> Reg r
+  ;;
+
+  let map_var_operand op ~f =
+    match op with
+    | Reg r -> map_reg r ~f
+    | Imm _ -> op
+    | Mem (r, disp) ->
+      (match map_reg r ~f with
+       | Reg r -> Mem (r, disp)
+       | _ -> failwith "expected reg, got non reg, in [map_var_operand]")
+  ;;
+
+  let map_var_operands ins ~f =
+    match ins with
+    | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
+    | ADD (dst, src) -> ADD (map_var_operand dst ~f, map_var_operand src ~f)
+    | SUB (dst, src) -> SUB (map_var_operand dst ~f, map_var_operand src ~f)
+    | MUL (dst, src) -> MUL (map_var_operand dst ~f, map_var_operand src ~f)
+    | IDIV op -> IDIV (map_var_operand op ~f)
+    | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
+    | RET op -> RET (map_var_operand op ~f)
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+  ;;
 end
 
 include T
@@ -87,19 +130,6 @@ module Make (Var : Arg) = struct
     | Mem (r, _disp) -> vars_of_reg r
   ;;
 
-  let map_reg r ~f =
-    match r with
-    | Reg.Unallocated v -> f v
-    | _ -> r
-  ;;
-
-  let map_operand op ~f =
-    match op with
-    | Reg r -> Reg (map_reg r ~f)
-    | Imm _ -> op
-    | Mem (r, disp) -> Mem (map_reg r ~f, disp)
-  ;;
-
   let defs ins : Var.Set.t =
     match ins with
     | MOV (dst, _) -> vars_of_operand dst
@@ -140,18 +170,6 @@ module Make (Var : Arg) = struct
     | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
     | RET x -> RET x
     | NOOP -> NOOP
-  ;;
-
-  let map_operands ins ~(f : Var.t -> Var.t Reg.t) =
-    match ins with
-    | MOV (dst, src) -> MOV (map_operand dst ~f, map_operand src ~f)
-    | ADD (dst, src) -> ADD (map_operand dst ~f, map_operand src ~f)
-    | SUB (dst, src) -> SUB (map_operand dst ~f, map_operand src ~f)
-    | MUL (dst, src) -> MUL (map_operand dst ~f, map_operand src ~f)
-    | IDIV op -> IDIV (map_operand op ~f)
-    | CMP (a, b) -> CMP (map_operand a ~f, map_operand b ~f)
-    | RET op -> RET (map_operand op ~f)
-    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
   ;;
 
   let unreachable = NOOP
