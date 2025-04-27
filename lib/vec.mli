@@ -8,6 +8,7 @@ val get : 'a t -> int -> 'a
 val get_opt : 'a t -> int -> 'a option
 val set : 'a t -> int -> 'a -> unit
 val iter : 'a t -> f:('a -> unit) -> unit
+val iter_nested : 'a t t -> f:('a -> unit) -> unit
 val iteri : 'a t -> f:(int -> 'a -> unit) -> unit
 val iteri_rev : 'a t -> f:(int -> 'a -> unit) -> unit
 val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
