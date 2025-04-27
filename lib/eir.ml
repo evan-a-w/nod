@@ -275,11 +275,12 @@ module Opt = struct
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
-         if phys_equal loc.block var.loc.block
-            && Loc.is_terminal_for_block loc ~block:var.loc.block
-            && [%equal: string list]
-                 [ arg ]
-                 (defining_vars_for_block_arg ~block:var.loc.block ~arg)
+         if
+           phys_equal loc.block var.loc.block
+           && Loc.is_terminal_for_block loc ~block:var.loc.block
+           && [%equal: string list]
+                [ arg ]
+                (defining_vars_for_block_arg ~block:var.loc.block ~arg)
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -441,4 +442,18 @@ end
 let optimize ssa =
   let opt_state = Opt.create ssa in
   Opt.run opt_state
+;;
+
+module Cfg = Cfg.Process (Ir)
+
+let compile s =
+  match
+    Parser.parse_string s
+    |> Result.map ~f:Cfg.process
+    |> Result.map ~f:Ssa.create
+  with
+  | Error _ as e -> e
+  | Ok ssa ->
+    optimize ssa;
+    Ok (Ssa.root ssa)
 ;;
