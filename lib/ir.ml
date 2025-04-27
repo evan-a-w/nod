@@ -369,6 +369,23 @@ module T = struct
   let jump_to block' =
     Branch (Branch.Uncond { Call_block.block = block'; args = [] })
   ;;
+
+  let call_blocks = function
+    | Add _
+    | Mul _
+    | Div _
+    | Load _
+    | Store _
+    | Mod _
+    | Sub _
+    | Move _
+    | Unreachable
+    | Noop
+    | Return _ -> []
+    | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
+      [ if_true; if_false ]
+    | Branch (Branch.Uncond call) -> [ call ]
+  ;;
 end
 
 include T

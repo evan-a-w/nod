@@ -62,10 +62,7 @@ module Make (Var : X86_ir.Arg) = struct
 
     (* uses = uses that aren't yet defined in block *)
     let defs_uses_and_end ~block_start ~instrs =
-      print_s
-        [%message (block_start : int) (instrs : (Var.t, string) instr Vec.t)];
       let rec go ~acc:((defs, uses) as acc) i =
-        print_s [%message (block_start : int) (i : int)];
         if i < Vec.length instrs
         then acc, i
         else (
@@ -104,18 +101,15 @@ module Make (Var : X86_ir.Arg) = struct
           |> List.map ~f:(find_set live_in)
           |> Var.Set.union_list
         in
-        print_s [%sexp (new_live_out : Var.Set.t)];
         (* live_in[b]  = use U (live_out / def) *)
         let new_live_in =
           Set.union
             (Hashtbl.find_exn block_uses block)
             (Set.diff new_live_out (Hashtbl.find_exn block_defs block))
         in
-        print_s [%sexp (new_live_in : Var.Set.t)];
-        if
-          not
-            (Var.Set.equal new_live_in (find_set live_in block)
-             && Var.Set.equal new_live_out (find_set live_out block))
+        if not
+             (Var.Set.equal new_live_in (find_set live_in block)
+              && Var.Set.equal new_live_out (find_set live_out block))
         then (
           Hashtbl.set live_in ~key:block ~data:new_live_in;
           Hashtbl.set live_out ~key:block ~data:new_live_out;
@@ -128,18 +122,16 @@ module Make (Var : X86_ir.Arg) = struct
     let liveness_by_instr t ~instrs =
       let live_before = Vec.map instrs ~f:(Fn.const Var.Set.empty) in
       let live_after = Vec.map instrs ~f:(Fn.const Var.Set.empty) in
-      print_s [%sexp (t.live_out : Var.Set.t String.Table.t)];
       Map.iteri t.block_ends ~f:(fun ~key:block ~data:end_ ->
-        let i = ref end_ in
         let start = Map.find_exn t.block_starts block in
         let after = ref (Hashtbl.find_exn t.live_out block) in
-        while !i > start do
-          let instr = Vec.get instrs !i in
+        for i = end_ downto start do
+          let instr = Vec.get instrs i in
           let before =
             Set.union (X86_ir.uses instr) (Set.diff !after (X86_ir.defs instr))
           in
-          Vec.set live_before !i before;
-          Vec.set live_after !i !after;
+          Vec.set live_before i before;
+          Vec.set live_after i !after;
           after := before
         done);
       live_before, live_after
@@ -147,13 +139,21 @@ module Make (Var : X86_ir.Arg) = struct
   end
 
   let calculate_liveness_info ~block_starts ~block_adj ~instrs =
+    print_s [%sexp (instrs : (Var.t, string) instr Vec.t)];
     let live_ranges = Var.Table.create () in
     let events = Vec.map instrs ~f:(fun _ -> Vec.create ()) in
-    let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
     let open_idx = Var.Table.create () in
+    let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
     let live_before, live_after =
       Block_info.liveness_by_instr block_info ~instrs
     in
+    let top =
+      Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after)
+      |> Sequence.mapi ~f:(fun i (a, b) -> i, a, b)
+      |> Sequence.to_list
+      |> Vec.of_list
+    in
+    print_s [%sexp (top : (int * Var.Set.t * Var.Set.t) Vec.t)];
     let add_interval var ~end_ =
       let start = Hashtbl.find_exn open_idx var in
       Hashtbl.update live_ranges var ~f:(function

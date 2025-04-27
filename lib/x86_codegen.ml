@@ -16,46 +16,45 @@ let operand_of_mem = function
   | Lit_or_var lom -> operand_of_lit_or_var lom
 ;;
 
-(* Generate x86 instructions for a single IR instruction *)
 let sel_instr ~instrs ir =
   let new_ =
     match ir with
     | Add { dest; src1; src2 } ->
       let rd = Reg (reg_of_var dest) in
-      [ MOV (operand_of_lit_or_var src1, rd)
-      ; ADD (operand_of_lit_or_var src2, rd)
+      [ MOV (rd, operand_of_lit_or_var src1)
+      ; ADD (rd, operand_of_lit_or_var src2)
       ]
     | Sub { dest; src1; src2 } ->
       let rd = Reg (reg_of_var dest) in
-      [ MOV (operand_of_lit_or_var src1, rd)
-      ; SUB (operand_of_lit_or_var src2, rd)
+      [ MOV (rd, operand_of_lit_or_var src1)
+      ; SUB (rd, operand_of_lit_or_var src2)
       ]
     | Mul { dest; src1; src2 } ->
       let rd = Reg (reg_of_var dest) in
-      [ MOV (operand_of_lit_or_var src1, rd)
-      ; MUL (operand_of_lit_or_var src2, rd)
+      [ MOV (rd, operand_of_lit_or_var src1)
+      ; MUL (rd, operand_of_lit_or_var src2)
       ]
     | Div { dest; src1; src2 } ->
       (* idiv uses RAX and RDX *)
-      [ MOV (operand_of_lit_or_var src1, Reg RAX)
+      [ MOV (Reg RAX, operand_of_lit_or_var src1)
       ; CMP (Reg RAX, Reg RAX) (* clear RDX for signed division *)
       ; IDIV (operand_of_lit_or_var src2)
-      ; MOV (Reg RAX, Reg (reg_of_var dest))
+      ; MOV (Reg (reg_of_var dest), Reg RAX)
       ]
     | Mod { dest; src1; src2 } ->
       (* remainder after idiv is in RDX *)
-      [ MOV (operand_of_lit_or_var src1, Reg RAX)
+      [ MOV (Reg RAX, operand_of_lit_or_var src1)
       ; CMP (Reg RAX, Reg RAX)
       ; IDIV (operand_of_lit_or_var src2)
-      ; MOV (Reg RDX, Reg (reg_of_var dest))
+      ; MOV (Reg (reg_of_var dest), Reg RDX)
       ]
     | Load (v, mem) ->
       let rd = Reg (reg_of_var v) in
-      [ MOV (operand_of_mem mem, rd) ]
+      [ MOV (rd, operand_of_mem mem) ]
     | Store (val_, mem) ->
-      [ MOV (operand_of_lit_or_var val_, operand_of_mem mem) ]
-    | Move (v, src) -> MOV (operand_of_lit_or_var src, Reg (reg_of_var v)) :: []
-    | Return rv -> [ MOV (operand_of_lit_or_var rv, Reg RAX); RET (Reg RAX) ]
+      [ MOV (operand_of_mem mem, operand_of_lit_or_var val_) ]
+    | Move (v, src) -> [ MOV (Reg (reg_of_var v), operand_of_lit_or_var src) ]
+    | Return rv -> [ MOV (Reg RAX, operand_of_lit_or_var rv); RET (Reg RAX) ]
     | Branch (Uncond b) -> [ JMP b.block.Block.id_hum ]
     | Branch (Cond { cond; if_true; if_false }) ->
       let c = operand_of_lit_or_var cond in
@@ -164,6 +163,8 @@ let will_exit = function
 
 let all_regs = Var_reg.Set.of_list (Regalloc.free_regs ())
 
+(* TODO: Still wrong because not doing copying of block args - prob need to
+   actually keep the CFG around :( *)
 let compile_and_regalloc root =
   let block_starts, block_adj, instrs = compile_linear root in
   let mappings, stack_end =
