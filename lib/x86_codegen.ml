@@ -77,6 +77,7 @@ let compile_block ~instrs (blk : Block.t) =
 
 let compile_linear root =
   let instrs = Vec.create () in
+  let block_args = String.Table.create () in
   let block_starts = ref String.Map.empty in
   let block_adj = String.Table.create () in
   let seen = Block.Hash_set.create () in
@@ -85,6 +86,7 @@ let compile_linear root =
     then ()
     else (
       Hash_set.add seen block;
+      Hashtbl.set block_args ~key:block.id_hum ~data:block.args;
       Hashtbl.set
         block_adj
         ~key:block.id_hum
@@ -95,7 +97,7 @@ let compile_linear root =
       List.iter (blocks block.terminal) ~f:go)
   in
   go root;
-  !block_starts, block_adj, instrs
+  block_args, !block_starts, block_adj, instrs
 ;;
 
 module Regalloc = X86_regalloc.Make (Var)
@@ -166,9 +168,14 @@ let all_regs = Var_reg.Set.of_list (Regalloc.free_regs ())
 (* TODO: Still wrong because not doing copying of block args - prob need to
    actually keep the CFG around :( *)
 let compile_and_regalloc root =
-  let block_starts, block_adj, instrs = compile_linear root in
+  let block_args, block_starts, block_adj, instrs = compile_linear root in
   let mappings, stack_end =
-    Regalloc.process ~stack_offset:0 ~block_starts ~block_adj ~instrs
+    Regalloc.process
+      ~stack_offset:0
+      ~block_args
+      ~block_starts
+      ~block_adj
+      ~instrs
   in
   let epilogue =
     if stack_end = 0

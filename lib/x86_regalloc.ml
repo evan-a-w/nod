@@ -77,7 +77,7 @@ module Make (Var : X86_ir.Arg) = struct
       go ~acc:(Var.Set.empty, Var.Set.empty) (block_start + 1)
     ;;
 
-    let create ~block_starts ~block_adj ~instrs =
+    let create ~block_args ~block_starts ~block_adj ~instrs =
       let worklist = Queue.create () in
       let live_in = String.Table.create () in
       let live_out = String.Table.create () in
@@ -104,8 +104,10 @@ module Make (Var : X86_ir.Arg) = struct
         (* live_in[b]  = use U (live_out / def) *)
         let new_live_in =
           Set.union
-            (Hashtbl.find_exn block_uses block)
-            (Set.diff new_live_out (Hashtbl.find_exn block_defs block))
+            (Hashtbl.find_exn block_args block |> Vec.to_list |> Var.Set.of_list)
+            (Set.union
+               (Hashtbl.find_exn block_uses block)
+               (Set.diff new_live_out (Hashtbl.find_exn block_defs block)))
         in
         if not
              (Var.Set.equal new_live_in (find_set live_in block)
@@ -138,12 +140,14 @@ module Make (Var : X86_ir.Arg) = struct
     ;;
   end
 
-  let calculate_liveness_info ~block_starts ~block_adj ~instrs =
+  let calculate_liveness_info ~block_args ~block_starts ~block_adj ~instrs =
     print_s [%sexp (instrs : (Var.t, string) instr Vec.t)];
     let live_ranges = Var.Table.create () in
     let events = Vec.map instrs ~f:(fun _ -> Vec.create ()) in
     let open_idx = Var.Table.create () in
-    let block_info = Block_info.create ~block_starts ~instrs ~block_adj in
+    let block_info =
+      Block_info.create ~block_args ~block_starts ~instrs ~block_adj
+    in
     let live_before, live_after =
       Block_info.liveness_by_instr block_info ~instrs
     in
@@ -195,13 +199,13 @@ module Make (Var : X86_ir.Arg) = struct
       stack_slot
   ;;
 
-  let process ~stack_offset ~block_starts ~block_adj ~instrs =
+  let process ~stack_offset ~block_args ~block_starts ~block_adj ~instrs =
     let free_regs = ref (free_regs ()) in
     let free_stack_slots = ref [] in
     let stack_slot_min = ref stack_offset in
     let mappings = Var.Table.create () in
     let events, live_ranges =
-      calculate_liveness_info ~block_starts ~block_adj ~instrs
+      calculate_liveness_info ~block_args ~block_starts ~block_adj ~instrs
     in
     Vec.iteri events ~f:(fun i events ->
       Vec.iter events ~f:(function
