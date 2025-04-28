@@ -31,6 +31,8 @@ module T = struct
 
   type ('a, 'block) instr =
     | NOOP
+    | AND of 'a operand * 'a operand
+    | OR of 'a operand * 'a operand
     | MOV of 'a operand * 'a operand
     | ADD of 'a operand * 'a operand
     | SUB of 'a operand * 'a operand
@@ -54,6 +56,8 @@ module T = struct
   let fold_operands ins ~f ~init =
     match ins with
     | MOV (dst, src)
+    | AND (dst, src)
+    | OR (dst, src)
     | ADD (dst, src)
     | SUB (dst, src)
     | MUL (dst, src)
@@ -83,6 +87,8 @@ module T = struct
 
   let map_var_operands ins ~f =
     match ins with
+    | AND (dst, src) -> AND (map_var_operand dst ~f, map_var_operand src ~f)
+    | OR (dst, src) -> OR (map_var_operand dst ~f, map_var_operand src ~f)
     | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
     | ADD (dst, src) -> ADD (map_var_operand dst ~f, map_var_operand src ~f)
     | SUB (dst, src) -> SUB (map_var_operand dst ~f, map_var_operand src ~f)
@@ -146,7 +152,8 @@ module Make (Var : Arg) = struct
       List.fold l ~init:Var.Set.empty ~f:(fun acc (a, _) ->
         Set.union acc (vars_of_operand a))
     | MOV (dst, _) -> vars_of_operand dst
-    | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
+    | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) ->
+      vars_of_operand dst
     | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
     | NOOP | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _
       -> Var.Set.empty
@@ -158,8 +165,11 @@ module Make (Var : Arg) = struct
       List.fold l ~init:Var.Set.empty ~f:(fun acc (_, a) ->
         Set.union acc (vars_of_operand a))
     | MOV (_, src) -> vars_of_operand src
-    | ADD (dst, src) | SUB (dst, src) | MUL (dst, src) ->
-      Set.union (vars_of_operand dst) (vars_of_operand src)
+    | ADD (dst, src)
+    | SUB (dst, src)
+    | MUL (dst, src)
+    | AND (dst, src)
+    | OR (dst, src) -> Set.union (vars_of_operand dst) (vars_of_operand src)
     | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
     | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
     | RET op -> vars_of_operand op
@@ -176,6 +186,8 @@ module Make (Var : Arg) = struct
     | IDIV _
     | CMP _
     | RET _
+    | AND _
+    | OR _
     | PAR_MOV _
     | LABEL_NOT_BLOCK _ -> []
     | LABEL lbl | JMP lbl -> [ lbl ]
@@ -186,6 +198,8 @@ module Make (Var : Arg) = struct
     match instr with
     | LABEL_NOT_BLOCK s -> LABEL_NOT_BLOCK s
     | PAR_MOV l -> PAR_MOV l
+    | AND (x, y) -> AND (x, y)
+    | OR (x, y) -> OR (x, y)
     | MOV (x, y) -> MOV (x, y)
     | ADD (x, y) -> ADD (x, y)
     | SUB (x, y) -> SUB (x, y)
@@ -205,7 +219,7 @@ module Make (Var : Arg) = struct
 
   let is_terminal = function
     | JMP _ | JNE _ | JE _ | RET _ -> true
-    | LABEL_NOT_BLOCK _ | PAR_MOV _ | NOOP
+    | LABEL_NOT_BLOCK _ | PAR_MOV _ | NOOP | AND _ | OR _
     | MOV (_, _)
     | ADD (_, _)
     | SUB (_, _)

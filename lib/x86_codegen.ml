@@ -41,6 +41,16 @@ let sel_instr ~instrs ir =
       [ MOV (rd, operand_of_lit_or_var src1)
       ; ADD (rd, operand_of_lit_or_var src2)
       ]
+    | And { dest; src1; src2 } ->
+      let rd = Reg (reg_of_var dest) in
+      [ MOV (rd, operand_of_lit_or_var src1)
+      ; AND (rd, operand_of_lit_or_var src2)
+      ]
+    | Or { dest; src1; src2 } ->
+      let rd = Reg (reg_of_var dest) in
+      [ MOV (rd, operand_of_lit_or_var src1)
+      ; OR (rd, operand_of_lit_or_var src2)
+      ]
     | Sub { dest; src1; src2 } ->
       let rd = Reg (reg_of_var dest) in
       [ MOV (rd, operand_of_lit_or_var src1)
@@ -193,6 +203,8 @@ let will_exit = function
   | PAR_MOV _ | NOOP
   | MOV (_, _)
   | ADD (_, _)
+  | AND (_, _)
+  | OR (_, _)
   | SUB (_, _)
   | MUL (_, _)
   | LABEL_NOT_BLOCK _ | IDIV _ | LABEL _ | JMP _

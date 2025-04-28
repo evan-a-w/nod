@@ -13,6 +13,76 @@ let test s =
       print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
 ;;
 
+let%expect_test "f" = test Examples.Textual.f;
+  [%expect {|
+    (start
+     (instrs
+      ((Move n (Lit 7)) (Move i (Lit 0)) (Move total (Lit 0))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum outerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+    (outerCheck
+     (instrs
+      ((Sub ((dest condOuter) (src1 (Var i)) (src2 (Var n))))
+       (Branch
+        (Cond (cond (Var condOuter))
+         (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
+         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+    (outerBody
+     (instrs
+      ((Move j (Lit 0)) (Move partial (Lit 0))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum outerInc) (args ()))) (args ()))))))))
+    (innerCheck
+     (instrs
+      ((Sub ((dest condInner) (src1 (Var j)) (src2 (Lit 3))))
+       (Branch
+        (Cond (cond (Var condInner))
+         (if_true ((block ((id_hum innerBody) (args ()))) (args ())))
+         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
+    (innerBody
+     (instrs
+      ((And ((dest isEven) (src1 (Var j)) (src2 (Lit 1))))
+       (Sub ((dest condSkip) (src1 (Var isEven)) (src2 (Lit 0))))
+       (Branch
+        (Cond (cond (Var condSkip))
+         (if_true ((block ((id_hum doWork) (args ()))) (args ())))
+         (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
+    (skipEven
+     (instrs
+      ((Add ((dest j) (src1 (Var j)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
+    (doWork
+     (instrs
+      ((Mul ((dest tmp) (src1 (Var i)) (src2 (Var j))))
+       (Add ((dest partial) (src1 (Var partial)) (src2 (Var tmp))))
+       (Add ((dest j) (src1 (Var j)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
+    (innerExit
+     (instrs
+      ((Add ((dest total) (src1 (Var total)) (src2 (Var partial))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum outerInc) (args ()))) (args ())))
+         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+    (outerInc
+     (instrs
+      ((Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum outerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+    (exit (instrs ((Return (Var total))))) |}]
+
 let%expect_test "all examples" =
   List.iter Examples.Textual.all ~f:(fun s ->
     print_endline "---------------------------------";

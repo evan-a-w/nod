@@ -190,6 +190,8 @@ end
 module T = struct
   type 'block t' =
     | Noop
+    | And of arith
+    | Or of arith
     | Add of arith
     | Sub of arith
     | Mul of arith
@@ -205,6 +207,8 @@ module T = struct
 
   let filter_map_call_blocks t ~f =
     match t with
+    | And _
+    | Or _
     | Noop
     | Add _
     | Sub _
@@ -261,7 +265,7 @@ module T = struct
   ;;
 
   let def = function
-    | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest
+    | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest
     | Load (a, _) -> Some a
     | Move (var, _) -> Some var
     | Branch _ | Unreachable | Noop | Return _ | Store _ -> None
@@ -269,13 +273,13 @@ module T = struct
 
   let blocks = function
     | Branch b -> Branch.blocks b
-    | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _
+    | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _ | And _ | Or _
     | Move (_, _)
     | Unreachable | Noop | Return _ -> []
   ;;
 
   let uses = function
-    | Add a | Sub a | Mul a | Div a | Mod a ->
+    | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a ->
       Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
     | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
     | Load (_, b) -> Mem.vars b
@@ -287,6 +291,8 @@ module T = struct
 
   let map_defs t ~f =
     match t with
+    | Or a -> Or (map_arith_defs a ~f)
+    | And a -> And (map_arith_defs a ~f)
     | Add a -> Add (map_arith_defs a ~f)
     | Mul a -> Mul (map_arith_defs a ~f)
     | Div a -> Div (map_arith_defs a ~f)
@@ -299,6 +305,8 @@ module T = struct
 
   let map_uses t ~f =
     match t with
+    | Or a -> Or (map_arith_uses a ~f)
+    | And a -> And (map_arith_uses a ~f)
     | Add a -> Add (map_arith_uses a ~f)
     | Mul a -> Mul (map_arith_uses a ~f)
     | Div a -> Div (map_arith_uses a ~f)
@@ -314,8 +322,17 @@ module T = struct
 
   let is_terminal = function
     | Branch _ | Unreachable | Return _ -> true
-    | Add _ | Mul _ | Div _ | Mod _ | Sub _ | Move _ | Noop | Load _ | Store _
-      -> false
+    | Add _
+    | Mul _
+    | Div _
+    | Mod _
+    | Sub _
+    | Move _
+    | Noop
+    | Load _
+    | Store _
+    | And _
+    | Or _ -> false
   ;;
 
   let map_args t ~f =
@@ -331,11 +348,15 @@ module T = struct
     | Noop
     | Load _
     | Store _
-    | Return _ -> t
+    | Return _
+    | And _
+    | Or _ -> t
   ;;
 
   let map_blocks (t : 'a t') ~f : 'b t' =
     match t with
+    | And a -> And a
+    | Or a -> Or a
     | Add a -> Add a
     | Mul a -> Mul a
     | Div a -> Div a
@@ -352,6 +373,8 @@ module T = struct
 
   let map_lit_or_vars t ~f =
     match t with
+    | Or a -> Or (map_arith_lit_or_vars a ~f)
+    | And a -> And (map_arith_lit_or_vars a ~f)
     | Add a -> Add (map_arith_lit_or_vars a ~f)
     | Mul a -> Mul (map_arith_lit_or_vars a ~f)
     | Div a -> Div (map_arith_lit_or_vars a ~f)
@@ -371,6 +394,8 @@ module T = struct
   ;;
 
   let call_blocks = function
+    | And _
+    | Or _
     | Add _
     | Mul _
     | Div _
@@ -401,6 +426,8 @@ module rec Instr0 : (Instr_m.S with type t = Block.t t') = struct
     in
     function
     | ( Add _
+      | And _
+      | Or _
       | Mul _
       | Div _
       | Load _

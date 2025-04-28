@@ -180,5 +180,70 @@ end:
 |}
   ;;
 
+  let f =
+    {|
+(* --- Program: nested-loops with conditionals --------------------------------- *)
+
+start:
+  mov %n,    7          (* outer loop upper-bound  (change to taste) *)
+  mov %i,    0
+  mov %total, 0
+  branch 1, outerCheck, exit        (* jump into the outer loop *)
+
+(* ---------- outer loop ------------------------------------------------------- *)
+
+outerCheck:
+  sub %condOuter, %i, %n            (* condOuter = i - n *)
+  branch %condOuter, outerBody, exit  (* if i < n → body, else exit *)
+
+outerBody:
+  mov %j,      0
+  mov %partial, 0
+  branch 1, innerCheck, outerInc    (* enter the inner loop *)
+
+(* ---------- inner loop ------------------------------------------------------- *)
+
+innerCheck:
+  sub %condInner, %j, 3             (* run while j < 3 *)
+  branch %condInner, innerBody, innerExit
+
+(* -- inner loop body (may jump to skipEven) ----------------------------------- *)
+
+innerBody:
+  (* If (j & 1) == 0 we’ll skip this iteration to create an extra edge *)
+  and %isEven, %j, 1
+  sub %condSkip, %isEven, 0         (* 0 → even, 1 → odd *)
+  branch %condSkip, doWork, skipEven
+
+skipEven:
+  add %j, %j, 1
+  branch 1, innerCheck, innerExit
+
+doWork:
+  mul %tmp, %i, %j                  (* tmp = i * j *)
+  add %partial, %partial, %tmp      (* accumulate into partial *)
+  add %j, %j, 1
+  branch 1, innerCheck, innerExit
+
+(* ---------- after inner loop ------------------------------------------------- *)
+
+innerExit:
+  add %total, %total, %partial      (* fold inner result into total *)
+  branch 1, outerInc, exit
+
+(* ---------- outer-loop increment --------------------------------------------- *)
+
+outerInc:
+  add %i, %i, 1
+  branch 1, outerCheck, exit
+
+(* ---------- program end ------------------------------------------------------ *)
+
+exit:
+  return %total
+
+|}
+  ;;
+
   let all = [ a; b; c; d; e; c2; e2 ]
 end

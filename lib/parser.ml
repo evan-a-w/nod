@@ -109,6 +109,12 @@ let instr' = function
   | "add" ->
     let%map a = arith () in
     Ir.Add a
+  | "and" ->
+    let%map a = arith () in
+    Ir.And a
+  | "or" ->
+    let%map a = arith () in
+    Ir.Or a
   | "sub" ->
     let%map a = arith () in
     Ir.Sub a
