@@ -37,12 +37,16 @@ module T = struct
     | MUL of 'a operand * 'a operand
     | IDIV of 'a operand (* divide RAX by 'a operand  result in RAX, RDX *)
     | LABEL of 'block
+    | LABEL_NOT_BLOCK of string
     | JMP of 'block
     | CMP of 'a operand * 'a operand
-      (* second arg is so we can store info of next block in case it's false *)
+      (* second arg is so we can store info of next block in case it's false
+
+         not actually needed in my code rn *)
     | JE of 'block * 'block option
     | JNE of 'block * 'block option
     | RET of 'a operand
+    | PAR_MOV of ('a operand * 'a operand) list
   [@@deriving sexp, equal, compare, hash]
 
   let fold_operand op ~f ~init = f init op
@@ -56,8 +60,9 @@ module T = struct
     | CMP (dst, src) ->
       let init = fold_operand dst ~f ~init in
       fold_operand src ~f ~init
+    | PAR_MOV l -> List.fold l ~init ~f:(fun acc (a, b) -> f (f acc a) b)
     | IDIV op | RET op -> fold_operand op ~f ~init
-    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> init
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ -> init
   ;;
 
   let map_reg r ~f =
@@ -85,7 +90,12 @@ module T = struct
     | IDIV op -> IDIV (map_var_operand op ~f)
     | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
     | RET op -> RET (map_var_operand op ~f)
-    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+    | PAR_MOV l ->
+      PAR_MOV
+        (List.map l ~f:(fun (a, b) ->
+           map_var_operand a ~f, map_var_operand b ~f))
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ ->
+      ins (* no virtual‑uses *)
   ;;
 end
 
@@ -132,32 +142,50 @@ module Make (Var : Arg) = struct
 
   let defs ins : Var.Set.t =
     match ins with
+    | PAR_MOV l ->
+      List.fold l ~init:Var.Set.empty ~f:(fun acc (a, _) ->
+        Set.union acc (vars_of_operand a))
     | MOV (dst, _) -> vars_of_operand dst
     | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) -> vars_of_operand dst
     | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
-    | NOOP | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+    | NOOP | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _
+      -> Var.Set.empty
   ;;
 
   let uses ins : Var.Set.t =
     match ins with
+    | PAR_MOV l ->
+      List.fold l ~init:Var.Set.empty ~f:(fun acc (_, a) ->
+        Set.union acc (vars_of_operand a))
     | MOV (_, src) -> vars_of_operand src
     | ADD (dst, src) | SUB (dst, src) | MUL (dst, src) ->
       Set.union (vars_of_operand dst) (vars_of_operand src)
     | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
     | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
     | RET op -> vars_of_operand op
-    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ -> Var.Set.empty
+    | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ -> Var.Set.empty
   ;;
 
   let blocks instr =
     match instr with
-    | NOOP | MOV _ | ADD _ | SUB _ | MUL _ | IDIV _ | CMP _ | RET _ -> []
+    | NOOP
+    | MOV _
+    | ADD _
+    | SUB _
+    | MUL _
+    | IDIV _
+    | CMP _
+    | RET _
+    | PAR_MOV _
+    | LABEL_NOT_BLOCK _ -> []
     | LABEL lbl | JMP lbl -> [ lbl ]
     | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
   ;;
 
   let map_blocks (instr : 'a t') ~(f : 'a -> 'b) : 'b t' =
     match instr with
+    | LABEL_NOT_BLOCK s -> LABEL_NOT_BLOCK s
+    | PAR_MOV l -> PAR_MOV l
     | MOV (x, y) -> MOV (x, y)
     | ADD (x, y) -> ADD (x, y)
     | SUB (x, y) -> SUB (x, y)
@@ -177,7 +205,7 @@ module Make (Var : Arg) = struct
 
   let is_terminal = function
     | JMP _ | JNE _ | JE _ | RET _ -> true
-    | NOOP
+    | LABEL_NOT_BLOCK _ | PAR_MOV _ | NOOP
     | MOV (_, _)
     | ADD (_, _)
     | SUB (_, _)

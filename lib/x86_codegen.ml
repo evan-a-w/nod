@@ -5,6 +5,14 @@ open Lit_or_var
 open Mem
 
 let reg_of_var (v : Var.t) : Var.t Reg.t = Unallocated v
+let fresh_label_i = lazy (ref 0)
+
+let fresh_label () =
+  let fresh = Lazy.force fresh_label_i in
+  let res = "%%local__" ^ Int.to_string !fresh in
+  incr fresh;
+  res
+;;
 
 let operand_of_lit_or_var = function
   | Lit n -> Imm n
@@ -17,6 +25,15 @@ let operand_of_mem = function
 ;;
 
 let sel_instr ~instrs ir =
+  let par_mov { Call_block.block; args } =
+    match args with
+    | [] -> []
+    | _ ->
+      [ PAR_MOV
+          (List.map2_exn (Vec.to_list block.Block.args) args ~f:(fun a b ->
+             Reg (Reg.Unallocated a), Reg (Reg.Unallocated b)))
+      ]
+  in
   let new_ =
     match ir with
     | Add { dest; src1; src2 } ->
@@ -55,13 +72,34 @@ let sel_instr ~instrs ir =
       [ MOV (operand_of_mem mem, operand_of_lit_or_var val_) ]
     | Move (v, src) -> [ MOV (Reg (reg_of_var v), operand_of_lit_or_var src) ]
     | Return rv -> [ MOV (Reg RAX, operand_of_lit_or_var rv); RET (Reg RAX) ]
-    | Branch (Uncond b) -> [ JMP b.block.Block.id_hum ]
+    | Branch (Uncond b) -> par_mov b @ [ JMP b.block.Block.id_hum ]
     | Branch (Cond { cond; if_true; if_false }) ->
       let c = operand_of_lit_or_var cond in
-      [ CMP (c, Imm 0L)
-      ; JNE (if_true.block.Block.id_hum, None)
-      ; JMP if_false.block.Block.id_hum
-      ]
+      let mov_if_false = par_mov if_false in
+      let mov_if_true = par_mov if_true in
+      (match mov_if_false, mov_if_true with
+       | [], [] ->
+         [ CMP (c, Imm 0L)
+         ; JNE (if_true.block.Block.id_hum, None)
+         ; JMP if_false.block.Block.id_hum
+         ]
+       | [], mov_if_true ->
+         [ CMP (c, Imm 0L); JE (if_false.block.Block.id_hum, None) ]
+         @ mov_if_true
+         @ [ JMP if_true.block.Block.id_hum ]
+       | mov_if_false, [] ->
+         [ CMP (c, Imm 0L); JNE (if_true.block.Block.id_hum, None) ]
+         @ mov_if_false
+         @ [ JMP if_false.block.Block.id_hum ]
+       | mov_if_false, mov_if_true ->
+         let if_false_label = fresh_label () in
+         List.concat
+           [ [ CMP (c, Imm 0L); JE (if_false_label, None) ]
+           ; mov_if_true
+           ; [ JMP if_true.block.Block.id_hum; LABEL_NOT_BLOCK if_false_label ]
+           ; mov_if_false
+           ; [ JMP if_false.block.Block.id_hum ]
+           ])
     | Noop -> []
     | Unreachable -> []
   in
@@ -152,12 +190,12 @@ let can't_spill ~instr =
 
 let will_exit = function
   | RET _ -> true
-  | NOOP
+  | PAR_MOV _ | NOOP
   | MOV (_, _)
   | ADD (_, _)
   | SUB (_, _)
   | MUL (_, _)
-  | IDIV _ | LABEL _ | JMP _
+  | LABEL_NOT_BLOCK _ | IDIV _ | LABEL _ | JMP _
   | CMP (_, _)
   | JE (_, _)
   | JNE (_, _) -> false
@@ -165,8 +203,6 @@ let will_exit = function
 
 let all_regs = Var_reg.Set.of_list (Regalloc.free_regs ())
 
-(* TODO: Still wrong because not doing copying of block args - prob need to
-   actually keep the CFG around :( *)
 let compile_and_regalloc root =
   let block_args, block_starts, block_adj, instrs = compile_linear root in
   let mappings, stack_end =

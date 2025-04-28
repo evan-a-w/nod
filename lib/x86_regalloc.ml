@@ -63,7 +63,7 @@ module Make (Var : X86_ir.Arg) = struct
     (* uses = uses that aren't yet defined in block *)
     let defs_uses_and_end ~block_start ~instrs =
       let rec go ~acc:((defs, uses) as acc) i =
-        if i < Vec.length instrs
+        if i >= Vec.length instrs
         then acc, i
         else (
           match Vec.get instrs i with
@@ -78,6 +78,11 @@ module Make (Var : X86_ir.Arg) = struct
     ;;
 
     let create ~block_args ~block_starts ~block_adj ~instrs =
+      (* print_s *)
+      (*   [%message *)
+      (*     (block_args : Var.t Vec.t String.Table.t) *)
+      (*       (block_starts : int String.Map.t) *)
+      (*       (block_adj : string List.t String.Table.t)]; *)
       let worklist = Queue.create () in
       let live_in = String.Table.create () in
       let live_out = String.Table.create () in
@@ -89,6 +94,10 @@ module Make (Var : X86_ir.Arg) = struct
         Hashtbl.set block_defs ~key:block ~data:defs;
         Hashtbl.set block_uses ~key:block ~data:uses;
         block_ends := Map.set !block_ends ~key:block ~data:end_);
+      (* print_s *)
+      (*   [%message *)
+      (*     (block_defs : Var.Set.t String.Table.t) *)
+      (*       (block_uses : Var.Set.t String.Table.t)]; *)
       let find_set tbl block =
         Hashtbl.find_or_add tbl block ~default:(fun () -> Var.Set.empty)
       in
@@ -98,7 +107,10 @@ module Make (Var : X86_ir.Arg) = struct
         (* live_out[b] = U LIVE_IN[succ] *)
         let new_live_out =
           Hashtbl.find_exn block_adj block
-          |> List.map ~f:(find_set live_in)
+          |> List.map ~f:(fun b ->
+            if not (String.equal b block)
+            then find_set live_in b
+            else Var.Set.empty)
           |> Var.Set.union_list
         in
         (* live_in[b]  = use U (live_out / def) *)
@@ -109,6 +121,8 @@ module Make (Var : X86_ir.Arg) = struct
                (Hashtbl.find_exn block_uses block)
                (Set.diff new_live_out (Hashtbl.find_exn block_defs block)))
         in
+        (* print_s *)
+        (*   [%message block (new_live_in : Var.Set.t) (new_live_out : Var.Set.t)]; *)
         if not
              (Var.Set.equal new_live_in (find_set live_in block)
               && Var.Set.equal new_live_out (find_set live_out block))
@@ -118,6 +132,13 @@ module Make (Var : X86_ir.Arg) = struct
           (* only needs pred blocks but cbf to compute *)
           Map.iter_keys block_starts ~f:(Queue.enqueue worklist))
       done;
+      (* let keys = Hashtbl.keys live_in in *)
+      (* List.iter keys ~f:(fun s -> *)
+      (* print_s *)
+      (*   [%message *)
+      (*     s *)
+      (*       ~in_:(Hashtbl.find_exn live_in s : Var.Set.t) *)
+      (*       ~out:(Hashtbl.find_exn live_out s : Var.Set.t)]); *)
       { block_starts; block_ends = !block_ends; live_in; live_out; block_adj }
     ;;
 
@@ -127,7 +148,7 @@ module Make (Var : X86_ir.Arg) = struct
       Map.iteri t.block_ends ~f:(fun ~key:block ~data:end_ ->
         let start = Map.find_exn t.block_starts block in
         let after = ref (Hashtbl.find_exn t.live_out block) in
-        for i = end_ downto start do
+        for i = end_ - 1 downto start do
           let instr = Vec.get instrs i in
           let before =
             Set.union (X86_ir.uses instr) (Set.diff !after (X86_ir.defs instr))
@@ -141,7 +162,7 @@ module Make (Var : X86_ir.Arg) = struct
   end
 
   let calculate_liveness_info ~block_args ~block_starts ~block_adj ~instrs =
-    print_s [%sexp (instrs : (Var.t, string) instr Vec.t)];
+    (* print_s [%sexp (instrs : (Var.t, string) instr Vec.t)]; *)
     let live_ranges = Var.Table.create () in
     let events = Vec.map instrs ~f:(fun _ -> Vec.create ()) in
     let open_idx = Var.Table.create () in
@@ -151,13 +172,13 @@ module Make (Var : X86_ir.Arg) = struct
     let live_before, live_after =
       Block_info.liveness_by_instr block_info ~instrs
     in
-    let top =
-      Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after)
-      |> Sequence.mapi ~f:(fun i (a, b) -> i, a, b)
-      |> Sequence.to_list
-      |> Vec.of_list
-    in
-    print_s [%sexp (top : (int * Var.Set.t * Var.Set.t) Vec.t)];
+    (* let top = *)
+    (*   Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after) *)
+    (*   |> Sequence.mapi ~f:(fun i (a, b) -> i, a, b) *)
+    (*   |> Sequence.to_list *)
+    (*   |> Vec.of_list *)
+    (* in *)
+    (* print_s [%sexp (top : (int * Var.Set.t * Var.Set.t) Vec.t)]; *)
     let add_interval var ~end_ =
       let start = Hashtbl.find_exn open_idx var in
       Hashtbl.update live_ranges var ~f:(function
