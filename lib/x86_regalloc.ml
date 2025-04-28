@@ -107,10 +107,7 @@ module Make (Var : X86_ir.Arg) = struct
         (* live_out[b] = U LIVE_IN[succ] *)
         let new_live_out =
           Hashtbl.find_exn block_adj block
-          |> List.map ~f:(fun b ->
-            if not (String.equal b block)
-            then find_set live_in b
-            else Var.Set.empty)
+          |> List.map ~f:(find_set live_in)
           |> Var.Set.union_list
         in
         (* live_in[b]  = use U (live_out / def) *)
