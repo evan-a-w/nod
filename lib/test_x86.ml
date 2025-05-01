@@ -23,3 +23,5 @@ let%expect_test "c2" =
     {|
     ((LABEL entry) (MOV (Reg RAX) (Imm 5)) (RET (Reg RAX))) |}]
 ;;
+
+let%expect_test "f" = test Examples.Textual.f

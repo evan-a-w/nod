@@ -217,25 +217,29 @@ module Opt = struct
     block.Block.instructions
     <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
 
-  and remove_arg_from_parent t ~parent ~idx =
+  and remove_arg_from_parent t ~parent ~idx ~from_block =
     let rec go () =
       let current = parent.Block.terminal in
       let new_ =
-        Ir.map_args
-          parent.Block.terminal
-          ~f:
-            (List.filteri ~f:(fun i id ->
-               match i = idx, active_var t id with
-               | false, _ -> true
-               | true, None -> false
-               | true, Some var ->
-                 (* kill the tang *)
-                 Hash_set.filter_inplace var.uses ~f:(fun loc ->
-                   match loc.Loc.where with
-                   | Loc.Block_arg _ -> true
-                   | Instr i -> not (phys_equal i parent.terminal));
-                 try_kill_var t ~id;
-                 false))
+        Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
+          if not (phys_equal cb.block from_block)
+          then cb
+          else
+            { cb with
+              args =
+                List.filteri cb.args ~f:(fun i id ->
+                  match i = idx, active_var t id with
+                  | false, _ -> true
+                  | true, None -> false
+                  | true, Some var ->
+                    (* kill the tang *)
+                    Hash_set.filter_inplace var.uses ~f:(fun loc ->
+                      match loc.Loc.where with
+                      | Loc.Block_arg _ -> true
+                      | Instr i -> not (phys_equal i parent.terminal));
+                    try_kill_var t ~id;
+                    false)
+            })
       in
       (* can actually change during execution :() *)
       if phys_equal current parent.Block.terminal
@@ -252,7 +256,7 @@ module Opt = struct
     in
     block.args <- Vec.filter block.args ~f:(Fn.non (String.equal arg));
     Vec.iter block.parents ~f:(fun parent ->
-      remove_arg_from_parent t ~parent ~idx)
+      remove_arg_from_parent t ~parent ~idx ~from_block:block)
 
   and kill_definition t ~id =
     match active_var t id with
@@ -397,14 +401,18 @@ module Opt = struct
 
   and refine_type_block_arg t ~var ~arg =
     let block = var.Var.loc.block in
+    let constant id =
+      Option.map (Hashtbl.find t.vars id) ~f:(fun x -> x.tags.constant)
+    in
     defining_vars_for_block_arg ~block ~arg
+    |> List.filter_map ~f:constant
     |> function
     | [] -> ()
-    | id :: xs ->
-      let constant id = (Hashtbl.find_exn t.vars id).tags.constant in
+    | constant :: xs ->
       let constant =
-        List.fold xs ~init:(constant id) ~f:(fun acc id ->
-          match acc, constant id with
+        List.fold xs ~init:constant ~f:(fun acc constant' ->
+          match acc, constant' with
+          | _, None -> acc
           | Some a, Some b when Int64.equal a b -> acc
           | _ -> None)
       in

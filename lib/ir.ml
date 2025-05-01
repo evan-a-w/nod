@@ -99,7 +99,6 @@ module Call_block = struct
   let blocks { block; _ } = [ block ]
   let map_uses t ~f = { t with args = List.map t.args ~f }
   let map_blocks t ~f = { t with block = f t.block }
-  let map_args t ~f = { t with args = f t.args }
   let uses = args
 end
 
@@ -169,14 +168,10 @@ module Branch = struct
     | Uncond call -> Uncond (Call_block.map_blocks call ~f)
   ;;
 
-  let map_args ~f = function
+  let map_call_blocks ~f = function
     | Cond { cond; if_true; if_false } ->
-      Cond
-        { cond
-        ; if_true = Call_block.map_args if_true ~f
-        ; if_false = Call_block.map_args if_false ~f
-        }
-    | Uncond call -> Uncond (Call_block.map_args call ~f)
+      Cond { cond; if_true = f if_true; if_false = f if_false }
+    | Uncond call -> Uncond (f call)
   ;;
 
   let map_lit_or_vars t ~f =
@@ -335,9 +330,9 @@ module T = struct
     | Or _ -> false
   ;;
 
-  let map_args t ~f =
+  let map_call_blocks t ~f =
     match t with
-    | Branch b -> Branch (Branch.map_args b ~f)
+    | Branch b -> Branch (Branch.map_call_blocks b ~f)
     | Unreachable
     | Add _
     | Mul _
