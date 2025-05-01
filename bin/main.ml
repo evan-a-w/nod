@@ -1,1 +1,3 @@
-let () = print_endline "Hello, World!"
+open! Nod
+
+let () = Test_ssa.test Examples.Textual.f

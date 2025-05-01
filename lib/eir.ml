@@ -157,7 +157,11 @@ module Opt = struct
       Hashtbl.set t.vars ~key:id ~data:var;
       t.active_vars <- Set.add t.active_vars id
     in
-    let use ~loc id = Hash_set.add (Hashtbl.find_exn t.vars id).uses loc in
+    let use ~loc id =
+      match Hashtbl.find t.vars id with
+      | None -> ()
+      | Some var -> Hash_set.add var.uses loc
+    in
     iter t ~f:(fun block ->
       Vec.iter block.Block.args ~f:(fun id ->
         define ~loc:{ Loc.block; where = Loc.Block_arg id } id);

@@ -235,7 +235,7 @@ innerExit:
 
 outerInc:
   add %i, %i, 1
-  branch 1, outerCheck, exit
+  b outerCheck
 
 (* ---------- program end ------------------------------------------------------ *)
 

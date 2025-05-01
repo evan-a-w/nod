@@ -13,8 +13,10 @@ let test s =
       print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
 ;;
 
-let%expect_test "f" = test Examples.Textual.f;
-  [%expect {|
+let%expect_test "f" =
+  test Examples.Textual.f;
+  [%expect
+    {|
     (start
      (instrs
       ((Move n (Lit 7)) (Move i (Lit 0)) (Move total (Lit 0))
@@ -77,11 +79,9 @@ let%expect_test "f" = test Examples.Textual.f;
     (outerInc
      (instrs
       ((Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
-       (Branch
-        (Cond (cond (Lit 1))
-         (if_true ((block ((id_hum outerCheck) (args ()))) (args ())))
-         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+       (Branch (Uncond ((block ((id_hum outerCheck) (args ()))) (args ())))))))
     (exit (instrs ((Return (Var total))))) |}]
+;;
 
 let%expect_test "all examples" =
   List.iter Examples.Textual.all ~f:(fun s ->

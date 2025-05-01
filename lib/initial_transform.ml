@@ -223,6 +223,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
     ;;
 
     let rec dominates t block1 block2 =
+      (* print_s [%message "dominates" block1.Block.id_hum block2.Block.id_hum]; *)
       if
         phys_equal block1 block2
         || Hashtbl.find t.immediate_dominees block1
@@ -283,52 +284,93 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       t
     ;;
 
-    let update_reaching_def t ~v ~block =
-      let rec go r =
-        match Hashtbl.find t.reaching_def r with
-        | None -> r
-        | Some r' ->
-          if
-            dominates
-              t
-              (Hashtbl.find t.definition r' |> Option.value ~default:block)
-              block
-          then r'
-          else go r'
-      in
-      let r = go v in
-      Hashtbl.set t.reaching_def ~key:v ~data:r
-    ;;
+    (* let update_reaching_def t ~v ~block = *)
+    (*   print_s [%message "update reaching def" "start" v block.Block.id_hum]; *)
+    (*   let rec go r = *)
+    (*     match Hashtbl.find t.reaching_def r with *)
+    (*     | None -> () *)
+    (*     | Some r' -> *)
+    (*       if *)
+    (*         dominates *)
+    (*           t *)
+    (*           (Hashtbl.find t.definition r' |> Option.value ~default:block) *)
+    (*           block *)
+    (*       then Hashtbl.set t.reaching_def ~key:v ~data:r *)
+    (*       else go r' *)
+    (*   in *)
+    (*   go v *)
+    (* ;; *)
+
+    (* let rename t = *)
+    (*   let rec go block = *)
+    (*     let replace_use v = *)
+    (*       update_reaching_def t ~v ~block; *)
+    (*       Hashtbl.find t.reaching_def v |> Option.value ~default:v *)
+    (*     in *)
+    (*     let replace_uses instr = Instr.map_uses instr ~f:replace_use in *)
+    (*     let replace_def v = *)
+    (*       update_reaching_def t ~v ~block; *)
+    (*       let v' = new_name t v in *)
+    (*       (Hashtbl.set t.definition ~key:v' ~data:block; *)
+    (*        match Hashtbl.find t.reaching_def v with *)
+    (*        | None -> () *)
+    (*        | Some data -> Hashtbl.set t.reaching_def ~key:v' ~data); *)
+    (*       Hashtbl.set t.reaching_def ~key:v ~data:v'; *)
+    (*       v' *)
+    (*     in *)
+    (*     let replace_defs instr = Instr.map_defs instr ~f:replace_def in *)
+    (*     block.instructions *)
+    (*     <- Vec.map block.instructions ~f:(fun instr -> instr |> replace_uses); *)
+    (*     Block.terminal block |> replace_uses |> Block.set_terminal block; *)
+    (*     block.args <- Vec.map block.args ~f:replace_def; *)
+    (*     block.instructions *)
+    (*     <- Vec.map block.instructions ~f:(fun instr -> instr |> replace_defs); *)
+    (*     Vec.iter block.Block.children ~f:(fun block' -> *)
+    (*       block'.args <- Vec.map block'.args ~f:replace_use); *)
+    (*     Option.iter *)
+    (*       (Hashtbl.find t.immediate_dominees block) *)
+    (*       ~f: *)
+    (*         (Hash_set.iter ~f:(fun block' -> *)
+    (*            if phys_equal block' block then () else go block')) *)
+    (*   in *)
+    (*   go t.def_uses.root; *)
+    (*   t *)
+    (* ;; *)
 
     let rename t =
+      let stacks = ref String.Map.empty in
+      let push_name v v' =
+        let stack = Map.find !stacks v |> Option.value ~default:[] in
+        stacks := Map.set !stacks ~key:v ~data:(v' :: stack)
+      in
+      let name v =
+        match Map.find !stacks v with
+        | None | Some [] -> v
+        | Some (x :: _) -> x
+      in
       let rec go block =
-        let replace_use v =
-          update_reaching_def t ~v ~block;
-          Hashtbl.find_exn t.reaching_def v
-        in
+        let replace_use = name in
         let replace_uses instr = Instr.map_uses instr ~f:replace_use in
         let replace_def v =
-          update_reaching_def t ~v ~block;
           let v' = new_name t v in
-          Hashtbl.set t.definition ~key:v' ~data:block;
-          Hashtbl.set
-            t.reaching_def
-            ~key:v'
-            ~data:(Hashtbl.find_exn t.reaching_def v);
-          Hashtbl.set t.reaching_def ~key:v ~data:v';
+          push_name v v';
           v'
         in
         let replace_defs instr = Instr.map_defs instr ~f:replace_def in
-        block.args <- Vec.map block.args ~f:replace_def;
-        block.instructions
+        let stacks_before = !stacks in
+        block.Block.args <- Vec.map block.Block.args ~f:replace_def;
+        block.Block.instructions
         <- Vec.map block.instructions ~f:(fun instr ->
              instr |> replace_uses |> replace_defs);
         Block.terminal block |> replace_uses |> Block.set_terminal block;
+        Vec.iter block.Block.children ~f:(fun block' ->
+          block'.args <- Vec.map block'.args ~f:replace_use);
         Option.iter
           (Hashtbl.find t.immediate_dominees block)
           ~f:
             (Hash_set.iter ~f:(fun block' ->
-               if phys_equal block' block then () else go block'))
+               if phys_equal block' block then () else go block'));
+        stacks := stacks_before
       in
       go t.def_uses.root;
       t
@@ -345,12 +387,28 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       }
     ;;
 
+    let set_defs t =
+      let rec go block =
+        Vec.iter block.Block.instructions ~f:(fun instr ->
+          Option.iter (Instr.def instr) ~f:(fun key ->
+            Hashtbl.set t.definition ~key ~data:block));
+        Option.iter
+          (Hashtbl.find t.immediate_dominees block)
+          ~f:
+            (Hash_set.iter ~f:(fun block' ->
+               if phys_equal block' block then () else go block'))
+      in
+      go t.def_uses.root;
+      t
+    ;;
+
     let create (root, _block_by_label, in_order) =
       Def_uses.create root
       |> create_uninit ~in_order
       |> calculate_dominator_tree
       |> insert_args
       |> add_args_to_calls
+      (* |> set_defs *)
       |> rename
     ;;
 

@@ -1,7 +1,7 @@
 open! Core
 module Cfg = Cfg.Process (Ir)
 
-let test s =
+let test ?don't_opt s =
   Test_cfg.test s;
   print_endline "=================================";
   Parser.parse_string s
@@ -20,9 +20,12 @@ let test s =
               (instrs : Eir.Instr.t list)])
     in
     go ssa;
-    print_endline "******************************";
-    Eir.optimize ssa;
-    go ssa
+    (match don't_opt with
+     | Some () -> ()
+     | None ->
+       print_endline "******************************";
+       Eir.optimize ssa;
+       go ssa)
 ;;
 
 let%expect_test "phi pruning" =
@@ -343,10 +346,10 @@ let%expect_test "all examples" =
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))
+          ((block ((id_hum loop) (args (cond%0 sum%0 i%0)))) (args (cond sum i))))
          (if_false
-          ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i)))))))))
-    (loop (args (cond sum%0 i%0))
+          ((block ((id_hum loop) (args (cond%0 sum%0 i%0)))) (args (cond sum i)))))))))
+    (loop (args (cond%0 sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
        (Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
@@ -354,7 +357,7 @@ let%expect_test "all examples" =
        (Branch
         (Cond (cond (Var cond%0))
          (if_true
-          ((block ((id_hum loop) (args (cond sum%0 i%0))))
+          ((block ((id_hum loop) (args (cond%0 sum%0 i%0))))
            (args (cond%0 sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (args ()) (instrs (Unreachable)))
@@ -364,8 +367,8 @@ let%expect_test "all examples" =
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
         (Uncond
-         ((block ((id_hum loop) (args (cond sum%0 i%0)))) (args (cond sum i))))))))
-    (loop (args (cond sum%0 i%0))
+         ((block ((id_hum loop) (args (cond%0 sum%0 i%0)))) (args (cond sum i))))))))
+    (loop (args (cond%0 sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
        (Add ((dest i%1) (src1 (Lit 1)) (src2 (Var i%0))))
@@ -373,7 +376,7 @@ let%expect_test "all examples" =
        (Branch
         (Cond (cond (Var cond%0))
          (if_true
-          ((block ((id_hum loop) (args (cond sum%0 i%0))))
+          ((block ((id_hum loop) (args (cond%0 sum%0 i%0))))
            (args (cond%0 sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (args ()) (instrs (Unreachable)))
