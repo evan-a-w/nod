@@ -284,58 +284,61 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       t
     ;;
 
-    (* let update_reaching_def t ~v ~block = *)
-    (*   print_s [%message "update reaching def" "start" v block.Block.id_hum]; *)
-    (*   let rec go r = *)
-    (*     match Hashtbl.find t.reaching_def r with *)
-    (*     | None -> () *)
-    (*     | Some r' -> *)
-    (*       if *)
-    (*         dominates *)
-    (*           t *)
-    (*           (Hashtbl.find t.definition r' |> Option.value ~default:block) *)
-    (*           block *)
-    (*       then Hashtbl.set t.reaching_def ~key:v ~data:r *)
-    (*       else go r' *)
-    (*   in *)
-    (*   go v *)
-    (* ;; *)
+    let uses_in_block_ex_args_and_calls_to_self ~block =
+      let defs, uses =
+        Vec.fold
+          block.Block.instructions
+          ~init:(String.Set.empty, String.Set.empty)
+          ~f:(fun (defs, uses) instr ->
+            let uses =
+              Set.union
+                uses
+                (Set.diff (Instr.uses instr |> String.Set.of_list) defs)
+            in
+            let defs =
+              Set.union
+                defs
+                (Instr.def instr |> Option.to_list |> String.Set.of_list)
+            in
+            defs, uses)
+      in
+      let res = ref uses in
+      Instr.iter_blocks_and_args block.terminal ~f:(fun ~block:block_id ~args ->
+        if String.equal block_id block.id_hum
+        then ()
+        else res := Set.union !res (Set.diff (String.Set.of_list args) defs));
+      !res
+    ;;
 
-    (* let rename t = *)
-    (*   let rec go block = *)
-    (*     let replace_use v = *)
-    (*       update_reaching_def t ~v ~block; *)
-    (*       Hashtbl.find t.reaching_def v |> Option.value ~default:v *)
-    (*     in *)
-    (*     let replace_uses instr = Instr.map_uses instr ~f:replace_use in *)
-    (*     let replace_def v = *)
-    (*       update_reaching_def t ~v ~block; *)
-    (*       let v' = new_name t v in *)
-    (*       (Hashtbl.set t.definition ~key:v' ~data:block; *)
-    (*        match Hashtbl.find t.reaching_def v with *)
-    (*        | None -> () *)
-    (*        | Some data -> Hashtbl.set t.reaching_def ~key:v' ~data); *)
-    (*       Hashtbl.set t.reaching_def ~key:v ~data:v'; *)
-    (*       v' *)
-    (*     in *)
-    (*     let replace_defs instr = Instr.map_defs instr ~f:replace_def in *)
-    (*     block.instructions *)
-    (*     <- Vec.map block.instructions ~f:(fun instr -> instr |> replace_uses); *)
-    (*     Block.terminal block |> replace_uses |> Block.set_terminal block; *)
-    (*     block.args <- Vec.map block.args ~f:replace_def; *)
-    (*     block.instructions *)
-    (*     <- Vec.map block.instructions ~f:(fun instr -> instr |> replace_defs); *)
-    (*     Vec.iter block.Block.children ~f:(fun block' -> *)
-    (*       block'.args <- Vec.map block'.args ~f:replace_use); *)
-    (*     Option.iter *)
-    (*       (Hashtbl.find t.immediate_dominees block) *)
-    (*       ~f: *)
-    (*         (Hash_set.iter ~f:(fun block' -> *)
-    (*            if phys_equal block' block then () else go block')) *)
+    let prune_args t =
+      let rec go block =
+        let uses = uses_in_block_ex_args_and_calls_to_self ~block in
+        let pre_len = Vec.length block.args in
+        Vec.filter_inplace block.args ~f:(Set.mem uses);
+        if Vec.length block.args <> pre_len
+        then
+          Vec.iter block.parents ~f:(fun block' ->
+            Block.set_terminal
+              block'
+              (Block.terminal block' |> Instr.add_block_args));
+        Option.iter
+          (Hashtbl.find t.immediate_dominees block)
+          ~f:
+            (Hash_set.iter ~f:(fun block' ->
+               if phys_equal block' block then () else go block'))
+      in
+      go t.def_uses.root;
+      t
+    ;;
+
+    (* let rec go block = *)
+    (*   let try_prune arg = *)
+
     (*   in *)
-    (*   go t.def_uses.root; *)
-    (*   t *)
-    (* ;; *)
+    (*   Vec.iter block.Block.args ~f:try_prune *)
+    (* in *)
+    (* go t.def_uses.root; *)
+    (* t *)
 
     let rename t =
       let stacks = ref String.Map.empty in
@@ -408,6 +411,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       |> calculate_dominator_tree
       |> insert_args
       |> add_args_to_calls
+      |> prune_args
       (* |> set_defs *)
       |> rename
     ;;

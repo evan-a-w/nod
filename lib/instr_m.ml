@@ -15,4 +15,9 @@ module type S = sig
 
   val map_uses : t -> f:(string -> string) -> t
   val map_defs : t -> f:(string -> string) -> t
+
+  val iter_blocks_and_args
+    :  t
+    -> f:(block:string -> args:string list -> unit)
+    -> unit
 end

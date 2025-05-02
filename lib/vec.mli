@@ -26,6 +26,7 @@ val last : 'a t -> 'a option
 val last_exn : 'a t -> 'a
 val filter : 'a t -> f:('a -> bool) -> 'a t
 val filter_map : 'a t -> f:('a -> 'b option) -> 'b t
+val filter_inplace : 'a t -> f:('a -> bool) -> unit
 val findi : 'a t -> f:(int -> 'a -> 'b option) -> 'b option
 val map_inplace : 'a t -> f:('a -> 'a) -> unit
 val singleton : 'a -> 'a t

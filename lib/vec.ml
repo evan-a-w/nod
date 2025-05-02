@@ -186,6 +186,15 @@ let map_inplace t ~f =
   done
 ;;
 
+let filter_inplace t ~f =
+  let write = ref 0 in
+  for i = 0 to t.length - 1 do
+    if f t.arr.(i) then t.arr.(!write) <- t.arr.(i);
+    incr write
+  done;
+  t.length <- !write
+;;
+
 let append t t' = iter t' ~f:(push t)
 let append_list t l = List.iter l ~f:(push t)
 

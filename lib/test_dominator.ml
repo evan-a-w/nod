@@ -8,6 +8,7 @@ module Triv_instr = struct
   let map_uses t ~f:_ = t
   let map_defs t ~f:_ = t
   let add_block_args t = t
+  let iter_blocks_and_args _ ~f:_ = ()
 end
 
 module Ir = Initial_transform.Make (struct

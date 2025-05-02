@@ -168,6 +168,13 @@ module Branch = struct
     | Uncond call -> Uncond (Call_block.map_blocks call ~f)
   ;;
 
+  let iter_call_blocks ~f = function
+    | Cond { cond = _; if_true; if_false } ->
+      f if_true;
+      f if_false
+    | Uncond call -> f call
+  ;;
+
   let map_call_blocks ~f = function
     | Cond { cond; if_true; if_false } ->
       Cond { cond; if_true = f if_true; if_false = f if_false }
@@ -348,6 +355,24 @@ module T = struct
     | Or _ -> t
   ;;
 
+  let iter_call_blocks t ~f =
+    match t with
+    | Branch b -> Branch.iter_call_blocks b ~f
+    | Unreachable
+    | Add _
+    | Mul _
+    | Div _
+    | Mod _
+    | Sub _
+    | Move _
+    | Noop
+    | Load _
+    | Store _
+    | Return _
+    | And _
+    | Or _ -> ()
+  ;;
+
   let map_blocks (t : 'a t') ~f : 'b t' =
     match t with
     | And a -> And a
@@ -441,6 +466,11 @@ module rec Instr0 : (Instr_m.S with type t = Block.t t') = struct
            ; if_false = on_call_block if_false
            })
     | Branch (Branch.Uncond call) -> Branch (Branch.Uncond (on_call_block call))
+  ;;
+
+  let iter_blocks_and_args t ~f =
+    iter_call_blocks t ~f:(fun { block; args } ->
+      f ~block:block.Block.id_hum ~args)
   ;;
 end
 
