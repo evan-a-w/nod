@@ -334,15 +334,6 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       t
     ;;
 
-    (* let rec go block = *)
-    (*   let try_prune arg = *)
-
-    (*   in *)
-    (*   Vec.iter block.Block.args ~f:try_prune *)
-    (* in *)
-    (* go t.def_uses.root; *)
-    (* t *)
-
     let rename t =
       let stacks = ref String.Map.empty in
       let push_name v v' =
