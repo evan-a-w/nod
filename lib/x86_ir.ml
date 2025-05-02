@@ -4,6 +4,7 @@ module T = struct
   module Reg = struct
     type 'a t =
       | Unallocated of 'a
+      | Junk
       | RBP
       | RSP
       | RAX

@@ -120,9 +120,10 @@ module Make (Var : X86_ir.Arg) = struct
         in
         (* print_s *)
         (*   [%message block (new_live_in : Var.Set.t) (new_live_out : Var.Set.t)]; *)
-        if not
-             (Var.Set.equal new_live_in (find_set live_in block)
-              && Var.Set.equal new_live_out (find_set live_out block))
+        if
+          not
+            (Var.Set.equal new_live_in (find_set live_in block)
+             && Var.Set.equal new_live_out (find_set live_out block))
         then (
           Hashtbl.set live_in ~key:block ~data:new_live_in;
           Hashtbl.set live_out ~key:block ~data:new_live_out;
@@ -177,10 +178,12 @@ module Make (Var : X86_ir.Arg) = struct
     (* in *)
     (* print_s [%sexp (top : (int * Var.Set.t * Var.Set.t) Vec.t)]; *)
     let add_interval var ~end_ =
-      let start = Hashtbl.find_exn open_idx var in
-      Hashtbl.update live_ranges var ~f:(function
-        | None -> Interval.Map.singleton { start; end_ } ()
-        | Some m -> Map.add_exn m ~key:{ start; end_ } ~data:())
+      match Hashtbl.find open_idx var with
+      | None -> (* not defined *) ()
+      | Some start ->
+        Hashtbl.update live_ranges var ~f:(function
+          | None -> Interval.Map.singleton { start; end_ } ()
+          | Some m -> Map.set m ~key:{ start; end_ } ~data:())
     in
     Sequence.iteri
       (Sequence.zip (Vec.to_sequence live_before) (Vec.to_sequence live_after))
@@ -192,7 +195,7 @@ module Make (Var : X86_ir.Arg) = struct
         let opened = Set.diff live_after live_before in
         Set.iter opened ~f:(fun key ->
           Vec.push (Vec.get events i) (`Open key);
-          Hashtbl.add_exn open_idx ~key ~data:i));
+          Hashtbl.set open_idx ~key ~data:i));
     Hashtbl.iter_keys open_idx ~f:(fun var ->
       add_interval var ~end_:(Vec.length instrs));
     events, live_ranges
@@ -228,13 +231,14 @@ module Make (Var : X86_ir.Arg) = struct
     Vec.iteri events ~f:(fun i events ->
       Vec.iter events ~f:(function
         | `Close var ->
-          let allocation, _ =
-            Hashtbl.find_exn mappings var |> Map.max_elt_exn
-          in
-          (match allocation.Allocation.mapping with
-           | Stack_slot stack_slot ->
-             free_stack_slots := stack_slot :: !free_stack_slots
-           | Reg reg -> free_regs := reg :: !free_regs)
+          (match Hashtbl.find mappings var with
+           | None -> ()
+           | Some allocations ->
+             let allocation, _ = Map.max_elt_exn allocations in
+             (match allocation.Allocation.mapping with
+              | Stack_slot stack_slot ->
+                free_stack_slots := stack_slot :: !free_stack_slots
+              | Reg reg -> free_regs := reg :: !free_regs))
         | `Open var ->
           let intervals = Hashtbl.find_exn live_ranges var in
           let interval, () =
@@ -251,7 +255,7 @@ module Make (Var : X86_ir.Arg) = struct
           let allocation = { Allocation.interval; var; mapping } in
           Hashtbl.update mappings var ~f:(function
             | None -> Allocation.Map.singleton allocation ()
-            | Some s -> Map.add_exn s ~key:allocation ~data:())));
+            | Some s -> Map.set s ~key:allocation ~data:())));
     mappings, !stack_slot_min
   ;;
 end

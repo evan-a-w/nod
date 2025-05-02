@@ -150,24 +150,24 @@ let compile_linear root =
 
 module Regalloc = X86_regalloc.Make (Var)
 
-let allocation ~mappings ~var ~idx =
-  let allocs = Hashtbl.find_exn mappings var in
-  let alloc, () =
+let mapping ~mappings ~var ~idx =
+  let%bind.Option allocs = Hashtbl.find mappings var in
+  let%map.Option alloc, () =
     Map.closest_key
       allocs
       `Less_than
       (Regalloc.Allocation.fake
          ~var
          ~interval:{ start = idx; end_ = 100000000000 })
-    |> Option.value_exn
   in
-  alloc
+  alloc.mapping
 ;;
 
 let operand ~mappings ~var ~idx =
-  match (allocation ~mappings ~var ~idx).mapping with
-  | Stack_slot i -> X86_ir.Mem (RSP, -i)
-  | Reg r -> X86_ir.Reg r
+  match mapping ~mappings ~var ~idx with
+  | None -> Reg Junk
+  | Some (Stack_slot i) -> X86_ir.Mem (RSP, -i)
+  | Some (Reg r) -> X86_ir.Reg r
 ;;
 
 let vars_for_secondary_spill ~mappings ~instr ~idx =
@@ -175,9 +175,9 @@ let vars_for_secondary_spill ~mappings ~instr ~idx =
   X86_ir.fold_operands instr ~init:needed ~f:(fun acc operand ->
     match operand with
     | Mem (Unallocated var, _) ->
-      (match (allocation ~mappings ~var ~idx).mapping with
-       | Reg _ -> acc
-       | Stack_slot _ -> Set.add acc var)
+      (match mapping ~mappings ~var ~idx with
+       | None | Some (Reg _) -> acc
+       | Some (Stack_slot _) -> Set.add acc var)
     | Reg _ | Imm _ | Mem (_, _) -> acc)
 ;;
 
