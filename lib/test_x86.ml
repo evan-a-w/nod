@@ -61,8 +61,10 @@ let%expect_test "f" =
      (SUB (Reg RSP) (Imm 4)) (RET (Reg RAX))) |}]
 ;;
 
-let%expect_test "f" = test Examples.Textual.fib;
-  [%expect {|
+let%expect_test "fib" =
+  test Examples.Textual.fib;
+  [%expect
+    {|
     ((LABEL %root) (JMP fib_start) (LABEL fib_start) (MOV (Reg RAX) (Imm 0))
      (MOV (Reg RBX) (Imm 1))
      (PAR_MOV
@@ -73,3 +75,21 @@ let%expect_test "f" = test Examples.Textual.fib;
      (PAR_MOV
       (((Reg RSI) (Reg RAX)) ((Reg RDX) (Reg RDX)) ((Reg RAX) (Reg RSI))))
      (JMP fib_check)) |}]
+;;
+
+let%expect_test "sum 100" =
+  test Examples.Textual.sum_100;
+  [%expect
+    {|
+    ((LABEL start) (MOV (Reg RAX) (Imm 1)) (MOV (Reg RBX) (Imm 0))
+     (PAR_MOV (((Reg RAX) (Reg RBX)) ((Reg RBX) (Reg RAX)))) (JMP check)
+     (LABEL check) (MOV (Reg RCX) (Reg RBX)) (SUB (Reg RCX) (Imm 100))
+     (CMP (Reg RCX) (Imm 0)) (JNE body ())
+     (PAR_MOV (((Reg RCX) (Reg RCX)) ((Reg Junk) (Reg RAX)))) (JMP exit)
+     (LABEL body) (MOV (Reg RDX) (Reg RBX)) (MOV (Reg RSI) (Imm 1))
+     (ADD (Reg RSI) (Reg RBX)) (CMP (Imm 1) (Imm 0)) (JE %%local__0 ())
+     (PAR_MOV (((Reg RBX) (Reg RDX)) ((Reg RSI) (Reg RSI)))) (JMP check)
+     (LABEL_NOT_BLOCK %%local__0)
+     (PAR_MOV (((Reg RCX) (Reg RCX)) ((Reg RDX) (Reg RDX)))) (JMP exit)
+     (LABEL exit) (MOV (Reg RAX) (Reg RDX)) (RET (Reg RAX))) |}]
+;;

@@ -269,5 +269,26 @@ fib_exit:
 |}
   ;;
 
+  let sum_100 =
+    {|
+start:
+  mov   %i,    1          
+  mov   %sum,  0          
+  branch 1,       check, exit    
+
+check:
+  sub   %cond,  %i,   100   
+  branch %cond,  body, exit 
+
+body:
+  add   %sum,  %sum, %i    
+  add   %i,    %i,   1    
+  branch 1,       check, exit    
+
+exit:
+  return %sum              
+|}
+  ;;
+
   let all = [ a; b; c; d; e; c2; e2 ]
 end
