@@ -24,8 +24,10 @@ let%expect_test "c2" =
     ((LABEL entry) (MOV (Reg RAX) (Imm 5)) (RET (Reg RAX))) |}]
 ;;
 
-let%expect_test "f" = test Examples.Textual.f;
-  [%expect {|
+let%expect_test "f" =
+  test Examples.Textual.f;
+  [%expect
+    {|
     ((LABEL start) (MOV (Reg RAX) (Imm 0)) (MOV (Reg RBX) (Imm 0))
      (PAR_MOV
       (((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk))
@@ -57,3 +59,17 @@ let%expect_test "f" = test Examples.Textual.f;
        ((Reg R15) (Reg R15))))
      (JMP innerCheck) (LABEL exit) (MOV (Reg RAX) (Reg RBX))
      (SUB (Reg RSP) (Imm 4)) (RET (Reg RAX))) |}]
+;;
+
+let%expect_test "f" = test Examples.Textual.fib;
+  [%expect {|
+    ((LABEL %root) (JMP fib_start) (LABEL fib_start) (MOV (Reg RAX) (Imm 0))
+     (MOV (Reg RBX) (Imm 1))
+     (PAR_MOV
+      (((Reg Junk) (Reg RAX)) ((Reg Junk) (Reg Junk)) ((Reg RAX) (Reg RBX))))
+     (JMP fib_check) (LABEL fib_check) (JMP fib_body) (LABEL fib_body)
+     (MOV (Reg RDX) (Reg RAX)) (MOV (Reg RAX) (Reg RAX))
+     (MOV (Reg RSI) (Reg RDX))
+     (PAR_MOV
+      (((Reg RSI) (Reg RAX)) ((Reg RDX) (Reg RDX)) ((Reg RAX) (Reg RSI))))
+     (JMP fib_check)) |}]

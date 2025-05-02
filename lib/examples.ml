@@ -245,5 +245,29 @@ exit:
 |}
   ;;
 
+  let fib =
+    {|
+  mov %arg, 10
+fib_start:
+  mov   %count,  %arg
+  mov   %a,      0
+  mov   %b,      1
+  b     fib_check
+
+fib_check:
+  branch %count, fib_body, fib_exit
+
+fib_body:
+  add   %next,    %a,      %b
+  mov   %a,       %b
+  mov   %b,       %next
+  sub   %count,   %count,   1
+  b     fib_check
+
+fib_exit:
+  return %a
+|}
+  ;;
+
   let all = [ a; b; c; d; e; c2; e2 ]
 end

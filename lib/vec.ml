@@ -195,6 +195,18 @@ let filter_inplace t ~f =
   t.length <- !write
 ;;
 
+let filter_map_inplace t ~f =
+  let write = ref 0 in
+  for i = 0 to t.length - 1 do
+    match f t.arr.(i) with
+    | None -> ()
+    | Some x ->
+      t.arr.(!write) <- x;
+      incr write
+  done;
+  t.length <- !write
+;;
+
 let append t t' = iter t' ~f:(push t)
 let append_list t l = List.iter l ~f:(push t)
 

@@ -64,10 +64,13 @@ let lex_number c =
   | _ -> return (Token.Int n)
 ;;
 
+let extra_ident_chars = Char.Set.of_list [ '_' ]
+
 let lex_word c =
   let rec loop acc =
     match%bind peek with
-    | Some c when Char.is_alpha c || Char.is_digit c ->
+    | Some c
+      when Char.is_alpha c || Char.is_digit c || Set.mem extra_ident_chars c ->
       let%bind _ = next in
       loop (c :: acc)
     | _ -> return (List.rev acc)
@@ -191,9 +194,11 @@ let tokens ~file s =
 ;;
 
 let%expect_test "tokens" =
-  let s = {|let x = 123 25.05
+  let s =
+    {|let x = 123 25.05
 in x {} :  (* a
-b c *) "hi there \""  |} in
+b c *) "hi there \""  |}
+  in
   (match tokens ~file:"test" s with
    | Ok tokens -> print_s [%message (tokens : (Token.t * Pos.t) list)]
    | Error _ -> ());

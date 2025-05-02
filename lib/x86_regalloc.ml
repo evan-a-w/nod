@@ -232,14 +232,18 @@ module Make (Var : X86_ir.Arg) = struct
       Vec.iter events ~f:(function
         | `Close var ->
           (match Hashtbl.find mappings var with
-           | None -> ()
+           | None ->
+             (* print_s [%message "failed close" (var : Var.t)]; *)
+             ()
            | Some allocations ->
+             (* print_s [%message "close" (var : Var.t)]; *)
              let allocation, _ = Map.max_elt_exn allocations in
              (match allocation.Allocation.mapping with
               | Stack_slot stack_slot ->
                 free_stack_slots := stack_slot :: !free_stack_slots
               | Reg reg -> free_regs := reg :: !free_regs))
         | `Open var ->
+          (* print_s [%message "open" (var : Var.t)]; *)
           let intervals = Hashtbl.find_exn live_ranges var in
           let interval, () =
             Map.closest_key intervals `Greater_than { start = i; end_ = i }

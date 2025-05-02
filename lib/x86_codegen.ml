@@ -215,6 +215,44 @@ let will_exit = function
 
 let all_regs = Var_reg.Set.of_list (Regalloc.free_regs ())
 
+let filter_junk instr =
+  match instr with
+  | RET (Reg Junk)
+  | MOV (Reg Junk, _)
+  | MOV (_, Reg Junk)
+  | CMP (Reg Junk, _)
+  | CMP (_, Reg Junk)
+  | ADD (Reg Junk, _)
+  | ADD (_, Reg Junk)
+  | SUB (Reg Junk, _)
+  | SUB (_, Reg Junk)
+  | AND (Reg Junk, _)
+  | AND (_, Reg Junk)
+  | OR (Reg Junk, _)
+  | OR (_, Reg Junk)
+  | IDIV (Reg Junk) -> None
+  | PAR_MOV l ->
+    (match
+       List.filter l ~f:(function
+         | Reg Junk, _ | _, Reg Junk -> false
+         | _ -> true)
+     with
+     | [] -> None
+     | l -> Some (PAR_MOV l))
+  | NOOP
+  | AND (_, _)
+  | OR (_, _)
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | MUL (_, _)
+  | IDIV _ | LABEL _ | LABEL_NOT_BLOCK _ | JMP _
+  | CMP (_, _)
+  | JE (_, _)
+  | JNE (_, _)
+  | RET _ -> Some instr
+;;
+
 let compile_and_regalloc root =
   let block_args, block_starts, block_adj, instrs = compile_linear root in
   let mappings, stack_end =
@@ -262,5 +300,6 @@ let compile_and_regalloc root =
       Map.iteri remap ~f:(fun ~key:var ~data:reg ->
         let op = operand ~mappings ~var ~idx in
         Vec.push res (MOV (op, Reg reg)))));
+  (* Vec.filter_map_inplace res ~f:filter_junk; *)
   res
 ;;
