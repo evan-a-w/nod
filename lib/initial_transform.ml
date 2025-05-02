@@ -405,7 +405,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       |> calculate_dominator_tree
       |> insert_args
       |> add_args_to_calls
-      |> prune_args
+      (* |> prune_args *)
       (* |> set_defs *)
       |> rename
     ;;

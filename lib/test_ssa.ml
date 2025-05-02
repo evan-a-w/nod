@@ -28,6 +28,84 @@ let test ?don't_opt s =
        go ssa)
 ;;
 
+let%expect_test "fib" =
+  test Examples.Textual.fib;
+  [%expect
+    {|
+    (%root
+     (instrs
+      ((Move arg (Lit 10))
+       (Branch (Uncond ((block ((id_hum fib_start) (args ()))) (args ())))))))
+    (fib_start
+     (instrs
+      ((Move count (Var arg)) (Move a (Lit 0)) (Move b (Lit 1))
+       (Branch (Uncond ((block ((id_hum fib_check) (args ()))) (args ())))))))
+    (fib_check
+     (instrs
+      ((Branch
+        (Cond (cond (Var count))
+         (if_true ((block ((id_hum fib_body) (args ()))) (args ())))
+         (if_false ((block ((id_hum fib_exit) (args ()))) (args ()))))))))
+    (fib_body
+     (instrs
+      ((Add ((dest next) (src1 (Var a)) (src2 (Var b)))) (Move a (Var b))
+       (Move b (Var next)) (Sub ((dest count) (src1 (Var count)) (src2 (Lit 1))))
+       (Branch (Uncond ((block ((id_hum fib_check) (args ()))) (args ())))))))
+    (fib_exit (instrs ((Return (Var a)))))
+    =================================
+    (%root (args ())
+     (instrs
+      ((Move arg (Lit 10))
+       (Branch (Uncond ((block ((id_hum fib_start) (args ()))) (args ())))))))
+    (fib_start (args ())
+     (instrs
+      ((Move count (Var arg)) (Move a (Lit 0)) (Move b (Lit 1))
+       (Branch
+        (Uncond
+         ((block ((id_hum fib_check) (args (a%0 next%0 count%0 b%0))))
+          (args (a next count b))))))))
+
+
+    -- HAVING next%0 here is sad, fix this first?
+    (fib_check (args (a%0 next%0 count%0 b%0))
+     (instrs
+      ((Branch
+        (Cond (cond (Var count%0))
+         (if_true ((block ((id_hum fib_body) (args ()))) (args ())))
+         (if_false ((block ((id_hum fib_exit) (args ()))) (args ()))))))))
+    (fib_body (args ())
+     (instrs
+      ((Add ((dest next%0) (src1 (Var a%0)) (src2 (Var b%0))))
+       (Move a%1 (Var b%0)) (Move b%1 (Var next%0))
+       (Sub ((dest count%1) (src1 (Var count%0)) (src2 (Lit 1))))
+       (Branch
+        (Uncond
+         ((block ((id_hum fib_check) (args (a%0 next%0 count%0 b%0))))
+          (args (a%1 next%0 count%1 b%1))))))))
+    (fib_exit (args ()) (instrs ((Return (Var a%0)))))
+    ******************************
+    (%root (args ())
+     (instrs
+      ((Branch (Uncond ((block ((id_hum fib_start) (args ()))) (args ())))))))
+    (fib_start (args ())
+     (instrs
+      ((Move a (Lit 0)) (Move b (Lit 1))
+       (Branch
+        (Uncond
+         ((block ((id_hum fib_check) (args (a%0 next%0 b%0)))) (args (a next b))))))))
+    (fib_check (args (a%0 next%0 b%0))
+     (instrs
+      ((Branch (Uncond ((block ((id_hum fib_body) (args ()))) (args ())))))))
+    (fib_body (args ())
+     (instrs
+      ((Move next%0 (Var b%0)) (Move a%1 (Var b%0)) (Move b%1 (Var next%0))
+       (Branch
+        (Uncond
+         ((block ((id_hum fib_check) (args (a%0 next%0 b%0))))
+          (args (a%1 next%0 b%1))))))))
+    (fib_exit (args ()) (instrs ((Return (Var a%0))))) |}]
+;;
+
 let%expect_test "phi pruning" =
   test Examples.Textual.e;
   print_endline "";
@@ -524,8 +602,10 @@ let%expect_test "all examples" =
     ++++++++++++++++++++++++++ |}]
 ;;
 
-let%expect_test "longer example" = test Examples.Textual.f;
-  [%expect {|
+let%expect_test "longer example" =
+  test Examples.Textual.f;
+  [%expect
+    {|
     (start
      (instrs
       ((Move n (Lit 7)) (Move i (Lit 0)) (Move total (Lit 0))
@@ -766,3 +846,4 @@ let%expect_test "longer example" = test Examples.Textual.f;
          ((block ((id_hum outerCheck) (args (partial%0 j%0 condOuter%0 i%0))))
           (args (partial%0 j%0 condOuter%0 i%1))))))))
     (exit (args ()) (instrs ((Return (Var total))))) |}]
+;;
