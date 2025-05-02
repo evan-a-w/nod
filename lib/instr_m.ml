@@ -9,6 +9,7 @@ module type S = sig
 
   val def : t -> string option
   val uses : t -> string list
+  val uses_ex_args : t -> String.Set.t
 
   (** Lookup the args that the block takes, and add them to branch instrs *)
   val add_block_args : t -> t

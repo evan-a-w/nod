@@ -284,36 +284,39 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       t
     ;;
 
-    let uses_in_block_ex_args_and_calls_to_self ~block =
-      let defs, uses =
+    let uses_in_block_ex_calls ~block =
+      let f =
+        fun (defs, uses) instr ->
+        let uses = Set.union uses (Set.diff (Instr.uses_ex_args instr) defs) in
+        let defs =
+          Set.union
+            defs
+            (Instr.def instr |> Option.to_list |> String.Set.of_list)
+        in
+        defs, uses
+      in
+      let acc =
         Vec.fold
           block.Block.instructions
           ~init:(String.Set.empty, String.Set.empty)
-          ~f:(fun (defs, uses) instr ->
-            let uses =
-              Set.union
-                uses
-                (Set.diff (Instr.uses instr |> String.Set.of_list) defs)
-            in
-            let defs =
-              Set.union
-                defs
-                (Instr.def instr |> Option.to_list |> String.Set.of_list)
-            in
-            defs, uses)
+          ~f
       in
-      let res = ref uses in
-      Instr.iter_blocks_and_args block.terminal ~f:(fun ~block:block_id ~args ->
-        if String.equal block_id block.id_hum
-        then ()
-        else res := Set.union !res (Set.diff (String.Set.of_list args) defs));
-      !res
+      f acc block.terminal |> Tuple2.get2
     ;;
 
     let prune_args t =
-      let rec go block =
-        let uses = uses_in_block_ex_args_and_calls_to_self ~block in
-        let pre_len = Vec.length block.args in
+      let rec go acc block =
+        let acc = Set.union (uses_in_block_ex_calls ~block) acc in
+        Option.fold
+          ~init:acc
+          (Hashtbl.find t.immediate_dominees block)
+          ~f:(fun init ->
+            Hash_set.fold ~init ~f:(fun acc block' ->
+              if phys_equal block' block then acc else go acc block'))
+      in
+      let uses = go String.Set.empty t.def_uses.root in
+      let rec go' block =
+        let pre_len = Vec.length block.Block.args in
         Vec.filter_inplace block.args ~f:(Set.mem uses);
         if Vec.length block.args <> pre_len
         then
@@ -325,9 +328,9 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
           (Hashtbl.find t.immediate_dominees block)
           ~f:
             (Hash_set.iter ~f:(fun block' ->
-               if phys_equal block' block then () else go block'))
+               if phys_equal block' block then () else go' block'))
       in
-      go t.def_uses.root;
+      go' t.def_uses.root;
       t
     ;;
 

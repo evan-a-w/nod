@@ -5,6 +5,7 @@ module Triv_instr = struct
 
   let def _ = None
   let uses _ = []
+  let uses_ex_args _ = String.Set.empty
   let map_uses t ~f:_ = t
   let map_defs t ~f:_ = t
   let add_block_args t = t

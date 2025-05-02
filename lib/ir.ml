@@ -431,6 +431,13 @@ module T = struct
       [ if_true; if_false ]
     | Branch (Branch.Uncond call) -> [ call ]
   ;;
+
+  let uses_ex_args t =
+    Set.diff
+      (uses t |> String.Set.of_list)
+      (List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
+       |> String.Set.of_list)
+  ;;
 end
 
 include T
