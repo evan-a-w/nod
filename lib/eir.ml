@@ -94,11 +94,11 @@ module Opt = struct
     ; instr_remap : string Instr.Table.t
     }
 
-  let create ssa =
+  let create ~opt_flags ssa =
     { ssa
     ; vars = String.Table.create ()
     ; active_vars = String.Set.empty
-    ; opt_flags = Opt_flags.default
+    ; opt_flags
     ; block_tracker = None
     ; var_remap = String.Table.create ()
     ; instr_remap = Instr.Table.create ()
@@ -143,8 +143,8 @@ module Opt = struct
     ;;
   end
 
-  let create ssa =
-    let t = create ssa in
+  let create ~opt_flags ssa =
+    let t = create ~opt_flags ssa in
     let define ~loc id =
       let var =
         { Var.id
@@ -283,12 +283,11 @@ module Opt = struct
          let loc =
            Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
          in
-         if
-           phys_equal loc.block var.loc.block
-           && Loc.is_terminal_for_block loc ~block:var.loc.block
-           && [%equal: string list]
-                [ arg ]
-                (defining_vars_for_block_arg ~block:var.loc.block ~arg)
+         if phys_equal loc.block var.loc.block
+            && Loc.is_terminal_for_block loc ~block:var.loc.block
+            && [%equal: string list]
+                 [ arg ]
+                 (defining_vars_for_block_arg ~block:var.loc.block ~arg)
          then kill_definition t ~id:var.id
          else ()
        | _, _ ->
@@ -412,7 +411,6 @@ module Opt = struct
       let constant =
         List.fold xs ~init:constant ~f:(fun acc constant' ->
           match acc, constant' with
-          | _, None -> acc
           | Some a, Some b when Int64.equal a b -> acc
           | _ -> None)
       in
@@ -452,7 +450,7 @@ module Opt = struct
 end
 
 let optimize ssa =
-  let opt_state = Opt.create ssa in
+  let opt_state = Opt.create ~opt_flags:Opt_flags.default ssa in
   Opt.run opt_state
 ;;
 

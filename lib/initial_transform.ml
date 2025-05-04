@@ -53,9 +53,8 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       if Vec.get st.ancestor (Vec.get st.ancestor v) <> -1
       then (
         compress st (Vec.get st.ancestor v);
-        if
-          Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
-          < Vec.get st.semi (Vec.get st.label v)
+        if Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
+           < Vec.get st.semi (Vec.get st.label v)
         then Vec.set st.label v (Vec.get st.label (Vec.get st.ancestor v));
         Vec.set st.ancestor v (Vec.get st.ancestor (Vec.get st.ancestor v)))
     ;;
@@ -224,11 +223,10 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
 
     let rec dominates t block1 block2 =
       (* print_s [%message "dominates" block1.Block.id_hum block2.Block.id_hum]; *)
-      if
-        phys_equal block1 block2
-        || Hashtbl.find t.immediate_dominees block1
-           |> Option.map ~f:(fun set -> Hash_set.mem set block2)
-           |> Option.value ~default:false
+      if phys_equal block1 block2
+         || Hashtbl.find t.immediate_dominees block1
+            |> Option.map ~f:(fun set -> Hash_set.mem set block2)
+            |> Option.value ~default:false
       then true
       else (
         match Hashtbl.find t.dominate_queries (block1, block2) with
@@ -285,8 +283,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
     ;;
 
     let uses_in_block_ex_calls ~block =
-      let f =
-        fun (defs, uses) instr ->
+      let f (defs, uses) instr =
         let uses = Set.union uses (Set.diff (Instr.uses_ex_args instr) defs) in
         let defs =
           Set.union
@@ -301,7 +298,8 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
           ~init:(String.Set.empty, String.Set.empty)
           ~f
       in
-      f acc block.terminal |> Tuple2.get2
+      let _defs, uses = f acc block.terminal in
+      uses
     ;;
 
     let prune_args t =
@@ -405,7 +403,7 @@ module Make_with_block (Params : Parameters.S_with_block) = struct
       |> calculate_dominator_tree
       |> insert_args
       |> add_args_to_calls
-      (* |> prune_args *)
+      |> prune_args
       (* |> set_defs *)
       |> rename
     ;;

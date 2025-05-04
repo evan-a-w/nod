@@ -30,51 +30,36 @@ let%expect_test "f" =
     {|
     ((LABEL start) (MOV (Reg RAX) (Imm 0)) (MOV (Reg RBX) (Imm 0))
      (PAR_MOV
-      (((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk))
-       ((Reg RCX) (Reg RAX))))
-     (JMP outerCheck) (LABEL outerCheck) (MOV (Reg RDI) (Reg RCX))
-     (SUB (Reg RDI) (Imm 7)) (CMP (Reg RDI) (Imm 0)) (JNE outerBody ())
-     (JMP exit) (LABEL outerBody) (MOV (Reg R8) (Imm 0)) (MOV (Reg R9) (Imm 0))
-     (PAR_MOV
-      (((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk))
-       ((Reg Junk) (Reg Junk))))
-     (JMP innerCheck) (LABEL innerCheck) (MOV (Reg R14) (Imm -3)) (JMP innerBody)
-     (LABEL innerBody) (MOV (Reg R15) (Imm 0)) (AND (Reg R15) (Imm 1))
-     (MOV (Mem RSP 0) (Reg R15)) (CMP (Mem RSP 0) (Imm 0)) (JNE doWork ())
-     (JMP skipEven) (LABEL doWork) (MOV (Reg Junk) (Imm 0))
-     (MUL (Reg Junk) (Reg RCX)) (MOV (Reg Junk) (Reg Junk))
-     (MOV (Reg Junk) (Imm 1)) (CMP (Imm 1) (Imm 0)) (JE innerExit ())
-     (PAR_MOV
-      (((Mem RSP 0) (Mem RSP 0)) ((Reg R14) (Reg R14)) ((Reg Junk) (Reg Junk))
-       ((Reg R15) (Reg R15))))
-     (JMP innerCheck) (LABEL innerExit) (MOV (Reg Junk) (Imm 0)) (JMP outerInc)
-     (LABEL outerInc) (MOV (Mem RSP -2) (Imm 1)) (ADD (Mem RSP -2) (Reg RCX))
-     (PAR_MOV
-      (((Reg R9) (Reg R9)) ((Reg R8) (Reg R8)) ((Reg RDI) (Reg RDI))
-       ((Reg RCX) (Mem RSP -2))))
-     (JMP outerCheck) (LABEL skipEven) (MOV (Reg Junk) (Imm 1))
-     (CMP (Imm 1) (Imm 0)) (JE innerExit ())
-     (PAR_MOV
-      (((Mem RSP 0) (Mem RSP 0)) ((Reg R14) (Reg R14)) ((Mem RSP -2) (Reg Junk))
-       ((Reg R15) (Reg R15))))
-     (JMP innerCheck) (LABEL exit) (MOV (Reg RAX) (Reg RBX))
-     (SUB (Reg RSP) (Imm 4)) (RET (Reg RAX))) |}]
+      (((Reg Junk) (Reg Junk)) ((Reg Junk) (Reg Junk)) ((Reg RAX) (Reg RAX))))
+     (JMP outerCheck) (LABEL outerCheck) (MOV (Reg RSI) (Reg RAX))
+     (SUB (Reg RSI) (Imm 7)) (CMP (Reg RSI) (Imm 0)) (JNE outerBody ())
+     (JMP exit) (LABEL outerBody) (MOV (Reg RSI) (Imm 0)) (MOV (Reg RDI) (Imm 0))
+     (JMP innerCheck) (LABEL innerCheck) (JMP innerBody) (LABEL innerBody)
+     (MOV (Reg R8) (Imm 0)) (AND (Reg R8) (Imm 1)) (MOV (Reg R8) (Reg R8))
+     (CMP (Reg R8) (Imm 0)) (JNE doWork ()) (JMP skipEven) (LABEL doWork)
+     (MOV (Reg R8) (Imm 0)) (MUL (Reg R8) (Reg RAX)) (MOV (Reg Junk) (Reg R8))
+     (JMP innerCheck) (LABEL skipEven) (CMP (Imm 1) (Imm 0)) (JNE innerCheck ())
+     (JMP innerExit) (LABEL innerExit) (MOV (Reg Junk) (Imm 0)) (JMP outerInc)
+     (LABEL outerInc) (MOV (Reg R8) (Imm 1)) (ADD (Reg R8) (Reg RAX))
+     (PAR_MOV (((Reg RDI) (Reg RDI)) ((Reg RSI) (Reg RSI)) ((Reg R8) (Reg R8))))
+     (JMP outerCheck) (LABEL exit) (MOV (Reg RAX) (Reg RBX)) (RET (Reg RAX))) |}]
 ;;
 
 let%expect_test "fib" =
   test Examples.Textual.fib;
   [%expect
     {|
-    ((LABEL %root) (JMP fib_start) (LABEL fib_start) (MOV (Reg RAX) (Imm 0))
-     (MOV (Reg RBX) (Imm 1))
+    ((LABEL %root) (JMP fib_start) (LABEL fib_start) (MOV (Reg RAX) (Imm 10))
+     (MOV (Reg RBX) (Imm 0)) (MOV (Reg RCX) (Imm 1))
      (PAR_MOV
-      (((Reg Junk) (Reg RAX)) ((Reg Junk) (Reg Junk)) ((Reg RAX) (Reg RBX))))
-     (JMP fib_check) (LABEL fib_check) (JMP fib_body) (LABEL fib_body)
-     (MOV (Reg RDX) (Reg RAX)) (MOV (Reg RAX) (Reg RAX))
-     (MOV (Reg RSI) (Reg RDX))
+      (((Reg RAX) (Reg RBX)) ((Reg RBX) (Reg RAX)) ((Reg RCX) (Reg RCX))))
+     (JMP fib_check) (LABEL fib_check) (CMP (Reg RBX) (Imm 0)) (JNE fib_body ())
+     (JMP fib_exit) (LABEL fib_body) (MOV (Reg RAX) (Reg RAX))
+     (ADD (Reg RAX) (Reg RCX)) (MOV (Reg RCX) (Reg RCX))
+     (MOV (Reg RAX) (Reg RAX)) (MOV (Reg RBX) (Reg RBX)) (SUB (Reg RBX) (Imm 1))
      (PAR_MOV
-      (((Reg RSI) (Reg RAX)) ((Reg RDX) (Reg RDX)) ((Reg RAX) (Reg RSI))))
-     (JMP fib_check)) |}]
+      (((Reg RBX) (Reg RCX)) ((Reg RCX) (Reg RBX)) ((Reg RAX) (Reg RAX))))
+     (JMP fib_check) (LABEL fib_exit) (MOV (Reg RAX) (Reg RBX)) (RET (Reg RAX))) |}]
 ;;
 
 let%expect_test "sum 100" =
@@ -84,12 +69,8 @@ let%expect_test "sum 100" =
     ((LABEL start) (MOV (Reg RAX) (Imm 1)) (MOV (Reg RBX) (Imm 0))
      (PAR_MOV (((Reg RAX) (Reg RBX)) ((Reg RBX) (Reg RAX)))) (JMP check)
      (LABEL check) (MOV (Reg RCX) (Reg RBX)) (SUB (Reg RCX) (Imm 100))
-     (CMP (Reg RCX) (Imm 0)) (JNE body ())
-     (PAR_MOV (((Reg RCX) (Reg RCX)) ((Reg Junk) (Reg RAX)))) (JMP exit)
-     (LABEL body) (MOV (Reg RDX) (Reg RBX)) (MOV (Reg RSI) (Imm 1))
-     (ADD (Reg RSI) (Reg RBX)) (CMP (Imm 1) (Imm 0)) (JE %%local__0 ())
-     (PAR_MOV (((Reg RBX) (Reg RDX)) ((Reg RSI) (Reg RSI)))) (JMP check)
-     (LABEL_NOT_BLOCK %%local__0)
-     (PAR_MOV (((Reg RCX) (Reg RCX)) ((Reg RDX) (Reg RDX)))) (JMP exit)
-     (LABEL exit) (MOV (Reg RAX) (Reg RDX)) (RET (Reg RAX))) |}]
+     (CMP (Reg RCX) (Imm 0)) (JNE body ()) (PAR_MOV (((Reg RCX) (Reg RAX))))
+     (JMP exit) (LABEL body) (MOV (Reg RAX) (Reg RAX)) (ADD (Reg RAX) (Reg RBX))
+     (PAR_MOV (((Reg RBX) (Reg RAX)) ((Reg RAX) (Reg Junk)))) (JMP check)
+     (LABEL exit) (MOV (Reg RAX) (Reg RCX)) (RET (Reg RAX))) |}]
 ;;

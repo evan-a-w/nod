@@ -62,12 +62,9 @@ let%expect_test "fib" =
       ((Move count (Var arg)) (Move a (Lit 0)) (Move b (Lit 1))
        (Branch
         (Uncond
-         ((block ((id_hum fib_check) (args (a%0 next%0 count%0 b%0))))
-          (args (a next count b))))))))
-
-
-    -- HAVING next%0 here is sad, fix this first?
-    (fib_check (args (a%0 next%0 count%0 b%0))
+         ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
+          (args (a count b))))))))
+    (fib_check (args (a%0 count%0 b%0))
      (instrs
       ((Branch
         (Cond (cond (Var count%0))
@@ -75,13 +72,13 @@ let%expect_test "fib" =
          (if_false ((block ((id_hum fib_exit) (args ()))) (args ()))))))))
     (fib_body (args ())
      (instrs
-      ((Add ((dest next%0) (src1 (Var a%0)) (src2 (Var b%0))))
-       (Move a%1 (Var b%0)) (Move b%1 (Var next%0))
+      ((Add ((dest next) (src1 (Var a%0)) (src2 (Var b%0)))) (Move a%1 (Var b%0))
+       (Move b%1 (Var next))
        (Sub ((dest count%1) (src1 (Var count%0)) (src2 (Lit 1))))
        (Branch
         (Uncond
-         ((block ((id_hum fib_check) (args (a%0 next%0 count%0 b%0))))
-          (args (a%1 next%0 count%1 b%1))))))))
+         ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
+          (args (a%1 count%1 b%1))))))))
     (fib_exit (args ()) (instrs ((Return (Var a%0)))))
     ******************************
     (%root (args ())
@@ -89,20 +86,26 @@ let%expect_test "fib" =
       ((Branch (Uncond ((block ((id_hum fib_start) (args ()))) (args ())))))))
     (fib_start (args ())
      (instrs
-      ((Move a (Lit 0)) (Move b (Lit 1))
+      ((Move count (Lit 10)) (Move a (Lit 0)) (Move b (Lit 1))
        (Branch
         (Uncond
-         ((block ((id_hum fib_check) (args (a%0 next%0 b%0)))) (args (a next b))))))))
-    (fib_check (args (a%0 next%0 b%0))
+         ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
+          (args (a count b))))))))
+    (fib_check (args (a%0 count%0 b%0))
      (instrs
-      ((Branch (Uncond ((block ((id_hum fib_body) (args ()))) (args ())))))))
+      ((Branch
+        (Cond (cond (Var count%0))
+         (if_true ((block ((id_hum fib_body) (args ()))) (args ())))
+         (if_false ((block ((id_hum fib_exit) (args ()))) (args ()))))))))
     (fib_body (args ())
      (instrs
-      ((Move next%0 (Var b%0)) (Move a%1 (Var b%0)) (Move b%1 (Var next%0))
+      ((Add ((dest next) (src1 (Var a%0)) (src2 (Var b%0)))) (Move a%1 (Var b%0))
+       (Move b%1 (Var next))
+       (Sub ((dest count%1) (src1 (Var count%0)) (src2 (Lit 1))))
        (Branch
         (Uncond
-         ((block ((id_hum fib_check) (args (a%0 next%0 b%0))))
-          (args (a%1 next%0 b%1))))))))
+         ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
+          (args (a%1 count%1 b%1))))))))
     (fib_exit (args ()) (instrs ((Return (Var a%0))))) |}]
 ;;
 
@@ -423,36 +426,34 @@ let%expect_test "all examples" =
       ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
-         (if_true
-          ((block ((id_hum loop) (args (cond%0 sum%0 i%0)))) (args (cond sum i))))
-         (if_false
-          ((block ((id_hum loop) (args (cond%0 sum%0 i%0)))) (args (cond sum i)))))))))
-    (loop (args (cond%0 sum%0 i%0))
+         (if_true ((block ((id_hum loop) (args (sum%0 i%0)))) (args (sum i))))
+         (if_false ((block ((id_hum loop) (args (sum%0 i%0)))) (args (sum i)))))))))
+    (loop (args (sum%0 i%0))
      (instrs
       ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
        (Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
-       (Sub ((dest cond%0) (src1 (Lit 10)) (src2 (Var i%1))))
+       (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i%1))))
        (Branch
-        (Cond (cond (Var cond%0))
+        (Cond (cond (Var cond))
          (if_true
-          ((block ((id_hum loop) (args (cond%0 sum%0 i%0))))
-           (args (cond%0 sum%1 i%1))))
+          ((block ((id_hum loop) (args (sum%0 i%0)))) (args (sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (args ()) (instrs (Unreachable)))
     ******************************
     (%root (args ())
      (instrs
-      ((Move i (Lit 0))
+      ((Move i (Lit 0)) (Move sum (Lit 0))
        (Branch
-        (Uncond ((block ((id_hum loop) (args (cond%0 i%0)))) (args (cond))))))))
-    (loop (args (cond%0 i%0))
+        (Uncond ((block ((id_hum loop) (args (sum%0 i%0)))) (args (sum i))))))))
+    (loop (args (sum%0 i%0))
      (instrs
-      ((Add ((dest i%1) (src1 (Lit 1)) (src2 (Var i%0))))
-       (Sub ((dest cond%0) (src1 (Lit 10)) (src2 (Var i%1))))
+      ((Add ((dest sum%1) (src1 (Var sum%0)) (src2 (Var i%0))))
+       (Add ((dest i%1) (src1 (Lit 1)) (src2 (Var i%0))))
+       (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i%1))))
        (Branch
-        (Cond (cond (Var cond%0))
+        (Cond (cond (Var cond))
          (if_true
-          ((block ((id_hum loop) (args (cond%0 i%0)))) (args (cond%0 i%1))))
+          ((block ((id_hum loop) (args (sum%0 i%0)))) (args (sum%1 i%1))))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
@@ -677,53 +678,44 @@ let%expect_test "longer example" =
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block ((id_hum outerCheck) (args (partial%0 j%0 condOuter%0 i%0))))
-           (args (partial j condOuter i))))
+          ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0))))
+           (args (partial j i))))
          (if_false
-          ((block
-            ((id_hum exit)
-             (args (total%2 condInner%2 partial%4 j%5 condOuter%1))))
-           (args (total condInner partial j condOuter)))))))))
-    (outerCheck (args (partial%0 j%0 condOuter%0 i%0))
+          ((block ((id_hum exit) (args (total%2 partial%4 j%5))))
+           (args (total partial j)))))))))
+    (outerCheck (args (partial%0 j%0 i%0))
      (instrs
-      ((Sub ((dest condOuter%0) (src1 (Var i%0)) (src2 (Var n))))
+      ((Sub ((dest condOuter) (src1 (Var i%0)) (src2 (Var n))))
        (Branch
-        (Cond (cond (Var condOuter%0))
+        (Cond (cond (Var condOuter))
          (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
          (if_false
-          ((block
-            ((id_hum exit)
-             (args (total%2 condInner%2 partial%4 j%5 condOuter%1))))
-           (args (total condInner partial j condOuter%0)))))))))
+          ((block ((id_hum exit) (args (total%2 partial%4 j%5))))
+           (args (total partial j)))))))))
     (outerBody (args ())
      (instrs
       ((Move j%0 (Lit 0)) (Move partial%0 (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block
-            ((id_hum innerCheck)
-             (args (condSkip%1 condInner%0 partial%1 j%1 tmp%1 isEven%1))))
-           (args (condSkip condInner partial%0 j%0 tmp isEven))))
-         (if_false
-          ((block ((id_hum outerInc) (args (total%1 condInner%1))))
-           (args (total condInner)))))))))
-    (innerCheck (args (condSkip%1 condInner%0 partial%1 j%1 tmp%1 isEven%1))
+          ((block ((id_hum innerCheck) (args (partial%1 j%1))))
+           (args (partial%0 j%0))))
+         (if_false ((block ((id_hum outerInc) (args (total%1)))) (args (total)))))))))
+    (innerCheck (args (partial%1 j%1))
      (instrs
-      ((Sub ((dest condInner%0) (src1 (Var j%0)) (src2 (Lit 3))))
+      ((Sub ((dest condInner) (src1 (Var j%0)) (src2 (Lit 3))))
        (Branch
-        (Cond (cond (Var condInner%0))
+        (Cond (cond (Var condInner))
          (if_true ((block ((id_hum innerBody) (args ()))) (args ())))
          (if_false
-          ((block
-            ((id_hum innerExit) (args (condSkip%0 partial%2 j%2 tmp%0 isEven%0))))
-           (args (condSkip partial%0 j%0 tmp isEven)))))))))
+          ((block ((id_hum innerExit) (args (partial%2 j%2))))
+           (args (partial%0 j%0)))))))))
     (innerBody (args ())
      (instrs
-      ((And ((dest isEven%1) (src1 (Var j%0)) (src2 (Lit 1))))
-       (Sub ((dest condSkip%1) (src1 (Var isEven%1)) (src2 (Lit 0))))
+      ((And ((dest isEven) (src1 (Var j%0)) (src2 (Lit 1))))
+       (Sub ((dest condSkip) (src1 (Var isEven)) (src2 (Lit 0))))
        (Branch
-        (Cond (cond (Var condSkip%1))
+        (Cond (cond (Var condSkip))
          (if_true ((block ((id_hum doWork) (args ()))) (args ())))
          (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
     (skipEven (args ())
@@ -732,108 +724,83 @@ let%expect_test "longer example" =
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block
-            ((id_hum innerCheck)
-             (args (condSkip%1 condInner%0 partial%1 j%1 tmp%1 isEven%1))))
-           (args (condSkip%1 condInner%0 partial%0 j%4 tmp isEven%1))))
+          ((block ((id_hum innerCheck) (args (partial%1 j%1))))
+           (args (partial%0 j%4))))
          (if_false
-          ((block
-            ((id_hum innerExit) (args (condSkip%0 partial%2 j%2 tmp%0 isEven%0))))
-           (args (condSkip%1 partial%0 j%4 tmp isEven%1)))))))))
+          ((block ((id_hum innerExit) (args (partial%2 j%2))))
+           (args (partial%0 j%4)))))))))
     (doWork (args ())
      (instrs
-      ((Mul ((dest tmp%1) (src1 (Var i%0)) (src2 (Var j%0))))
-       (Add ((dest partial%3) (src1 (Var partial%0)) (src2 (Var tmp%1))))
+      ((Mul ((dest tmp) (src1 (Var i%0)) (src2 (Var j%0))))
+       (Add ((dest partial%3) (src1 (Var partial%0)) (src2 (Var tmp))))
        (Add ((dest j%3) (src1 (Var j%0)) (src2 (Lit 1))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block
-            ((id_hum innerCheck)
-             (args (condSkip%1 condInner%0 partial%1 j%1 tmp%1 isEven%1))))
-           (args (condSkip%1 condInner%0 partial%3 j%3 tmp%1 isEven%1))))
+          ((block ((id_hum innerCheck) (args (partial%1 j%1))))
+           (args (partial%3 j%3))))
          (if_false
-          ((block
-            ((id_hum innerExit) (args (condSkip%0 partial%2 j%2 tmp%0 isEven%0))))
-           (args (condSkip%1 partial%3 j%3 tmp%1 isEven%1)))))))))
-    (innerExit (args (condSkip%0 partial%2 j%2 tmp%0 isEven%0))
+          ((block ((id_hum innerExit) (args (partial%2 j%2))))
+           (args (partial%3 j%3)))))))))
+    (innerExit (args (partial%2 j%2))
      (instrs
       ((Add ((dest total%0) (src1 (Var total)) (src2 (Var partial%0))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true
-          ((block ((id_hum outerInc) (args (total%1 condInner%1))))
-           (args (total%0 condInner%0))))
+          ((block ((id_hum outerInc) (args (total%1)))) (args (total%0))))
          (if_false
-          ((block
-            ((id_hum exit)
-             (args (total%2 condInner%2 partial%4 j%5 condOuter%1))))
-           (args (total%0 condInner%0 partial%0 j%0 condOuter%0)))))))))
-    (outerInc (args (total%1 condInner%1))
+          ((block ((id_hum exit) (args (total%2 partial%4 j%5))))
+           (args (total%0 partial%0 j%0)))))))))
+    (outerInc (args (total%1))
      (instrs
       ((Add ((dest i%1) (src1 (Var i%0)) (src2 (Lit 1))))
        (Branch
         (Uncond
-         ((block ((id_hum outerCheck) (args (partial%0 j%0 condOuter%0 i%0))))
-          (args (partial%0 j%0 condOuter%0 i%1))))))))
-    (exit (args (total%2 condInner%2 partial%4 j%5 condOuter%1))
-     (instrs ((Return (Var total)))))
+         ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0))))
+          (args (partial%0 j%0 i%1))))))))
+    (exit (args (total%2 partial%4 j%5)) (instrs ((Return (Var total)))))
     ******************************
     (start (args ())
      (instrs
       ((Move i (Lit 0)) (Move total (Lit 0))
        (Branch
         (Uncond
-         ((block ((id_hum outerCheck) (args (partial%0 j%0 condOuter%0 i%0))))
-          (args (partial j condOuter i))))))))
-    (outerCheck (args (partial%0 j%0 condOuter%0 i%0))
+         ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0))))
+          (args (partial j i))))))))
+    (outerCheck (args (partial%0 j%0 i%0))
      (instrs
-      ((Sub ((dest condOuter%0) (src1 (Var i%0)) (src2 (Lit 7))))
+      ((Sub ((dest condOuter) (src1 (Var i%0)) (src2 (Lit 7))))
        (Branch
-        (Cond (cond (Var condOuter%0))
+        (Cond (cond (Var condOuter))
          (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
          (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
     (outerBody (args ())
      (instrs
       ((Move j%0 (Lit 0)) (Move partial%0 (Lit 0))
-       (Branch
-        (Uncond
-         ((block
-           ((id_hum innerCheck) (args (condSkip%1 condInner%0 tmp%1 isEven%1))))
-          (args (condSkip condInner tmp isEven))))))))
-    (innerCheck (args (condSkip%1 condInner%0 tmp%1 isEven%1))
+       (Branch (Uncond ((block ((id_hum innerCheck) (args ()))) (args ())))))))
+    (innerCheck (args ())
      (instrs
-      ((Move condInner%0 (Lit -3))
-       (Branch (Uncond ((block ((id_hum innerBody) (args ()))) (args ())))))))
+      ((Branch (Uncond ((block ((id_hum innerBody) (args ()))) (args ())))))))
     (innerBody (args ())
      (instrs
-      ((And ((dest isEven%1) (src1 (Lit 0)) (src2 (Lit 1))))
-       (Move condSkip%1 (Var isEven%1))
+      ((And ((dest isEven) (src1 (Lit 0)) (src2 (Lit 1))))
+       (Move condSkip (Var isEven))
        (Branch
-        (Cond (cond (Var condSkip%1))
+        (Cond (cond (Var condSkip))
          (if_true ((block ((id_hum doWork) (args ()))) (args ())))
          (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
     (skipEven (args ())
      (instrs
-      ((Move j%4 (Lit 1))
-       (Branch
+      ((Branch
         (Cond (cond (Lit 1))
-         (if_true
-          ((block
-            ((id_hum innerCheck) (args (condSkip%1 condInner%0 tmp%1 isEven%1))))
-           (args (condSkip%1 condInner%0 tmp isEven%1))))
+         (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
     (doWork (args ())
      (instrs
-      ((Mul ((dest tmp%1) (src1 (Lit 0)) (src2 (Var i%0))))
-       (Move partial%3 (Var tmp%1)) (Move j%3 (Lit 1))
-       (Branch
-        (Cond (cond (Lit 1))
-         (if_true
-          ((block
-            ((id_hum innerCheck) (args (condSkip%1 condInner%0 tmp%1 isEven%1))))
-           (args (condSkip%1 condInner%0 tmp%1 isEven%1))))
-         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
+      ((Mul ((dest tmp) (src1 (Lit 0)) (src2 (Var i%0))))
+       (Move partial%3 (Var tmp))
+       (Branch (Uncond ((block ((id_hum innerCheck) (args ()))) (args ())))))))
     (innerExit (args ())
      (instrs
       ((Move total%0 (Lit 0))
@@ -843,7 +810,7 @@ let%expect_test "longer example" =
       ((Add ((dest i%1) (src1 (Lit 1)) (src2 (Var i%0))))
        (Branch
         (Uncond
-         ((block ((id_hum outerCheck) (args (partial%0 j%0 condOuter%0 i%0))))
-          (args (partial%0 j%0 condOuter%0 i%1))))))))
+         ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0))))
+          (args (partial%0 j%0 i%1))))))))
     (exit (args ()) (instrs ((Return (Var total))))) |}]
 ;;

@@ -107,8 +107,7 @@ let%expect_test "push" =
   push t 4;
   push t 5;
   iter t ~f:(fun x -> Int.to_string x |> print_endline);
-  [%expect
-    {|
+  [%expect {|
     1
     2
     3
@@ -189,8 +188,10 @@ let map_inplace t ~f =
 let filter_inplace t ~f =
   let write = ref 0 in
   for i = 0 to t.length - 1 do
-    if f t.arr.(i) then t.arr.(!write) <- t.arr.(i);
-    incr write
+    if f t.arr.(i)
+    then (
+      t.arr.(!write) <- t.arr.(i);
+      incr write)
   done;
   t.length <- !write
 ;;
