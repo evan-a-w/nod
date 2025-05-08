@@ -1,3 +1,3 @@
 open! Nod
 
-let () = Test_ssa.test Examples.Textual.fib
+let () = Test_x86.test Examples.Textual.fib

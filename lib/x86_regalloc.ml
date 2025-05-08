@@ -8,6 +8,8 @@ module Make (Var : X86_ir.Arg) = struct
 
   let free_regs () =
     [ Reg.RAX; RBX; RCX; RDX; RSI; RDI; R8; R9; R10; R11; R12; R13; R14; R15 ]
+    @ List.init 500 ~f:(fun i ->
+      Reg.unallocated ("FREE" ^ Int.to_string i |> Var.of_string))
   ;;
 
   module Interval = struct
@@ -120,10 +122,9 @@ module Make (Var : X86_ir.Arg) = struct
         in
         (* print_s *)
         (*   [%message block (new_live_in : Var.Set.t) (new_live_out : Var.Set.t)]; *)
-        if
-          not
-            (Var.Set.equal new_live_in (find_set live_in block)
-             && Var.Set.equal new_live_out (find_set live_out block))
+        if not
+             (Var.Set.equal new_live_in (find_set live_in block)
+              && Var.Set.equal new_live_out (find_set live_out block))
         then (
           Hashtbl.set live_in ~key:block ~data:new_live_in;
           Hashtbl.set live_out ~key:block ~data:new_live_out;

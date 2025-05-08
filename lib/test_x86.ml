@@ -19,8 +19,7 @@ let%expect_test "e2" =
 
 let%expect_test "c2" =
   test Examples.Textual.c2;
-  [%expect
-    {|
+  [%expect {|
     ((LABEL entry) (MOV (Reg RAX) (Imm 5)) (RET (Reg RAX))) |}]
 ;;
 
@@ -74,3 +73,20 @@ let%expect_test "sum 100" =
      (PAR_MOV (((Reg RBX) (Reg RAX)) ((Reg RAX) (Reg Junk)))) (JMP check)
      (LABEL exit) (MOV (Reg RAX) (Reg RCX)) (RET (Reg RAX))) |}]
 ;;
+
+(*
+   RAX = 1
+   RBX = 0
+
+   RAX = 0
+   RBX = 1
+
+   RCX=  1
+   RCX = -99
+
+   RAX = 0
+   RAX = 1
+   RBX = 1
+   RAX = Junk
+   this point is the crux i think
+*)

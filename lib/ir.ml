@@ -8,6 +8,9 @@ module Var = struct
   include T
   include Comparable.Make (T)
   include Hashable.Make (T)
+
+  let of_string = Fn.id
+  let to_string = Fn.id
 end
 
 module Lit = struct
