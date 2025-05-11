@@ -122,3 +122,12 @@ and directive_line () : (Asm.t, _, _, _) parser =
   let%map l = take_until_token_inc Token.Newline in
   Directive (d, l)
 ;;
+
+let parse_string ~config s =
+  match Lexer.tokens ~file:"" s with
+  | Error _ as e -> e
+  | Ok tokens ->
+    (match file () (tokens, config) with
+     | Error _ as e -> e
+     | Ok (res, _) -> Ok res)
+;;

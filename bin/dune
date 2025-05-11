@@ -1,4 +1,6 @@
 (executable
  (public_name nod)
+ (preprocess
+  (pps ppx_jane))
  (name main)
- (libraries nod nod_test))
+ (libraries nod nod_test nod_x86 core core_unix async async_unix))
