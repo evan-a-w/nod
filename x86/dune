@@ -1,5 +1,5 @@
 (library
- (name nod)
+ (name nod_x86)
  (preprocess
   (pps ppx_jane))
  (inline_tests)

@@ -1,4 +1,5 @@
 open! Core
+open! Nod
 
 type error =
   [ `Duplicate_label of string
@@ -45,7 +46,8 @@ a:
 add %a, 1, 2
 b:
 add %a, %a, 4
-|} |> test;
+|}
+  |> test;
   [%expect
     {|
     (((%root

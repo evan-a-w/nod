@@ -1,4 +1,5 @@
 open! Core
+open! Nod
 
 module Triv_instr = struct
   type t = int [@@deriving sexp, compare, hash]

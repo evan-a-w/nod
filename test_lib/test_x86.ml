@@ -1,4 +1,5 @@
 open! Core
+open! Nod
 
 let test s =
   match Eir.compile s with
@@ -19,7 +20,8 @@ let%expect_test "e2" =
 
 let%expect_test "c2" =
   test Examples.Textual.c2;
-  [%expect {|
+  [%expect
+    {|
     ((LABEL entry) (MOV (Reg RAX) (Imm 5)) (RET (Reg RAX))) |}]
 ;;
 

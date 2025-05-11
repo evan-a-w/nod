@@ -1,0 +1,6 @@
+(library
+ (name vec)
+ (preprocess
+  (pps ppx_jane))
+ (inline_tests)
+ (libraries core core_unix))

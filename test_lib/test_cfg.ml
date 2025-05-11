@@ -1,4 +1,5 @@
 open! Core
+open! Nod
 module Cfg = Cfg.Process (Ir)
 
 let test s =

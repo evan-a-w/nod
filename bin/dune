@@ -1,4 +1,4 @@
 (executable
  (public_name nod)
  (name main)
- (libraries nod))
+ (libraries nod nod_test))
