@@ -91,6 +91,7 @@ let rec lex' () : (_, _, _) State.Result.t =
   let%bind pos = get >>| fun t -> t.pos in
   let rep token = add pos token >> lex' () in
   match%bind next with
+  | Some '\n' | Some '\r' -> rep Token.Newline
   | Some c when Char.is_whitespace c -> lex' ()
   | Some '.' -> rep Token.Dot
   | Some '}' -> rep Token.R_brace

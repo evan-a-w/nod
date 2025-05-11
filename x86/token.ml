@@ -1,6 +1,7 @@
 open! Core
 
 type t =
+  | Newline
   | L_paren
   | R_paren
   | L_brace
