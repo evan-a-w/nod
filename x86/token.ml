@@ -30,7 +30,7 @@ type t =
   | Keyword of string
   | Ident of string
   | String of string
-  | Int of int
+  | Int of int64
   | Float of float
   | Bool of bool
   | (* Will use the same lexer for formatting etc. so we can't lose info like this *)

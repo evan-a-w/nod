@@ -39,7 +39,7 @@ let add pos token =
 
 let digit c =
   if Char.is_digit c
-  then return (Char.to_int c - Char.to_int '0')
+  then return (Char.to_int c - Char.to_int '0' |> Int64.of_int)
   else fail (`Expected_digit c)
 ;;
 
@@ -49,7 +49,7 @@ let lex_int c =
     match%bind peek with
     | Some c when Char.is_digit c ->
       let%bind d = digit c in
-      next >> loop ((n * 10) + d)
+      next >> loop Int64.((n * of_int 10) + d)
     | _ -> return n
   in
   loop n
@@ -61,7 +61,7 @@ let lex_number c =
   | Some '.' ->
     let%bind _ = next in
     let%bind f = lex_int '0' in
-    return (Token.Float (Float.of_int n +. (Float.of_int f /. 10.0)))
+    return (Token.Float (Float.of_int64 n +. (Float.of_int64 f /. 10.0)))
   | _ -> return (Token.Int n)
 ;;
 

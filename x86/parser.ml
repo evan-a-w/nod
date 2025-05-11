@@ -1,87 +1,91 @@
 open! Core
 open Parser_core
 module Parser_comb = Parser_comb.Make (Token)
-open Parser_comb
+open! Parser_comb
+open! Instruction
 open! Asm
+
+type config = { classification_config : Instruction.Classification.Config.t }
 
 let rec file () = many (line_item ()) << eof ()
 
 and line_item () =
-  choice [ directive_line (); label_defn (); instruction_line () ]
-  << skip_many_tok Token.Newline
-
-(* Parse any instruction line *)
-and instruction_line () =
-  let%bind mnem = Mnemonic.parser in
-  let%bind operands =
-    option
-      []
-      (spaces *> sep_by1 (spaces *> expect Token.Comma <* spaces) operand)
+  let%bind line =
+    choice [ directive_line (); label_defn (); instruction_line () ]
   in
-  return (Asm.Insn (mnem, operands))
+  let%map _ = skip_many_tok Token.Newline in
+  line
 
-(* Parse any operand: register, immediate, or memory *)
+and mnemonic () =
+  let%bind tok, pos = peek' () in
+  match%bind ident () >>| Mnemonic.of_string_opt with
+  | Some mnemonic -> return mnemonic
+  | None -> fail (`Unexpected_token (tok, pos))
+
+and instruction () : (Instruction.t, _, _, _) parser =
+  let%bind mne = mnemonic () in
+  let delimiter = optional (expect Token.Comma) in
+  let%bind operands = delimited0 ~delimiter (operand ()) in
+  let instruction =
+    match operands with
+    | [] -> Nullary mne
+    | [ a ] -> Unary (mne, a)
+    | [ a; b ] -> Binary (mne, a, b)
+    | l -> N_ary (mne, l)
+  in
+  let%bind config = get_state () in
+  match
+    Instruction.Classification.Config.is_allowed
+      config.classification_config
+      instruction
+  with
+  | true -> return instruction
+  | false -> fail (`Instruction_not_allowed instruction)
+
+and instruction_line () : (Asm.t, _, _, _) parser =
+  instruction () >>| Asm.instruction
+
 and operand () =
   choice
     [ reg () >>| Operand.reg; imm () >>| Operand.imm; mem () >>| Operand.mem ]
 
-(* Parse an immediate: e.g. "$123" or "$-0x10" *)
 and imm () =
   let%bind _ = expect Token.Dollar in
-  let%bind tok = next () in
+  let%bind tok, pos = next () in
   match tok with
-  | Token.Int i, _ -> return i
-  | Token.HexInt i, _ -> return i
-  | _ -> fail (`Unexpected_token tok)
+  | Token.Int i -> return i (* TODO: hex *)
+  | _ -> fail (`Unexpected_token (tok, pos))
 
 and mem () =
-  let%bind seg =
-    option
-      None
-      (try_consume_directive "fs" (* or other segment registers *)
-       >>| fun () -> Some Reg.FS)
+  let%bind seg = optional (segment_reg () << expect Token.Colon) in
+  let%bind offset =
+    choice
+      [ (let%map l = label () in
+         `Label l)
+      ; (let%map i = int_constant () in
+         `Imm i)
+      ]
+    |> optional
+    >>| Option.value ~default:(`Imm (Int64.of_int 1))
   in
-  let%bind _ = expect Token.LBrack in
-  let%bind base = option None (reg >>| Option.some) in
-  let%bind parts =
-    many
-      (skip_spaces
-       *> choice
-            [ (* + index * scale *)
-              (let%bind _ = expect Token.Plus in
-               let%bind r, _ = parse_index in
-               return (`Index r);
-               (* + disp or - disp *)
-               let%bind sign =
-                 choice
-                   [ (expect Token.Plus
-                      >>| fun _ ->
-                      1;
-                      expect Token.Minus >>| fun _ -> -1)
-                   ]
-               in
-               let%bind i = imm in
-               return (`Disp Int64.(mul (of_int sign) i)))
-            ])
+  let%bind base = optional (reg ()) in
+  let%map index =
+    let%bind reg = optional (reg ()) in
+    match reg with
+    | None -> return None
+    | Some reg ->
+      let%bind scale = optional (int_constant ()) in
+      (match scale with
+       | None -> return (Some (reg, Int64.of_int 1))
+       | Some i -> return (Some (reg, i)))
   in
-  let%map _ = expect Token.RBrack in
-  let index, disp =
-    List.fold parts ~init:(None, 0L) ~f:(fun (idx, d) -> function
-      | `Index r -> Some (r, 1), d
-      | `Disp x -> idx, Int64.(d + x))
-  in
-  { Mem.base; index; disp; seg }
+  { Mem.base; index; offset; seg }
 
-and parse_index =
-  let%bind r = reg in
-  let%map scale = option 1 (expect Token.Star *> expect_int_constant) in
-  r, scale
-
-and expect_int_constant =
-  next
+and int_constant () =
+  next ()
   >>= function
-  | Token.Int i, _ -> return (Int64.to_int_exn i)
-  | Token.HexInt i, _ -> return (Int64.to_int_exn i)
+  | Token.Int i, _ -> return i
+  (* TODO: hex *)
   | tok, pos -> fail (`Unexpected_token (tok, pos))
 
 and ident () =
@@ -96,7 +100,7 @@ and reg () =
   | None -> fail (`Unexpected_register name)
   | Some reg -> return reg
 
-and segment () =
+and segment_reg () =
   let%bind pos = get_pos () in
   let%bind r = reg () in
   match Reg.segment r with
@@ -106,13 +110,13 @@ and segment () =
 and label () = ident () >>| Label.of_string
 and directive () = ident () >>| Directive.of_string
 
-and label_defn () =
+and label_defn () : (Asm.t, _, _, _) parser =
   let%bind _ = expect Token.Dot in
   let%bind l = label () in
   let%map _ = expect Token.Colon in
   Label l
 
-and directive_line () =
+and directive_line () : (Asm.t, _, _, _) parser =
   let%bind _ = expect Token.Dot in
   let%bind d = directive () in
   let%map l = take_until_token_inc Token.Newline in

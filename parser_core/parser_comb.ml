@@ -4,10 +4,19 @@ include State.Result
 module Make (Token : Token_intf.S) = struct
   include Let_syntax
 
+  type ('res, 'pos, 'state, 'err) parser =
+    ('res, (Token.t * 'pos) list * 'state, 'err) t
+
   let peek () =
     match%map get with
     | [], _ -> None
     | x :: _, _ -> Some x
+  ;;
+
+  let peek' () =
+    match%bind get with
+    | [], _ -> fail `Unexpected_end_of_input
+    | x :: _, _ -> return x
   ;;
 
   let get_pos () =
@@ -36,13 +45,6 @@ module Make (Token : Token_intf.S) = struct
     | tok, pos -> fail (`Unexpected_token (tok, pos))
   ;;
 
-  let optional token =
-    match%bind peek () with
-    | Some (tok, pos) when Token.equal tok token ->
-      next () >> return (Some (tok, pos))
-    | Some (_, _) | None -> return None
-  ;;
-
   let get_state () =
     let%map _, st = get in
     st
@@ -55,7 +57,7 @@ module Make (Token : Token_intf.S) = struct
 
   let rec skip n = if n = 0 then return () else next () >> skip (n - 1)
 
-  let rec skip_many_tok tok =
+  let rec skip_many_tok tok : (_, _, _) t =
     match%bind peek () with
     | Some (tok', _) when Token.equal tok' tok -> next () >> skip_many_tok tok
     | None | Some _ -> return ()
@@ -91,6 +93,16 @@ module Make (Token : Token_intf.S) = struct
   let until_inc f = until f >> skip 1
   let until_inc_token tok = until_inc (Token.equal tok)
 
+  let delimited0 ~delimiter p =
+    let rec loop acc =
+      let%bind x = p in
+      match%bind delimiter with
+      | None -> return (List.rev (x :: acc))
+      | Some _ -> loop (x :: acc)
+    in
+    loop []
+  ;;
+
   let delimited1 ~delimiter p =
     let%bind first = p in
     let rec loop acc =
@@ -105,7 +117,7 @@ module Make (Token : Token_intf.S) = struct
 
   let many p state =
     let rec go acc state =
-      match p () state with
+      match p state with
       | Error _ -> acc, state
       | Ok (x, state') -> go (x :: acc) state'
     in
@@ -113,7 +125,11 @@ module Make (Token : Token_intf.S) = struct
     Ok (List.rev res, state')
   ;;
 
-  let choice ps state =
+  let choice
+    :  ('res, 'pos, 'state, 'err) parser list
+    -> ('res, 'pos, 'state, 'err) parser
+    =
+    fun ps state ->
     List.fold ps ~init:(Error []) ~f:(fun acc p ->
       match acc with
       | Ok _ -> acc
@@ -122,5 +138,20 @@ module Make (Token : Token_intf.S) = struct
          | Error e -> Error (e :: l)
          | Ok _ as res -> res))
     |> Result.map_error ~f:(fun l -> `Choices l)
+  ;;
+
+  let optional a state =
+    match a state with
+    | Ok (res, state') -> Ok (Some res, state')
+    | Error _ -> Ok (None, state)
+  ;;
+
+  let ( <|> ) a b state =
+    match a state with
+    | Ok _ as r -> r
+    | Error e ->
+      (match b state with
+       | Ok _ as r -> r
+       | Error e' -> Error (`Choices [ e; e' ]))
   ;;
 end

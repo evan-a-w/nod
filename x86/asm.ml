@@ -6,4 +6,4 @@ type t =
   | Directive of
       (* won't use for a while probably *)
       (Directive.t * Token.t list)
-[@@deriving sexp, compare, hash]
+[@@deriving sexp, compare, hash, variants]
