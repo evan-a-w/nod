@@ -93,15 +93,15 @@ let rec lex' () : (_, _, _) State.Result.t =
   match%bind next with
   | Some '\n' | Some '\r' -> rep Token.Newline
   | Some c when Char.is_whitespace c -> lex' ()
+  | Some '$' -> rep Token.Dollar
   | Some '.' -> rep Token.Dot
   | Some '}' -> rep Token.R_brace
   | Some '[' -> rep Token.L_bracket
   | Some ']' -> rep Token.R_bracket
   | Some ':' -> rep Token.Colon
-  | Some ';' -> rep Token.Semi_colon
+  | Some ';' -> lex_comment_simple () >>= rep
   | Some ',' -> rep Token.Comma
   | Some '"' -> lex_string () >>= add pos >> lex' ()
-  | Some '/' -> rep Token.Forward_slash
   | Some '*' -> rep Token.Star
   | Some '+' -> rep Token.Plus
   | Some '=' -> rep Token.Equal
@@ -118,10 +118,11 @@ let rec lex' () : (_, _, _) State.Result.t =
     (match%bind peek with
      | Some '>' -> next >> rep Token.Arrow
      | _ -> rep Token.Minus)
-  | Some '(' ->
+  | Some '/' ->
     (match%bind peek with
      | Some '*' -> next >> lex_comment () >>= rep
-     | _ -> rep Token.L_paren)
+     | _ -> rep Token.Forward_slash)
+  | Some '(' -> rep Token.L_paren
   | Some ')' -> rep Token.R_paren
   | Some '{' ->
     (match%bind peek with
@@ -136,6 +137,18 @@ let rec lex' () : (_, _, _) State.Result.t =
   | Some c -> fail (`Unexpected_character c)
   | None -> return ()
 
+and lex_comment_simple' () =
+  match%bind peek with
+  | Some '\n' | None -> return []
+  | Some c ->
+    let%bind _ = next in
+    let%map l = lex_comment_simple' () in
+    c :: l
+
+and lex_comment_simple () =
+  let%map l = lex_comment_simple' () in
+  Token.Comment (String.of_char_list l)
+
 and lex_comment' () =
   let rep c =
     let%map l = lex_comment' () in
@@ -144,7 +157,7 @@ and lex_comment' () =
   match%bind next with
   | Some '*' ->
     (match%bind peek with
-     | Some ')' -> next >> return []
+     | Some '/' -> next >> return []
      | _ -> rep '*')
   | Some c -> rep c
   | None -> fail `Unexpected_eof_in_comment

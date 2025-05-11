@@ -26,6 +26,7 @@ type t =
   | Semi_colon
   | Comma
   | Dot
+  | Dollar
   | Keyword of string
   | Ident of string
   | String of string
@@ -34,7 +35,7 @@ type t =
   | Bool of bool
   | (* Will use the same lexer for formatting etc. so we can't lose info like this *)
     Comment of string
-[@@deriving sexp, compare, equal]
+[@@deriving sexp, compare, equal, hash]
 
 let is_comment = function
   | Comment _ -> true
