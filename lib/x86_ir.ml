@@ -1,4 +1,4 @@
-open Core
+(* open Core
 
 module T = struct
   module Reg = struct
@@ -231,4 +231,4 @@ module Make (Var : Arg) = struct
     | IDIV _ | LABEL _
     | CMP (_, _) -> false
   ;;
-end
+end *)

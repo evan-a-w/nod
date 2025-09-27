@@ -1,6 +1,5 @@
 open! Core
 open! Nod
-module Cfg = Cfg.Process (Ir)
 
 let test s =
   s
@@ -11,7 +10,7 @@ let test s =
     let _, _, blocks = Cfg.process blocks in
     Vec.iter blocks ~f:(fun block ->
       let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-      print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
+      print_s [%message block.id_hum (instrs : Ir.t list)])
 ;;
 
 let%expect_test "f" =

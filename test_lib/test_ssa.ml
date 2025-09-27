@@ -1,6 +1,5 @@
 open! Core
 open! Nod
-module Cfg = Cfg.Process (Ir)
 
 let test ?don't_opt s =
   Test_cfg.test s;
@@ -12,7 +11,7 @@ let test ?don't_opt s =
   | Error e -> Test_parser.print_error e
   | Ok ssa ->
     let go ssa =
-      Vec.iter ssa.Eir.Ssa.in_order ~f:(fun block ->
+      Vec.iter ssa.in_order ~f:(fun block ->
         let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
         print_s
           [%message

@@ -35,7 +35,7 @@ let test s =
   |> function
   | Error e -> print_error e
   | Ok blocks ->
-    print_s [%sexp (blocks : string Ir.t' Vec.t String.Map.t * string Vec.t)]
+    print_s [%sexp (blocks : string Ir0.t Vec.t String.Map.t * string Vec.t)]
 ;;
 
 let%expect_test "simple" =

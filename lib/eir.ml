@@ -1,6 +1,5 @@
+open! Initial_transform
 open! Core
-include Ir
-include Initial_transform.Make_with_block (Ir)
 
 module Tags = struct
   type t = { constant : Int64.t option } [@@deriving sexp]
@@ -8,31 +7,26 @@ module Tags = struct
   let empty = { constant = None }
 end
 
-module Instr = Ir.Instr
-
 module Loc = struct
-  module T = struct
-    type where =
-      | Block_arg of string
-      | Instr of Instr.t
-    [@@deriving sexp, compare, hash]
+  type where =
+    | Block_arg of string
+    | Instr of Ir.t
+  [@@deriving sexp, compare, hash]
 
-    type t =
-      { block : Block.t
-      ; where : where
-      }
-    [@@deriving sexp, compare, hash, fields]
+  type t =
+    { block : Block.t
+    ; where : where
+    }
+  [@@deriving sexp, compare, hash, fields]
 
-    let is_terminal_for_block t ~block =
-      match t.where with
-      | Block_arg _ -> false
-      | Instr instr -> phys_equal block.Block.terminal instr
-    ;;
-  end
+  let is_terminal_for_block t ~block =
+    match t.where with
+    | Block_arg _ -> false
+    | Instr instr -> phys_equal block.Block.terminal instr
+  ;;
 
-  include Comparable.Make (T)
-  include Hashable.Make (T)
-  include T
+  include functor Comparable.Make
+  include functor Hashable.Make
 end
 
 module Var = struct
@@ -91,7 +85,7 @@ module Opt = struct
     ; opt_flags : Opt_flags.t
     ; mutable block_tracker : Block_tracker0.t option
     ; var_remap : string String.Table.t
-    ; instr_remap : string Instr.Table.t
+    ; instr_remap : string Ir.Table.t
     }
 
   let create ~opt_flags ssa =
@@ -101,7 +95,7 @@ module Opt = struct
     ; opt_flags
     ; block_tracker = None
     ; var_remap = String.Table.create ()
-    ; instr_remap = Instr.Table.create ()
+    ; instr_remap = Ir.Table.create ()
     }
   ;;
 
@@ -132,7 +126,7 @@ module Opt = struct
       let t = { needed = Block.Map.empty; once_ready } in
       iter opt ~f:(fun block ->
         let data =
-          Instr.uses block.terminal
+          Ir.uses block.terminal
           |> List.filter_map ~f:(active_var opt)
           |> Var.Set.of_list
         in
@@ -167,11 +161,11 @@ module Opt = struct
         define ~loc:{ Loc.block; where = Loc.Block_arg id } id);
       Vec.iter block.instructions ~f:(fun instr ->
         let loc = { Loc.block; where = Loc.Instr instr } in
-        Option.iter (Instr.def instr) ~f:(define ~loc)));
+        Option.iter (Ir.def instr) ~f:(define ~loc)));
     iter t ~f:(fun block ->
       let use instr =
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Instr.uses instr) ~f:(use ~loc)
+        List.iter (Ir.uses instr) ~f:(use ~loc)
       in
       Vec.iter block.instructions ~f:use;
       use block.terminal);
@@ -453,8 +447,6 @@ let optimize ssa =
   let opt_state = Opt.create ~opt_flags:Opt_flags.default ssa in
   Opt.run opt_state
 ;;
-
-module Cfg = Cfg.Process (Ir)
 
 let compile s =
   match

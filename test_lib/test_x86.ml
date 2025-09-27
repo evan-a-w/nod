@@ -1,4 +1,4 @@
-open! Core
+(* open! Core
 open! Nod
 
 let test s =
@@ -91,4 +91,4 @@ let%expect_test "sum 100" =
    RBX = 1
    RAX = Junk
    this point is the crux i think
-*)
+*) *)

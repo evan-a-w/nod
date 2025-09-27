@@ -1,114 +1,99 @@
 open! Core
 
-module type Ir = sig
-  type 'block t'
+(* go from
 
-  module rec Block : (Block_m.S with type instr := Block.t t')
-
-  val unreachable : 'a t'
-  val blocks : 'block t' -> 'block list
-  val map_blocks : 'a t' -> f:('a -> 'b) -> 'b t'
-  val is_terminal : 'a t' -> bool
-  val jump_to : 'block -> 'block t'
-end
-
-module Process (Ir : Ir) = struct
-  (* go from
-
-     [string Ir.t' Vec.t String.Map.t * string Vec.t]
+     [string Ir0.t Vec.t String.Map.t * string Vec.t]
      describing sequences of instructions
 
      to an actual cfg, [Ir.t]
-  *)
-  let process
-        ((instrs, labels) : string Ir.t' Vec.t String.Map.t * string Vec.t)
-    : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
-    =
-    let new_block id_hum : Ir.Block.t =
-      { id_hum
-      ; Ir.Block.args = Vec.create ()
-      ; parents = Vec.create ()
-      ; children = Vec.create ()
-      ; instructions = Vec.create ()
-      ; terminal = Ir.unreachable
-      ; dfs_id = None
-      }
+*)
+let process ((instrs, labels) : string Ir0.t Vec.t String.Map.t * string Vec.t)
+  : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
+  =
+  let new_block id_hum : Ir.Block.t =
+    { id_hum
+    ; Ir.Block.args = Vec.create ()
+    ; parents = Vec.create ()
+    ; children = Vec.create ()
+    ; instructions = Vec.create ()
+    ; terminal = Ir.unreachable
+    ; dfs_id = None
+    }
+  in
+  let blocks =
+    Vec.map labels ~f:(fun label -> label, new_block label)
+    |> Vec.to_list
+    |> String.Map.of_alist_exn
+  in
+  let ordered = Vec.map labels ~f:(Map.find_exn blocks) in
+  Vec.iteri labels ~f:(fun i label ->
+    let block = Map.find_exn blocks label in
+    let found_terminal = ref false in
+    let add_terminal instr =
+      found_terminal := true;
+      Ir.blocks instr
+      |> List.iter ~f:(fun block' ->
+        let block' = Map.find_exn blocks block' in
+        Vec.push block.children block';
+        Vec.push block'.parents block);
+      block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
     in
-    let blocks =
-      Vec.map labels ~f:(fun label -> label, new_block label)
-      |> Vec.to_list
-      |> String.Map.of_alist_exn
-    in
-    let ordered = Vec.map labels ~f:(Map.find_exn blocks) in
-    Vec.iteri labels ~f:(fun i label ->
-      let block = Map.find_exn blocks label in
-      let found_terminal = ref false in
-      let add_terminal instr =
-        found_terminal := true;
-        Ir.blocks instr
-        |> List.iter ~f:(fun block' ->
-          let block' = Map.find_exn blocks block' in
-          Vec.push block.children block';
-          Vec.push block'.parents block);
-        block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
-      in
-      Vec.iter
-        (Map.find instrs label |> Option.value_or_thunk ~default:Vec.create)
-        ~f:(fun instr ->
-          if !found_terminal
-          then ()
-          else if Ir.is_terminal instr
-          then add_terminal instr
-          else
-            Vec.push
-              block.instructions
-              (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
-      if not !found_terminal
-      then (
-        match Vec.get_opt labels (i + 1) with
-        | None -> add_terminal Ir.unreachable
-        | Some block' -> add_terminal (Ir.jump_to block')));
-    Map.find_exn blocks (Vec.get labels 0), blocks, ordered
-  ;;
+    Vec.iter
+      (Map.find instrs label |> Option.value_or_thunk ~default:Vec.create)
+      ~f:(fun instr ->
+        if !found_terminal
+        then ()
+        else if Ir.is_terminal instr
+        then add_terminal instr
+        else
+          Vec.push
+            block.instructions
+            (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+    if not !found_terminal
+    then (
+      match Vec.get_opt labels (i + 1) with
+      | None -> add_terminal Ir.unreachable
+      | Some block' -> add_terminal (Ir.jump_to block')));
+  Map.find_exn blocks (Vec.get labels 0), blocks, ordered
+;;
 
-  let process'
-        ~is_label
-        ~add_fall_through_to_terminal
-        (instrs : string Ir.t' Vec.t)
-    : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
-    =
-    let blocks = Vec.create () in
-    let label_n = ref 0 in
-    let curr_label = ref "%root" in
-    let curr_instrs = Vec.create () in
-    let instrs_by_block = ref String.Map.empty in
-    let new_block new_label =
-      let new_instrs = Vec.create () in
-      instrs_by_block
-      := Map.add_exn !instrs_by_block ~key:!curr_label ~data:new_instrs;
-      Vec.switch curr_instrs new_instrs;
-      Vec.push blocks !curr_label;
-      curr_label := new_label
-    in
-    Vec.iter instrs ~f:(fun instr ->
-      if is_label instr
-      then (
-        let label = List.hd_exn (Ir.blocks instr) in
-        if Vec.length curr_instrs > 0
-        then new_block label
-        else (
-          (* might be necessary because of keeping track of which blocks things follow through to *)
-          Vec.push curr_instrs (Ir.jump_to label);
-          new_block label))
-      else if Ir.is_terminal instr
-      then (
-        let new_label = "%gen_lbl_" ^ Int.to_string !label_n in
-        Vec.push
-          curr_instrs
-          (add_fall_through_to_terminal instr ~fall_through_to_block:new_label);
-        incr label_n;
-        new_block new_label)
-      else Vec.push curr_instrs instr);
-    process (!instrs_by_block, blocks)
-  ;;
-end
+let process'
+  ~is_label
+  ~add_fall_through_to_terminal
+  (instrs : string Ir0.t Vec.t)
+  : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
+  =
+  let blocks = Vec.create () in
+  let label_n = ref 0 in
+  let curr_label = ref "%root" in
+  let curr_instrs = Vec.create () in
+  let instrs_by_block = ref String.Map.empty in
+  let new_block new_label =
+    let new_instrs = Vec.create () in
+    instrs_by_block
+    := Map.add_exn !instrs_by_block ~key:!curr_label ~data:new_instrs;
+    Vec.switch curr_instrs new_instrs;
+    Vec.push blocks !curr_label;
+    curr_label := new_label
+  in
+  Vec.iter instrs ~f:(fun instr ->
+    if is_label instr
+    then (
+      let label = List.hd_exn (Ir.blocks instr) in
+      if Vec.length curr_instrs > 0
+      then new_block label
+      else (
+        (* might be necessary because of keeping track of which blocks things follow through to *)
+        Vec.push curr_instrs (Ir.jump_to label);
+        new_block label))
+    else if Ir.is_terminal instr
+    then (
+      let new_label = "%gen_lbl_" ^ Int.to_string !label_n in
+      Vec.push
+        curr_instrs
+        (add_fall_through_to_terminal instr ~fall_through_to_block:new_label);
+      incr label_n;
+      new_block new_label)
+    else Vec.push curr_instrs instr);
+  process (!instrs_by_block, blocks)
+;;
