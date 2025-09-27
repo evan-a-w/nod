@@ -1,6 +1,7 @@
 open! Core
 include Ir0
 module Block = Block
+module Call_block = Call_block
 
 type nonrec t = Block.t t [@@deriving sexp, compare, equal, hash]
 
@@ -22,6 +23,7 @@ let add_block_args =
     | Unreachable
     | Noop
     | Return _ ) as t -> t
+  | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f:on_call_block)
   | Branch (Branch.Cond { cond; if_true; if_false }) ->
     Branch
       (Branch.Cond

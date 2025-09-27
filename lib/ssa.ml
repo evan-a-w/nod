@@ -281,9 +281,7 @@ let add_args_to_calls t =
 let uses_in_block_ex_calls ~block =
   let f (defs, uses) instr =
     let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
-    let defs =
-      Set.union defs (Ir.def instr |> Option.to_list |> String.Set.of_list)
-    in
+    let defs = Set.union defs (Ir.defs instr |> String.Set.of_list) in
     defs, uses
   in
   let acc =
@@ -374,21 +372,6 @@ let create_uninit ~in_order def_uses =
   }
 ;;
 
-let set_defs t =
-  let rec go block =
-    Vec.iter block.Block.instructions ~f:(fun instr ->
-      Option.iter (Ir.def instr) ~f:(fun key ->
-        Hashtbl.set t.definition ~key ~data:block));
-    Option.iter
-      (Hashtbl.find t.immediate_dominees block)
-      ~f:
-        (Hash_set.iter ~f:(fun block' ->
-           if phys_equal block' block then () else go block'))
-  in
-  go t.def_uses.root;
-  t
-;;
-
 let create (root, _block_by_label, in_order) =
   Def_uses.create root
   |> create_uninit ~in_order
@@ -396,7 +379,6 @@ let create (root, _block_by_label, in_order) =
   |> insert_args
   |> add_args_to_calls
   |> prune_args
-  (* |> set_defs *)
   |> rename
 ;;
 

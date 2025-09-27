@@ -158,7 +158,7 @@ module Opt = struct
         define ~loc:{ Loc.block; where = Loc.Block_arg id } id);
       Vec.iter block.instructions ~f:(fun instr ->
         let loc = { Loc.block; where = Loc.Instr instr } in
-        Option.iter (Ir.def instr) ~f:(define ~loc)));
+        List.iter (Ir.defs instr) ~f:(define ~loc)));
     iter t ~f:(fun block ->
       let use instr =
         let loc = { Loc.block; where = Loc.Instr instr } in

@@ -124,6 +124,32 @@ let vars_of_operand = function
   | Mem (r, _disp) -> vars_of_reg r
 ;;
 
+let map_def_reg r ~f =
+  match r with
+  | Reg.Unallocated v -> Reg.Unallocated (f v)
+  | _ -> r
+;;
+
+let map_use_reg r ~f =
+  match r with
+  | Reg.Unallocated v -> Reg.Unallocated (f v)
+  | _ -> r
+;;
+
+let map_def_operand op ~f =
+  match op with
+  | Reg r -> Reg (map_def_reg r ~f)
+  | Imm _ -> op
+  | Mem (r, disp) -> Mem (map_def_reg r ~f, disp)
+;;
+
+let map_use_operand op ~f =
+  match op with
+  | Reg r -> Reg (map_use_reg r ~f)
+  | Imm _ -> op
+  | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
+;;
+
 let defs ins : Var.Set.t =
   match ins with
   | PAR_MOV l ->
@@ -214,6 +240,63 @@ let filter_map_call_blocks t ~f =
 ;;
 
 let unreachable = NOOP
+
+let map_defs t ~f =
+  let map_dst op = map_def_operand op ~f in
+  match t with
+  | PAR_MOV l -> PAR_MOV (List.map l ~f:(fun (dst, src) -> map_dst dst, src))
+  | MOV (dst, src) -> MOV (map_dst dst, src)
+  | AND (dst, src) -> AND (map_dst dst, src)
+  | OR (dst, src) -> OR (map_dst dst, src)
+  | ADD (dst, src) -> ADD (map_dst dst, src)
+  | SUB (dst, src) -> SUB (map_dst dst, src)
+  | MUL (dst, src) -> MUL (map_dst dst, src)
+  | _ -> t
+;;
+
+let map_uses t ~f =
+  let map_op op = map_use_operand op ~f in
+  let map_call_block cb = Call_block.map_uses cb ~f in
+  match t with
+  | PAR_MOV l -> PAR_MOV (List.map l ~f:(fun (dst, src) -> dst, map_op src))
+  | MOV (dst, src) -> MOV (dst, map_op src)
+  | AND (dst, src) -> AND (map_op dst, map_op src)
+  | OR (dst, src) -> OR (map_op dst, map_op src)
+  | ADD (dst, src) -> ADD (map_op dst, map_op src)
+  | SUB (dst, src) -> SUB (map_op dst, map_op src)
+  | MUL (dst, src) -> MUL (map_op dst, map_op src)
+  | IDIV op -> IDIV (map_op op)
+  | CMP (a, b) -> CMP (map_op a, map_op b)
+  | RET op -> RET (map_op op)
+  | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
+  | JNE (lbl, next) -> JNE (map_call_block lbl, Option.map next ~f:map_call_block)
+  | _ -> t
+;;
+
+let map_call_blocks t ~f =
+  match t with
+  | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
+  | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
+  | _ -> t
+;;
+
+let iter_call_blocks t ~f =
+  match t with
+  | JE (lbl, next) ->
+    f lbl;
+    Option.iter next ~f
+  | JNE (lbl, next) ->
+    f lbl;
+    Option.iter next ~f
+  | _ -> ()
+;;
+
+let call_blocks = function
+  | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
+  | _ -> []
+;;
+
+let map_lit_or_vars t ~f:_ = t
 
 let is_terminal = function
   | JNE _ | JE _ | RET _ -> true

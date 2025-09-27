@@ -274,6 +274,7 @@ let map_defs t ~f =
   | Sub a -> Sub (map_arith_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
+  | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
   | Branch _ | Unreachable | Noop | Return _ | Store _ -> t
 ;;
 
@@ -291,10 +292,12 @@ let map_uses t ~f =
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Branch b -> Branch (Branch.map_uses b ~f)
+  | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | Unreachable | Noop -> t
 ;;
 
 let is_terminal = function
+  | X86 x86_ir -> X86_ir.is_terminal x86_ir
   | Branch _ | Unreachable | Return _ -> true
   | Add _
   | Mul _
@@ -312,6 +315,7 @@ let is_terminal = function
 let map_call_blocks t ~f =
   match t with
   | Branch b -> Branch (Branch.map_call_blocks b ~f)
+  | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
   | Unreachable
   | Add _
   | Mul _
@@ -330,6 +334,7 @@ let map_call_blocks t ~f =
 let iter_call_blocks t ~f =
   match t with
   | Branch b -> Branch.iter_call_blocks b ~f
+  | X86 x86_ir -> X86_ir.iter_call_blocks x86_ir ~f
   | Unreachable
   | Add _
   | Mul _
@@ -361,6 +366,7 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Noop -> Noop
   | Return var -> Return var
   | Unreachable -> Unreachable
+  | X86 x86_ir -> X86 (X86_ir.map_blocks x86_ir ~f)
 ;;
 
 let map_lit_or_vars t ~f =
@@ -379,6 +385,7 @@ let map_lit_or_vars t ~f =
   | Return var -> Return (f var)
   | Noop -> Noop
   | Unreachable -> Unreachable
+  | X86 x86_ir -> X86 (X86_ir.map_lit_or_vars x86_ir ~f)
 ;;
 
 let jump_to block' =
@@ -399,6 +406,7 @@ let call_blocks = function
   | Unreachable
   | Noop
   | Return _ -> []
+  | X86 x86_ir -> X86_ir.call_blocks x86_ir
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
     [ if_true; if_false ]
   | Branch (Branch.Uncond call) -> [ call ]
