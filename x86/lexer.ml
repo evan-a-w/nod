@@ -225,13 +225,20 @@ b c *) "hi there \""  |}
       (Equal ((line 0) (col 6) (file test)))
       ((Int 123) ((line 0) (col 8) (file test)))
       ((Float 25.5) ((line 0) (col 12) (file test)))
+      (Newline ((line 0) (col 17) (file test)))
       ((Ident in) ((line 1) (col 0) (file test)))
       ((Ident x) ((line 1) (col 3) (file test)))
       (L_brace ((line 1) (col 5) (file test)))
       (R_brace ((line 1) (col 6) (file test)))
       (Colon ((line 1) (col 8) (file test)))
-      ((Comment  " a\
-                \nb c ") ((line 1) (col 11) (file test)))
+      (L_paren ((line 1) (col 11) (file test)))
+      (Star ((line 1) (col 12) (file test)))
+      ((Ident a) ((line 1) (col 14) (file test)))
+      (Newline ((line 1) (col 15) (file test)))
+      ((Ident b) ((line 2) (col 0) (file test)))
+      ((Ident c) ((line 2) (col 2) (file test)))
+      (Star ((line 2) (col 4) (file test)))
+      (R_paren ((line 2) (col 5) (file test)))
       ((String "hi there \"") ((line 2) (col 7) (file test)))))
     |}]
 ;;
