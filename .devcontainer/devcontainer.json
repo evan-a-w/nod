@@ -1,11 +1,9 @@
 //devcontainer.json
 {
   "name": "Oxcaml",
-
-    "build": {
-        // Path is relative to the devcontainer.json file.
-        "dockerfile": "Dockerfile"
-    },
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
   "customizations": {
     "vscode": {
       "settings": {},
@@ -22,7 +20,7 @@
     }
   },
 
-  "postCreateCommand": "echo 'hi'",
+  "postCreateCommand": "echo 'hi'"
 
   // "remoteUser": "root"
 }
