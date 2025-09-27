@@ -103,16 +103,6 @@ let map_var_operands ins ~f =
   | NOOP | LABEL _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
 ;;
 
-module type Arg = sig
-  type t [@@deriving sexp, equal, compare, hash]
-
-  include Comparable.S with type t := t
-  include Hashable.S with type t := t
-
-  val of_string : string -> t
-  val to_string : string -> t
-end
-
 let vars_of_reg = function
   | Reg.Unallocated v -> Var.Set.singleton v
   | _ -> Var.Set.empty
@@ -269,7 +259,8 @@ let map_uses t ~f =
   | CMP (a, b) -> CMP (map_op a, map_op b)
   | RET op -> RET (map_op op)
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
-  | JNE (lbl, next) -> JNE (map_call_block lbl, Option.map next ~f:map_call_block)
+  | JNE (lbl, next) ->
+    JNE (map_call_block lbl, Option.map next ~f:map_call_block)
   | _ -> t
 ;;
 
