@@ -41,15 +41,13 @@ type 'block t =
   | SUB of operand * operand
   | MUL of operand * operand
   | IDIV of operand (* divide RAX by 'a operand  result in RAX, RDX *)
-  | LABEL of 'block
-  | LABEL_NOT_BLOCK of string
-  | JMP of 'block
+  | LABEL of string
   | CMP of operand * operand
     (* second arg is so we can store info of next block in case it's false
 
          not actually needed in my code rn *)
-  | JE of 'block * 'block option
-  | JNE of 'block * 'block option
+  | JE of 'block Call_block.t * 'block Call_block.t option
+  | JNE of 'block Call_block.t * 'block Call_block.t option
   | RET of operand
   | PAR_MOV of (operand * operand) list
 [@@deriving sexp, equal, compare, hash]
@@ -69,7 +67,7 @@ let fold_operands ins ~f ~init =
     fold_operand src ~f ~init
   | PAR_MOV l -> List.fold l ~init ~f:(fun acc (a, b) -> f (f acc a) b)
   | IDIV op | RET op -> fold_operand op ~f ~init
-  | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ -> init
+  | NOOP | LABEL _ | JE _ | JNE _ -> init
 ;;
 
 let map_reg r ~f =
@@ -102,8 +100,7 @@ let map_var_operands ins ~f =
   | PAR_MOV l ->
     PAR_MOV
       (List.map l ~f:(fun (a, b) -> map_var_operand a ~f, map_var_operand b ~f))
-  | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ ->
-    ins (* no virtual‑uses *)
+  | NOOP | LABEL _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
 ;;
 
 module type Arg = sig
@@ -136,8 +133,7 @@ let defs ins : Var.Set.t =
   | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) ->
     vars_of_operand dst
   | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
-  | NOOP | RET _ | CMP _ | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ ->
-    Var.Set.empty
+  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ -> Var.Set.empty
 ;;
 
 let uses ins : Var.Set.t =
@@ -154,7 +150,7 @@ let uses ins : Var.Set.t =
   | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
   | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
   | RET op -> vars_of_operand op
-  | NOOP | LABEL _ | JMP _ | JE _ | JNE _ | LABEL_NOT_BLOCK _ -> Var.Set.empty
+  | NOOP | LABEL _ | JE _ | JNE _ -> Var.Set.empty
 ;;
 
 let blocks instr =
@@ -170,14 +166,14 @@ let blocks instr =
   | AND _
   | OR _
   | PAR_MOV _
-  | LABEL_NOT_BLOCK _ -> []
-  | LABEL lbl | JMP lbl -> [ lbl ]
-  | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
+  | LABEL _ -> []
+  | JE (lbl, next) | JNE (lbl, next) ->
+    List.concat_map ~f:Call_block.blocks (lbl :: Option.to_list next)
 ;;
 
 let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
-  | LABEL_NOT_BLOCK s -> LABEL_NOT_BLOCK s
+  | LABEL s -> LABEL s
   | PAR_MOV l -> PAR_MOV l
   | AND (x, y) -> AND (x, y)
   | OR (x, y) -> OR (x, y)
@@ -186,20 +182,41 @@ let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | SUB (x, y) -> SUB (x, y)
   | MUL (x, y) -> MUL (x, y)
   | IDIV x -> IDIV x
-  | LABEL lbl -> LABEL (f lbl)
-  | JMP lbl -> JMP (f lbl)
   | CMP (x, y) -> CMP (x, y)
-  | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
-  | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
+  | JE (lbl, next) ->
+    JE
+      ( Call_block.map_blocks ~f lbl
+      , Option.map next ~f:(Call_block.map_blocks ~f) )
+  | JNE (lbl, next) ->
+    JNE
+      ( Call_block.map_blocks ~f lbl
+      , Option.map next ~f:(Call_block.map_blocks ~f) )
   | RET x -> RET x
   | NOOP -> NOOP
 ;;
 
+let filter_map_call_blocks t ~f =
+  match t with
+  | NOOP
+  | MOV _
+  | ADD _
+  | SUB _
+  | MUL _
+  | IDIV _
+  | CMP _
+  | RET _
+  | AND _
+  | OR _
+  | PAR_MOV _
+  | LABEL _ -> []
+  | JE (lbl, next) | JNE (lbl, next) ->
+    (f lbl |> Option.to_list) @ (Option.bind next ~f |> Option.to_list)
+;;
+
 let unreachable = NOOP
-let jump_to block = JMP block
 
 let is_terminal = function
-  | JMP _ | JNE _ | JE _ | RET _ -> true
+  | JNE _ | JE _ | RET _ -> true
   | NOOP
   | AND (_, _)
   | OR (_, _)
@@ -207,7 +224,7 @@ let is_terminal = function
   | ADD (_, _)
   | SUB (_, _)
   | MUL (_, _)
-  | IDIV _ | LABEL _ | LABEL_NOT_BLOCK _
+  | IDIV _ | LABEL _
   | CMP (_, _)
   | PAR_MOV _ -> false
 ;;

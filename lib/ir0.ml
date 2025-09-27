@@ -71,27 +71,6 @@ let map_arith_uses t ~f =
 
 let map_arith_lit_or_vars t ~f = { t with src1 = f t.src1; src2 = f t.src2 }
 
-module Call_block = struct
-  type 'block t =
-    { mutable block : 'block
-    ; args : Var.t list
-    }
-  [@@deriving sexp, compare, equal, fields]
-
-  let hash_fold_t (type block) hash_fold_block st t =
-    [%hash_fold: block * Var.t list] st (t.block, t.args)
-  ;;
-
-  let hash (type block) hash_fold_block t =
-    [%hash: block * Var.t list] (t.block, t.args)
-  ;;
-
-  let blocks { block; _ } = [ block ]
-  let map_uses t ~f = { t with args = List.map t.args ~f }
-  let map_blocks t ~f = { t with block = f t.block }
-  let uses = args
-end
-
 module Branch = struct
   type 'block t =
     | Cond of
@@ -193,11 +172,13 @@ type 'block t =
   | Move of Var.t * Lit_or_var.t
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
+  | X86 of 'block X86_ir.t
   | Unreachable
 [@@deriving sexp, compare, equal, variants, hash]
 
 let filter_map_call_blocks t ~f =
   match t with
+  | X86 x86_ir -> X86_ir.filter_map_call_blocks x86_ir ~f
   | And _
   | Or _
   | Noop
@@ -254,14 +235,16 @@ let constant = function
   | _ -> None
 ;;
 
-let def = function
-  | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> Some a.dest
-  | Load (a, _) -> Some a
-  | Move (var, _) -> Some var
-  | Branch _ | Unreachable | Noop | Return _ | Store _ -> None
+let defs = function
+  | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
+  | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
+  | Load (a, _) -> [ a ]
+  | Move (var, _) -> [ var ]
+  | Branch _ | Unreachable | Noop | Return _ | Store _ -> []
 ;;
 
 let blocks = function
+  | X86 x86_ir -> X86_ir.blocks x86_ir
   | Branch b -> Branch.blocks b
   | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _ | And _ | Or _
   | Move (_, _)
@@ -269,6 +252,7 @@ let blocks = function
 ;;
 
 let uses = function
+  | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
   | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a ->
     Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b

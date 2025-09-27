@@ -128,7 +128,7 @@ module Def_uses = struct
   let update_def_uses t ~block =
     Vec.iter (Block.instructions block) ~f:(fun instr ->
       let uses = Ir.uses instr in
-      let defs = Ir.def instr |> Option.to_list in
+      let defs = Ir.defs instr in
       let update tbl x =
         Hash_set.add t.vars x;
         Hash_set.add

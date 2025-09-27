@@ -3,6 +3,4 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix parser_core vec)
- 
-)
+ (libraries core core_unix parser_core vec))
