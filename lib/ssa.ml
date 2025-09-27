@@ -184,7 +184,6 @@ module Def_uses = struct
   ;;
 end
 
-module Ssa = struct
   type t =
     { reaching_def : string String.Table.t
     ; definition : Block.t String.Table.t
@@ -402,4 +401,3 @@ module Ssa = struct
   ;;
 
   let root t = t.def_uses.root
-end

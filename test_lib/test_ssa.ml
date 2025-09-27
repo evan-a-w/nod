@@ -6,18 +6,16 @@ let test ?don't_opt s =
   print_endline "=================================";
   Parser.parse_string s
   |> Result.map ~f:Cfg.process
-  |> Result.map ~f:Initial_transform.Ssa.create
+  |> Result.map ~f:Ssa.create
   |> function
   | Error e -> Test_parser.print_error e
   | Ok ssa ->
-    let go (ssa : Initial_transform.Ssa.t) =
+    let go (ssa : Ssa.t) =
       Vec.iter ssa.in_order ~f:(fun block ->
         let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
         print_s
           [%message
-            block.id_hum
-              ~args:(block.args : string Vec.t)
-              (instrs : Ir.t list)])
+            block.id_hum ~args:(block.args : string Vec.t) (instrs : Ir.t list)])
     in
     go ssa;
     (match don't_opt with
