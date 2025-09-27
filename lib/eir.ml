@@ -30,20 +30,17 @@ module Loc = struct
 end
 
 module Var = struct
-  module T = struct
-    type t =
-      { id : string
-      ; mutable tags : Tags.t [@compare.ignore]
-      ; mutable loc : Loc.t [@compare.ignore]
-      ; uses : Loc.Hash_set.t [@compare.ignore]
-      ; mutable active : bool [@compare.ignore]
-      }
-    [@@deriving sexp, hash, compare]
-  end
+  type t =
+    { id : string
+    ; mutable tags : Tags.t [@compare.ignore]
+    ; mutable loc : Loc.t [@compare.ignore]
+    ; uses : Loc.Hash_set.t [@compare.ignore]
+    ; mutable active : bool [@compare.ignore]
+    }
+  [@@deriving sexp, hash, compare]
 
-  include Comparable.Make (T)
-  include Hashable.Make (T)
-  include T
+  include functor Comparable.Make
+  include functor Hashable.Make
 end
 
 module Opt_flags = struct

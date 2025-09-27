@@ -1,15 +1,5 @@
 open! Core
 
-module Var = struct
-  type t = string [@@deriving sexp, compare, equal, hash]
-
-  include functor Comparable.Make
-  include functor Hashable.Make
-
-  let of_string = Fn.id
-  let to_string = Fn.id
-end
-
 module Lit = struct
   type t = Int64.t [@@deriving sexp, compare, equal, hash]
 end
