@@ -1,9 +1,8 @@
 open! Core
 open! Nod
 open! Nod_test
-open! Nod_x86
 
-let build_classifications ~classifications dir =
+(* let build_classifications ~classifications dir =
   Core_unix.ls_dir_detailed dir
   |> List.fold
        ~init:classifications
@@ -11,10 +10,10 @@ let build_classifications ~classifications dir =
          match
            In_channel.read_all (dir ^ "/" ^ name)
            |> Parser.parse_string
-                ~config:
+                (* ~config:
                   { classification_config =
                       Instruction.Classification.Config.Any
-                  }
+                  } *)
          with
          | Error _ -> failwith "fl"
          | Ok asm ->
@@ -28,11 +27,11 @@ let build_classifications ~classifications dir =
                   Map.update acc mnemonic ~f:(function
                     | None -> Instruction.Instruction_kind.Set.singleton kind
                     | Some s -> Set.add s kind))))
-;;
+;; *)
 
 (* let () = Test_x86.test Examples.Textual.fib *)
 
-let () =
+(* let () =
   let classifications =
     build_classifications ~classifications:Mnemonic.Map.empty "./x86/asm/nonopt"
   in
@@ -41,4 +40,4 @@ let () =
   in
   print_s
     [%sexp (classifications : Instruction.Classification.t Mnemonic.Map.t)]
-;;
+;; *)
