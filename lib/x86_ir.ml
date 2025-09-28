@@ -4,8 +4,8 @@ module Reg = struct
   type t =
     | Unallocated of Var.t
     | Junk
-    | RBP
-    | RSP
+    | RBP (* frame pointer *)
+    | RSP (* stack pointer *)
     | RAX
     | RBX
     | RCX
@@ -39,8 +39,9 @@ type 'block t =
   | MOV of operand * operand
   | ADD of operand * operand
   | SUB of operand * operand
-  | MUL of operand * operand
-  | IDIV of operand (* divide RAX by 'a operand  result in RAX, RDX *)
+  | IMUL of operand (* multiply RAX by operand  result RDX:RAX *)
+  | IDIV of operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
+  | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
   | LABEL of string
   | CMP of operand * operand
     (* second arg is so we can store info of next block in case it's false
@@ -50,7 +51,7 @@ type 'block t =
   | JNE of 'block Call_block.t * 'block Call_block.t option
   | RET of operand
   | PAR_MOV of (operand * operand) list
-[@@deriving sexp, equal, compare, hash]
+[@@deriving sexp, equal, compare, hash, variants]
 
 let fold_operand op ~f ~init = f init op
 
@@ -61,12 +62,11 @@ let fold_operands ins ~f ~init =
   | OR (dst, src)
   | ADD (dst, src)
   | SUB (dst, src)
-  | MUL (dst, src)
   | CMP (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
   | PAR_MOV l -> List.fold l ~init ~f:(fun acc (a, b) -> f (f acc a) b)
-  | IDIV op | RET op -> fold_operand op ~f ~init
+  | IMUL op | IDIV op | MOD op | RET op -> fold_operand op ~f ~init
   | NOOP | LABEL _ | JE _ | JNE _ -> init
 ;;
 
@@ -93,8 +93,9 @@ let map_var_operands ins ~f =
   | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
   | ADD (dst, src) -> ADD (map_var_operand dst ~f, map_var_operand src ~f)
   | SUB (dst, src) -> SUB (map_var_operand dst ~f, map_var_operand src ~f)
-  | MUL (dst, src) -> MUL (map_var_operand dst ~f, map_var_operand src ~f)
   | IDIV op -> IDIV (map_var_operand op ~f)
+  | IMUL op -> IMUL (map_var_operand op ~f)
+  | MOD op -> MOD (map_var_operand op ~f)
   | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
   | RET op -> RET (map_var_operand op ~f)
   | PAR_MOV l ->
@@ -157,25 +158,23 @@ let reg_defs ins : Reg.Set.t =
     List.fold l ~init:Reg.Set.empty ~f:(fun acc (a, _) ->
       Set.union acc (regs_of_operand a))
   | MOV (dst, _) -> regs_of_operand dst
-  | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) ->
+  | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) ->
     regs_of_operand dst
-  | IDIV _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
+  | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
 ;;
 
 let reg_uses ins : Reg.Set.t =
   match ins with
-  | IDIV op ->
+  | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
+  | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
   | PAR_MOV l ->
     List.fold l ~init:Reg.Set.empty ~f:(fun acc (_, a) ->
       Set.union acc (regs_of_operand a))
   | MOV (_, src) -> regs_of_operand src
-  | ADD (dst, src)
-  | SUB (dst, src)
-  | MUL (dst, src)
-  | AND (dst, src)
-  | OR (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  | ADD (dst, src) | SUB (dst, src) | AND (dst, src) | OR (dst, src) ->
+    Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET op -> regs_of_operand op
   | NOOP | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
@@ -190,8 +189,9 @@ let blocks instr =
   | MOV _
   | ADD _
   | SUB _
-  | MUL _
+  | IMUL _
   | IDIV _
+  | MOD _
   | CMP _
   | RET _
   | AND _
@@ -211,8 +211,9 @@ let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | MOV (x, y) -> MOV (x, y)
   | ADD (x, y) -> ADD (x, y)
   | SUB (x, y) -> SUB (x, y)
-  | MUL (x, y) -> MUL (x, y)
+  | IMUL x -> IMUL x
   | IDIV x -> IDIV x
+  | MOD x -> MOD x
   | CMP (x, y) -> CMP (x, y)
   | JE (lbl, next) ->
     JE
@@ -232,8 +233,9 @@ let filter_map_call_blocks t ~f =
   | MOV _
   | ADD _
   | SUB _
-  | MUL _
+  | IMUL _
   | IDIV _
+  | MOD _
   | CMP _
   | RET _
   | AND _
@@ -255,8 +257,11 @@ let map_defs t ~f =
   | OR (dst, src) -> OR (map_dst dst, src)
   | ADD (dst, src) -> ADD (map_dst dst, src)
   | SUB (dst, src) -> SUB (map_dst dst, src)
-  | MUL (dst, src) -> MUL (map_dst dst, src)
-  | _ -> t
+  | NOOP | IDIV _ | MOD _ | LABEL _ | IMUL _
+  | CMP (_, _)
+  | JE (_, _)
+  | JNE (_, _)
+  | RET _ -> t
 ;;
 
 let map_uses t ~f =
@@ -269,21 +274,30 @@ let map_uses t ~f =
   | OR (dst, src) -> OR (map_op dst, map_op src)
   | ADD (dst, src) -> ADD (map_op dst, map_op src)
   | SUB (dst, src) -> SUB (map_op dst, map_op src)
-  | MUL (dst, src) -> MUL (map_op dst, map_op src)
+  | IMUL op -> IMUL (map_op op)
   | IDIV op -> IDIV (map_op op)
+  | MOD op -> MOD (map_op op)
   | CMP (a, b) -> CMP (map_op a, map_op b)
   | RET op -> RET (map_op op)
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JNE (lbl, next) ->
     JNE (map_call_block lbl, Option.map next ~f:map_call_block)
-  | _ -> t
+  | NOOP | LABEL _ -> t
 ;;
 
 let map_call_blocks t ~f =
   match t with
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
   | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
-  | _ -> t
+  | NOOP
+  | AND (_, _)
+  | OR (_, _)
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | CMP (_, _)
+  | RET _ | PAR_MOV _ -> t
 ;;
 
 let iter_call_blocks t ~f =
@@ -294,12 +308,28 @@ let iter_call_blocks t ~f =
   | JNE (lbl, next) ->
     f lbl;
     Option.iter next ~f
-  | _ -> ()
+  | NOOP
+  | AND (_, _)
+  | OR (_, _)
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | CMP (_, _)
+  | RET _ | PAR_MOV _ -> ()
 ;;
 
 let call_blocks = function
   | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
-  | _ -> []
+  | NOOP
+  | AND (_, _)
+  | OR (_, _)
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | CMP (_, _)
+  | RET _ | PAR_MOV _ -> []
 ;;
 
 let map_lit_or_vars t ~f:_ = t
@@ -312,8 +342,7 @@ let is_terminal = function
   | MOV (_, _)
   | ADD (_, _)
   | SUB (_, _)
-  | MUL (_, _)
-  | IDIV _ | LABEL _
+  | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
   | PAR_MOV _ -> false
 ;;
