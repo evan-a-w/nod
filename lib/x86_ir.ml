@@ -103,6 +103,11 @@ let map_var_operands ins ~f =
   | NOOP | LABEL _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
 ;;
 
+let var_of_reg = function
+  | Reg.Unallocated v -> Some v
+  | _ -> None
+;;
+
 let vars_of_reg = function
   | Reg.Unallocated v -> Var.Set.singleton v
   | _ -> Var.Set.empty
@@ -112,6 +117,12 @@ let vars_of_operand = function
   | Reg r -> vars_of_reg r
   | Imm _ -> Var.Set.empty
   | Mem (r, _disp) -> vars_of_reg r
+;;
+
+let regs_of_operand = function
+  | Reg r -> Reg.Set.singleton r
+  | Imm _ -> Reg.Set.empty
+  | Mem (r, _disp) -> Reg.Set.singleton r
 ;;
 
 let map_def_reg r ~f =
@@ -140,34 +151,38 @@ let map_use_operand op ~f =
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 
-let defs ins : Var.Set.t =
+let reg_defs ins : Reg.Set.t =
   match ins with
   | PAR_MOV l ->
-    List.fold l ~init:Var.Set.empty ~f:(fun acc (a, _) ->
-      Set.union acc (vars_of_operand a))
-  | MOV (dst, _) -> vars_of_operand dst
+    List.fold l ~init:Reg.Set.empty ~f:(fun acc (a, _) ->
+      Set.union acc (regs_of_operand a))
+  | MOV (dst, _) -> regs_of_operand dst
   | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) | MUL (dst, _) ->
-    vars_of_operand dst
-  | IDIV _ -> Var.Set.empty (* RAX/RDX: real regs *)
-  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ -> Var.Set.empty
+    regs_of_operand dst
+  | IDIV _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
+  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
 ;;
 
-let uses ins : Var.Set.t =
+let reg_uses ins : Reg.Set.t =
   match ins with
+  | IDIV op ->
+    Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | PAR_MOV l ->
-    List.fold l ~init:Var.Set.empty ~f:(fun acc (_, a) ->
-      Set.union acc (vars_of_operand a))
-  | MOV (_, src) -> vars_of_operand src
+    List.fold l ~init:Reg.Set.empty ~f:(fun acc (_, a) ->
+      Set.union acc (regs_of_operand a))
+  | MOV (_, src) -> regs_of_operand src
   | ADD (dst, src)
   | SUB (dst, src)
   | MUL (dst, src)
   | AND (dst, src)
-  | OR (dst, src) -> Set.union (vars_of_operand dst) (vars_of_operand src)
-  | IDIV op -> Set.union (vars_of_operand op) (vars_of_operand (Reg Reg.RAX))
-  | CMP (a, b) -> Set.union (vars_of_operand a) (vars_of_operand b)
-  | RET op -> vars_of_operand op
-  | NOOP | LABEL _ | JE _ | JNE _ -> Var.Set.empty
+  | OR (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
+  | RET op -> regs_of_operand op
+  | NOOP | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
 ;;
+
+let defs ins = reg_defs ins |> Set.filter_map (module Var) ~f:var_of_reg
+let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
 let blocks instr =
   match instr with
