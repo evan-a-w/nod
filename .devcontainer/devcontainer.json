@@ -20,7 +20,9 @@
     }
   },
 
-  "postCreateCommand": "echo 'hi'"
+  "postCreateCommand": "echo 'hi'",
+  "postStartCommand": "eval $(opam env)"
+
 
   // "remoteUser": "root"
 }
