@@ -20,11 +20,17 @@ module Lit_or_var = struct
     | Lit _ -> t
     | Var v -> Var (f v)
   ;;
+
+  let to_x86_ir_operand t : X86_ir.operand =
+    match t with
+    | Lit l -> Imm l
+    | Var v -> Reg (Unallocated v)
+  ;;
 end
 
 module Mem = struct
   type t =
-    | Stack_slot of int
+    | Stack_slot of int (* bytes *)
     | Lit_or_var of Lit_or_var.t
   [@@deriving sexp, compare, equal, hash]
 
@@ -43,6 +49,12 @@ module Mem = struct
     match t with
     | Lit_or_var l -> Lit_or_var (f l)
     | Stack_slot _ -> t
+  ;;
+
+  let to_x86_ir_operand t : X86_ir.operand =
+    match t with
+    | Lit_or_var l -> Lit_or_var.to_x86_ir_operand l
+    | Stack_slot i -> Mem (RBP, i)
   ;;
 end
 

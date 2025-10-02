@@ -26,6 +26,20 @@ module Reg = struct
   include functor Hashable.Make
 end
 
+module Symbol =
+  String_id.Make
+    (struct
+      let module_name = "Symbol"
+    end)
+    ()
+
+module Jump_target = struct
+  type t =
+    | Reg of Reg.t
+    | Imm of Int64.t
+    | Symbol of Symbol.t
+end
+
 type operand =
   | Reg of Reg.t
   | Imm of Int64.t
@@ -44,11 +58,9 @@ type 'block t =
   | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
   | LABEL of string
   | CMP of operand * operand
-    (* second arg is so we can store info of next block in case it's false
-
-         not actually needed in my code rn *)
   | JE of 'block Call_block.t * 'block Call_block.t option
   | JNE of 'block Call_block.t * 'block Call_block.t option
+  | JMP of 'block Call_block.t
   | RET of operand
   | PAR_MOV of (operand * operand) list
 [@@deriving sexp, equal, compare, hash, variants]
@@ -67,7 +79,7 @@ let fold_operands ins ~f ~init =
     fold_operand src ~f ~init
   | PAR_MOV l -> List.fold l ~init ~f:(fun acc (a, b) -> f (f acc a) b)
   | IMUL op | IDIV op | MOD op | RET op -> fold_operand op ~f ~init
-  | NOOP | LABEL _ | JE _ | JNE _ -> init
+  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
 let map_reg r ~f =
@@ -101,7 +113,7 @@ let map_var_operands ins ~f =
   | PAR_MOV l ->
     PAR_MOV
       (List.map l ~f:(fun (a, b) -> map_var_operand a ~f, map_var_operand b ~f))
-  | NOOP | LABEL _ | JE _ | JNE _ -> ins (* no virtual‑uses *)
+  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
 ;;
 
 let var_of_reg = function
@@ -161,7 +173,7 @@ let reg_defs ins : Reg.Set.t =
   | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) ->
     regs_of_operand dst
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
-  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
+  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
 let reg_uses ins : Reg.Set.t =
@@ -177,7 +189,7 @@ let reg_uses ins : Reg.Set.t =
     Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET op -> regs_of_operand op
-  | NOOP | LABEL _ | JE _ | JNE _ -> Reg.Set.empty
+  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
 let defs ins = reg_defs ins |> Set.filter_map (module Var) ~f:var_of_reg
@@ -198,6 +210,7 @@ let blocks instr =
   | OR _
   | PAR_MOV _
   | LABEL _ -> []
+  | JMP lbl -> Call_block.blocks lbl
   | JE (lbl, next) | JNE (lbl, next) ->
     List.concat_map ~f:Call_block.blocks (lbl :: Option.to_list next)
 ;;
@@ -223,6 +236,7 @@ let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
     JNE
       ( Call_block.map_blocks ~f lbl
       , Option.map next ~f:(Call_block.map_blocks ~f) )
+  | JMP lbl -> JMP (Call_block.map_blocks ~f lbl)
   | RET x -> RET x
   | NOOP -> NOOP
 ;;
@@ -242,6 +256,7 @@ let filter_map_call_blocks t ~f =
   | OR _
   | PAR_MOV _
   | LABEL _ -> []
+  | JMP lbl -> f lbl |> Option.to_list
   | JE (lbl, next) | JNE (lbl, next) ->
     (f lbl |> Option.to_list) @ (Option.bind next ~f |> Option.to_list)
 ;;
@@ -261,7 +276,7 @@ let map_defs t ~f =
   | CMP (_, _)
   | JE (_, _)
   | JNE (_, _)
-  | RET _ -> t
+  | JMP _ | RET _ -> t
 ;;
 
 let map_uses t ~f =
@@ -282,6 +297,7 @@ let map_uses t ~f =
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JNE (lbl, next) ->
     JNE (map_call_block lbl, Option.map next ~f:map_call_block)
+  | JMP lbl -> JMP (map_call_block lbl)
   | NOOP | LABEL _ -> t
 ;;
 
@@ -289,6 +305,7 @@ let map_call_blocks t ~f =
   match t with
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
   | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
+  | JMP lbl -> JMP (f lbl)
   | NOOP
   | AND (_, _)
   | OR (_, _)
@@ -308,6 +325,7 @@ let iter_call_blocks t ~f =
   | JNE (lbl, next) ->
     f lbl;
     Option.iter next ~f
+  | JMP lbl -> f lbl
   | NOOP
   | AND (_, _)
   | OR (_, _)
@@ -321,6 +339,7 @@ let iter_call_blocks t ~f =
 
 let call_blocks = function
   | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
+  | JMP lbl -> [ lbl ]
   | NOOP
   | AND (_, _)
   | OR (_, _)
@@ -335,7 +354,7 @@ let call_blocks = function
 let map_lit_or_vars t ~f:_ = t
 
 let is_terminal = function
-  | JNE _ | JE _ | RET _ -> true
+  | JNE _ | JE _ | RET _ | JMP _ -> true
   | NOOP
   | AND (_, _)
   | OR (_, _)
