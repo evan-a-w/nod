@@ -1,11 +1,5 @@
 use std::collections::BTreeMap;
 
-#[ocaml::func]
-#[ocaml::sig("unit -> string")]
-pub fn hello_world() -> &'static str {
-    "hello, world!"
-}
-
 #[ocaml::sig]
 pub struct T(pror::cdcl::Default);
 

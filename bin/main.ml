@@ -42,8 +42,6 @@ open! Nod_test
     [%sexp (classifications : Instruction.Classification.t Mnemonic.Map.t)]
 ;; *)
 
-(* let () = print_endline (Pror_rs.hello_world ()) *)
-
 let stepped3 () =
   let formula =
     [| [| 3; -10; -13; 1; 12; 15; 9; -5; 6; 14; 4 |]
