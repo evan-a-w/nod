@@ -1,0 +1,11 @@
+/workspaces/nod2/target/debug/deps/getrandom-1b8707d6c19200ea.d: /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lib.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/error.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util_libc.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/use_file.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lazy.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/linux_android_with_fallback.rs
+
+/workspaces/nod2/target/debug/deps/libgetrandom-1b8707d6c19200ea.rmeta: /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lib.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/error.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util_libc.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/use_file.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lazy.rs /home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/linux_android_with_fallback.rs
+
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lib.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/error.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/util_libc.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/use_file.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/lazy.rs:
+/home/vscode/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/getrandom-0.2.16/src/linux_android_with_fallback.rs:
