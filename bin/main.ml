@@ -41,3 +41,6 @@ open! Nod_test
   print_s
     [%sexp (classifications : Instruction.Classification.t Mnemonic.Map.t)]
 ;; *)
+
+
+let () = print_endline (Nod_rust.hello_world ())
