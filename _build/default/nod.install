@@ -1,0 +1,8 @@
+lib: [
+  "_build/install/default/lib/nod/META"
+  "_build/install/default/lib/nod/dune-package"
+  "_build/install/default/lib/nod/opam"
+]
+bin: [
+  "_build/install/default/bin/nod"
+]
