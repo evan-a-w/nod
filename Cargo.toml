@@ -1,5 +1,5 @@
 [package]
-name = "nod-rust"
+name = "pror-rs"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,6 +8,8 @@ crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
 ocaml = {version = "^1.0.0"}
+pror = { git = "https://github.com/evan-a-w/pror", branch = "main" }
+
 
 [build-dependencies]
 ocaml-build = {version = "^1.0.0"}
