@@ -185,12 +185,15 @@ type 'block t =
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
   | X86 of 'block X86_ir.t
+  | X86_terminal of 'block X86_ir.t list
   | Unreachable
 [@@deriving sexp, compare, equal, variants, hash]
 
 let filter_map_call_blocks t ~f =
   match t with
   | X86 x86_ir -> X86_ir.filter_map_call_blocks x86_ir ~f
+  | X86_terminal x86_irs ->
+    List.concat_map x86_irs ~f:(X86_ir.filter_map_call_blocks ~f)
   | And _
   | Or _
   | Noop
@@ -249,6 +252,8 @@ let constant = function
 
 let defs = function
   | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
+  | X86_terminal x86_irs ->
+    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
   | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
   | Load (a, _) -> [ a ]
   | Move (var, _) -> [ var ]
@@ -257,6 +262,7 @@ let defs = function
 
 let blocks = function
   | X86 x86_ir -> X86_ir.blocks x86_ir
+  | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.blocks x86_irs
   | Branch b -> Branch.blocks b
   | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _ | And _ | Or _
   | Move (_, _)
@@ -265,6 +271,8 @@ let blocks = function
 
 let uses = function
   | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
+  | X86_terminal x86_irs ->
+    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
   | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a ->
     Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
@@ -287,6 +295,8 @@ let map_defs t ~f =
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_defs ~f) x86_irs)
   | Branch _ | Unreachable | Noop | Return _ | Store _ -> t
 ;;
 
@@ -305,11 +315,14 @@ let map_uses t ~f =
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Branch b -> Branch (Branch.map_uses b ~f)
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_uses ~f) x86_irs)
   | Unreachable | Noop -> t
 ;;
 
 let is_terminal = function
   | X86 x86_ir -> X86_ir.is_terminal x86_ir
+  | X86_terminal _ -> true
   | Branch _ | Unreachable | Return _ -> true
   | Add _
   | Mul _
@@ -328,6 +341,8 @@ let map_call_blocks t ~f =
   match t with
   | Branch b -> Branch (Branch.map_call_blocks b ~f)
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f) x86_irs)
   | Unreachable
   | Add _
   | Mul _
@@ -347,6 +362,7 @@ let iter_call_blocks t ~f =
   match t with
   | Branch b -> Branch.iter_call_blocks b ~f
   | X86 x86_ir -> X86_ir.iter_call_blocks x86_ir ~f
+  | X86_terminal x86_irs -> List.iter ~f:(X86_ir.iter_call_blocks ~f) x86_irs
   | Unreachable
   | Add _
   | Mul _
@@ -379,6 +395,8 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Return var -> Return var
   | Unreachable -> Unreachable
   | X86 x86_ir -> X86 (X86_ir.map_blocks x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_blocks ~f) x86_irs)
 ;;
 
 let map_lit_or_vars t ~f =
@@ -398,6 +416,8 @@ let map_lit_or_vars t ~f =
   | Noop -> Noop
   | Unreachable -> Unreachable
   | X86 x86_ir -> X86 (X86_ir.map_lit_or_vars x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_lit_or_vars ~f) x86_irs)
 ;;
 
 let jump_to block' =
@@ -419,6 +439,7 @@ let call_blocks = function
   | Noop
   | Return _ -> []
   | X86 x86_ir -> X86_ir.call_blocks x86_ir
+  | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.call_blocks x86_irs
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
     [ if_true; if_false ]
   | Branch (Branch.Uncond call) -> [ call ]
