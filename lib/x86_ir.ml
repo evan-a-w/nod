@@ -49,6 +49,9 @@ type operand =
 
 type 'block t =
   | NOOP
+  (* Use this tag things for regalloc bs where we mint temp vars and make them allocated to a particular hw reg when we need *)
+  | Tag_use of 'block t * operand
+  | Tag_def of 'block t * operand
   | AND of operand * operand
   | OR of operand * operand
   | MOV of operand * operand
@@ -69,6 +72,7 @@ let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
   match ins with
+  | Tag_use (_, r) | Tag_def (_, r) -> f init r
   | MOV (dst, src)
   | AND (dst, src)
   | OR (dst, src)
@@ -97,8 +101,10 @@ let map_var_operand op ~f =
      | _ -> failwith "expected reg, got non reg, in [map_var_operand]")
 ;;
 
-let map_var_operands ins ~f =
+let rec map_var_operands ins ~f =
   match ins with
+  | Tag_def (ins, r) -> Tag_def (map_var_operands ins ~f, map_var_operand r ~f)
+  | Tag_use (ins, r) -> Tag_use (map_var_operands ins ~f, map_var_operand r ~f)
   | AND (dst, src) -> AND (map_var_operand dst ~f, map_var_operand src ~f)
   | OR (dst, src) -> OR (map_var_operand dst ~f, map_var_operand src ~f)
   | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
@@ -162,8 +168,10 @@ let map_use_operand op ~f =
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 
-let reg_defs ins : Reg.Set.t =
+let rec reg_defs ins : Reg.Set.t =
   match ins with
+  | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
+  | Tag_use (ins, _) -> reg_defs ins
   | MOV (dst, _) -> regs_of_operand dst
   | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) ->
     regs_of_operand dst
@@ -171,8 +179,10 @@ let reg_defs ins : Reg.Set.t =
   | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
-let reg_uses ins : Reg.Set.t =
+let rec reg_uses ins : Reg.Set.t =
   match ins with
+  | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
+  | Tag_def (ins, _) -> reg_uses ins
   | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
@@ -195,8 +205,9 @@ let vars ins =
 let defs ins = reg_defs ins |> Set.filter_map (module Var) ~f:var_of_reg
 let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
-let blocks instr =
+let rec blocks instr =
   match instr with
+  | Tag_use (ins, _) | Tag_def (ins, _) -> blocks ins
   | NOOP
   | MOV _
   | ADD _
@@ -214,8 +225,10 @@ let blocks instr =
     List.concat_map ~f:Call_block.blocks (lbl :: Option.to_list next)
 ;;
 
-let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
+let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
+  | Tag_def (ins, r) -> Tag_def (map_blocks ins ~f, r)
+  | Tag_use (ins, r) -> Tag_use (map_blocks ins ~f, r)
   | LABEL s -> LABEL s
   | AND (x, y) -> AND (x, y)
   | OR (x, y) -> OR (x, y)
@@ -239,8 +252,9 @@ let map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | NOOP -> NOOP
 ;;
 
-let filter_map_call_blocks t ~f =
+let rec filter_map_call_blocks t ~f =
   match t with
+  | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | NOOP
   | MOV _
   | ADD _
@@ -260,9 +274,11 @@ let filter_map_call_blocks t ~f =
 
 let unreachable = NOOP
 
-let map_defs t ~f =
+let rec map_defs t ~f =
   let map_dst op = map_def_operand op ~f in
   match t with
+  | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
+  | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
   | MOV (dst, src) -> MOV (map_dst dst, src)
   | AND (dst, src) -> AND (map_dst dst, src)
   | OR (dst, src) -> OR (map_dst dst, src)
@@ -275,10 +291,12 @@ let map_defs t ~f =
   | JMP _ | RET _ -> t
 ;;
 
-let map_uses t ~f =
+let rec map_uses t ~f =
   let map_op op = map_use_operand op ~f in
   let map_call_block cb = Call_block.map_uses cb ~f in
   match t with
+  | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
+  | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
   | MOV (dst, src) -> MOV (dst, map_op src)
   | AND (dst, src) -> AND (map_op dst, map_op src)
   | OR (dst, src) -> OR (map_op dst, map_op src)
@@ -296,8 +314,10 @@ let map_uses t ~f =
   | NOOP | LABEL _ -> t
 ;;
 
-let map_call_blocks t ~f =
+let rec map_call_blocks t ~f =
   match t with
+  | Tag_def (ins, r) -> Tag_def (map_call_blocks ins ~f, r)
+  | Tag_use (ins, r) -> Tag_use (map_call_blocks ins ~f, r)
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
   | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
   | JMP lbl -> JMP (f lbl)
@@ -312,8 +332,9 @@ let map_call_blocks t ~f =
   | RET _ -> t
 ;;
 
-let iter_call_blocks t ~f =
+let rec iter_call_blocks t ~f =
   match t with
+  | Tag_def (ins, _) | Tag_use (ins, _) -> iter_call_blocks ins ~f
   | JE (lbl, next) ->
     f lbl;
     Option.iter next ~f
@@ -332,7 +353,8 @@ let iter_call_blocks t ~f =
   | RET _ -> ()
 ;;
 
-let call_blocks = function
+let rec call_blocks = function
+  | Tag_def (ins, _) | Tag_use (ins, _) -> call_blocks ins
   | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
   | JMP lbl -> [ lbl ]
   | NOOP
@@ -348,7 +370,8 @@ let call_blocks = function
 
 let map_lit_or_vars t ~f:_ = t
 
-let is_terminal = function
+let rec is_terminal = function
+  | Tag_def (ins, _) | Tag_use (ins, _) -> is_terminal ins
   | JNE _ | JE _ | RET _ | JMP _ -> true
   | NOOP
   | AND (_, _)
