@@ -1,7 +1,19 @@
 open! Core
 open X86_ir
 
-let ir_to_x86_ir (ir : Ir.t) =
+let new_name map v =
+  let v' =
+    match Hashtbl.find map v with
+    | None -> v
+    | Some i -> v ^ Int.to_string i
+  in
+  Hashtbl.update map v ~f:(function
+    | None -> 0
+    | Some i -> i + 1);
+  v'
+;;
+
+let ir_to_x86_ir ~var_names (ir : Ir.t) =
   let operand_of_lit_or_var (lit_or_var : Ir.Lit_or_var.t) =
     match lit_or_var with
     | Lit l -> Imm l
@@ -15,9 +27,15 @@ let ir_to_x86_ir (ir : Ir.t) =
   in
   let reg v = Reg (Reg.unallocated v) in
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
-    [ mov (Reg (Reg.allocated  Reg.rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
-    ; make_instr (Ir.Lit_or_var.to_x86_ir_operand src2)
-    ; mov (reg dest) (Reg take_reg)
+    let tmp_rax = Reg.allocated (new_name var_names "tmp_rax") Reg.rax in
+    let tmp_dst = Reg.allocated (new_name var_names "tmp_dst") take_reg in
+    [ mov (Reg tmp_rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
+    ; tag_def
+        (tag_use
+           (make_instr (Ir.Lit_or_var.to_x86_ir_operand src2))
+           (Reg tmp_rax))
+        (Reg tmp_dst)
+    ; mov (reg dest) (Reg tmp_dst)
     ]
   in
   match ir with
@@ -93,18 +111,6 @@ module Out_of_ssa = struct
       | Some i -> i + 1)
   ;;
 
-  let new_name map v =
-    let v' =
-      match Hashtbl.find map v with
-      | None -> v
-      | Some i -> v ^ Int.to_string i
-    in
-    Hashtbl.update map v ~f:(function
-      | None -> 0
-      | Some i -> i + 1);
-    v'
-  ;;
-
   let mint_intermediate
     t
     ~(from_block : Block.t)
@@ -126,7 +132,7 @@ module Out_of_ssa = struct
 
   let simple_translation_to_x86_ir t =
     let ir_to_x86_ir ir =
-      let res = ir_to_x86_ir ir in
+      let res = ir_to_x86_ir ~var_names:t.var_names ir in
       List.iter res ~f:(fun ir ->
         List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
       res
@@ -158,8 +164,10 @@ module Out_of_ssa = struct
         (match true_terminal with
          | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
          | JE (a, Some b) -> rep X86_ir.je a b
-         | JNE (a, Some b) -> rep X86_ir.jne a b
-         | NOOP
+         | JNE (a, Some b) ->
+           rep X86_ir.jne a b
+           (* both of these tag things should prob be handled *)
+         | Tag_use _ | Tag_def _ | NOOP
          | AND (_, _)
          | OR (_, _)
          | MOV (_, _)
@@ -232,8 +240,10 @@ module Out_of_ssa = struct
              (* CR ewilliams: need to do moves for this actually *)
              ()
            | JNE _ | JE _ ->
-             (* [block.insert_phi_moves] should be false *) failwith "bug"
-           | NOOP
+             (* [block.insert_phi_moves] should be false *)
+             failwith "bug"
+             (* both of these tag things should prob be handled *)
+           | Tag_use _ | Tag_def _ | NOOP
            | AND (_, _)
            | OR (_, _)
            | MOV (_, _)
@@ -274,8 +284,6 @@ module Reg_numbering = struct
     }
   [@@deriving fields, sexp]
 
-  let num_reg_types = List.length Reg.Variants.descriptions
-
   let var_state t var =
     match Hashtbl.find t.vars var with
     | Some state -> state
@@ -289,36 +297,6 @@ module Reg_numbering = struct
 
   let var_id t var = (var_state t var).id
   let id_var t id = Hashtbl.find_exn t.id_to_var id
-
-  let reg_id t (reg : Reg.t) =
-    match reg with
-    | Unallocated v -> num_reg_types + (var_state t v).id
-    | other -> Reg.Variants.to_rank other
-  ;;
-
-  let reg_of_id t id : Reg.t =
-    match id with
-    | id when id >= num_reg_types ->
-      Reg.unallocated (Hashtbl.find_exn t.id_to_var (id - num_reg_types))
-    | 1 -> Junk
-    | 2 -> RBP
-    | 3 -> RSP
-    | 4 -> RAX
-    | 5 -> RBX
-    | 6 -> RCX
-    | 7 -> RDX
-    | 8 -> RSI
-    | 9 -> RDI
-    | 10 -> R8
-    | 11 -> R9
-    | 12 -> R10
-    | 13 -> R11
-    | 14 -> R12
-    | 15 -> R13
-    | 16 -> R14
-    | 17 -> R15
-    | _ -> failwith "impossible"
-  ;;
 
   let create (root : Block.t) =
     let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
@@ -492,10 +470,10 @@ module Regalloc = struct
     let edges =
       Hashtbl.to_alist edges
       |> List.map ~f:(fun (id, ids) ->
-        ( Reg_numbering.reg_of_id reg_numbering id
-        , Set.map (module Reg) ids ~f:(Reg_numbering.reg_of_id reg_numbering) ))
+        ( Reg_numbering.id_var reg_numbering id
+        , Set.map (module String) ids ~f:(Reg_numbering.id_var reg_numbering) ))
     in
-    print_s [%sexp (edges : (Reg.t * Reg.Set.t) list)]
+    print_s [%sexp (edges : (String.t * String.Set.t) list)]
   ;;
 
   let run root =
