@@ -24,20 +24,6 @@ let sexp_of_t t =
   [%sexp { id_hum : string; args : string Vec.t }]
 ;;
 
-let iter_and_set_dfs_ids root ~f =
-  let i = ref 0 in
-  let rec go block =
-    match dfs_id block with
-    | None ->
-      set_dfs_id block (Some !i);
-      incr i;
-      f block;
-      Vec.iter (children block) ~f:go
-    | Some _ -> ()
-  in
-  go root
-;;
-
 let create ~id_hum ~terminal =
   { id_hum
   ; args = Vec.create ()
@@ -62,6 +48,37 @@ let iter root ~f =
       Core.Hash_set.add seen block;
       f block;
       Vec.iter block.children ~f:go
+  in
+  go root
+;;
+
+let iter_and_update_bookkeeping root ~f =
+  let rec go block =
+    match dfs_id block with
+    | None -> ()
+    | Some _ ->
+      set_dfs_id block None;
+      f block;
+      let children =
+        Ir0.call_blocks block.terminal
+        |> List.map ~f:Call_block.block
+        |> Vec.of_list
+      in
+      Vec.clear block.parents;
+      Vec.switch block.children children;
+      Vec.iter block.children ~f:go
+  in
+  go root;
+  let i = ref 0 in
+  let rec go block =
+    match dfs_id block with
+    | Some _ -> ()
+    | None ->
+      set_dfs_id block (Some !i);
+      incr i;
+      Vec.iter block.children ~f:(fun child ->
+        Vec.push child.parents block;
+        go child)
   in
   go root
 ;;

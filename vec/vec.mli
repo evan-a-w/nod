@@ -38,3 +38,4 @@ val concat_list : 'a t list -> 'a t
 val append_list : 'a t -> 'a list -> unit
 val append : 'a t -> 'a t -> unit
 val to_sequence : 'a t -> 'a Sequence.t
+val clear : 'a t -> unit
