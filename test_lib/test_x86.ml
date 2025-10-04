@@ -39,10 +39,14 @@ let%expect_test "a" =
           ((block ((id_hum intermediate_b_to_end0) (args (z%2)))) (args (z%2)))
           (((block ((id_hum intermediate_b_to_end) (args (z%2)))) (args (z%2))))))))))
     (intermediate_b_to_end0 (args (z%2))
-     (instrs ((X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%2))))))))
+     (instrs
+      ((X86 (MOV (Reg (Unallocated z%0)) (Reg (Unallocated z%2))))
+       (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%2))))))))
     (end (args (z%0)) (instrs ((X86_terminal ()))))
     (intermediate_b_to_end (args (z%2))
-     (instrs ((X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%2))))))))
+     (instrs
+      ((X86 (MOV (Reg (Unallocated z%0)) (Reg (Unallocated z%2))))
+       (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%2))))))))
     (intermediate_a_to_c (args ())
      (instrs ((X86 (JMP ((block ((id_hum c) (args ()))) (args ())))))))
     (c (args ())
@@ -54,9 +58,13 @@ let%expect_test "a" =
           ((block ((id_hum intermediate_c_to_end0) (args (z%1)))) (args (z%1)))
           (((block ((id_hum intermediate_c_to_end) (args (z%1)))) (args (z%1))))))))))
     (intermediate_c_to_end0 (args (z%1))
-     (instrs ((X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))
+     (instrs
+      ((X86 (MOV (Reg (Unallocated z%0)) (Reg (Unallocated z%1))))
+       (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))
     (intermediate_c_to_end (args (z%1))
-     (instrs ((X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))
+     (instrs
+      ((X86 (MOV (Reg (Unallocated z%0)) (Reg (Unallocated z%1))))
+       (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))
     |}]
 ;;
 
@@ -109,6 +117,9 @@ let%expect_test "fib" =
       ((X86 (MOV (Reg (Unallocated count)) (Reg (Unallocated arg))))
        (X86 (MOV (Reg (Unallocated a)) (Imm 0)))
        (X86 (MOV (Reg (Unallocated b)) (Imm 1)))
+       (X86 (MOV (Reg (Unallocated a%0)) (Reg (Unallocated a))))
+       (X86 (MOV (Reg (Unallocated b%0)) (Reg (Unallocated b))))
+       (X86 (MOV (Reg (Unallocated count%0)) (Reg (Unallocated count))))
        (X86_terminal
         ((JMP
           ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
@@ -132,6 +143,9 @@ let%expect_test "fib" =
        (X86 (MOV (Reg (Unallocated b%1)) (Reg (Unallocated next))))
        (X86 (MOV (Reg (Unallocated count%1)) (Reg (Unallocated count%0))))
        (X86 (SUB (Reg (Unallocated count%1)) (Imm 1)))
+       (X86 (MOV (Reg (Unallocated a%0)) (Reg (Unallocated a%1))))
+       (X86 (MOV (Reg (Unallocated b%0)) (Reg (Unallocated b%1))))
+       (X86 (MOV (Reg (Unallocated count%0)) (Reg (Unallocated count%1))))
        (X86_terminal
         ((JMP
           ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
