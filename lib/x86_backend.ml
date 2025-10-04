@@ -1,7 +1,7 @@
 open! Core
+open X86_ir
 
 let ir_to_x86_ir (ir : Ir.t) =
-  let open X86_ir in
   let operand_of_lit_or_var (lit_or_var : Ir.Lit_or_var.t) =
     match lit_or_var with
     | Lit l -> Imm l
@@ -46,9 +46,132 @@ let ir_to_x86_ir (ir : Ir.t) =
     ]
 ;;
 
-module Regalloc = struct
-  open X86_ir
+let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
+  match x86_block.terminal with
+  | X86 terminal -> Some terminal
+  | X86_terminal terminals -> List.last terminals
+  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
+  | Load (_, _)
+  | Store (_, _)
+  | Move (_, _)
+  | Branch _ | Return _ | Unreachable -> None
+;;
 
+let replace_true_terminal (x86_block : Block.t) new_true_terminal =
+  match x86_block.terminal with
+  | X86 _terminal -> x86_block.terminal <- X86 new_true_terminal
+  | X86_terminal terminals ->
+    x86_block.terminal
+    <- X86_terminal
+         (List.take terminals (List.length terminals - 1)
+          @ [ new_true_terminal ])
+  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
+  | Load (_, _)
+  | Store (_, _)
+  | Move (_, _)
+  | Branch _ | Return _ | Unreachable -> ()
+;;
+
+module Out_of_ssa = struct
+  type t =
+    { block_names : int String.Table.t
+    ; var_names : int String.Table.t
+    ; root : Block.t
+    }
+  [@@deriving fields]
+
+  let create root =
+    { block_names = String.Table.create ()
+    ; var_names = String.Table.create ()
+    ; root
+    }
+  ;;
+
+  let add_count tbl s =
+    Hashtbl.update tbl s ~f:(function
+      | None -> 0
+      | Some i -> i + 1)
+  ;;
+
+  let new_name map v =
+    let v' =
+      match Hashtbl.find map v with
+      | None -> v
+      | Some i -> v ^ Int.to_string i
+    in
+    Hashtbl.update map v ~f:(function
+      | None -> 0
+      | Some i -> i + 1);
+    v'
+  ;;
+
+  let mint_intermediate
+    t
+    ~(from_block : Block.t)
+    ~(to_call_block : Block.t Call_block.t)
+    =
+    let id_hum =
+      "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
+      |> new_name t.block_names
+    in
+    let block =
+      Block.create ~id_hum ~terminal:(X86 (X86_ir.jmp to_call_block))
+    in
+    (* I can't be bothered to make this not confusing, but we want to set this
+       so it gets updated in [Block.iter_and_update_bookkeeping]*)
+    block.dfs_id <- Some 0;
+    block.args <- Vec.of_list to_call_block.args;
+    { Call_block.block; args = to_call_block.args }
+  ;;
+
+  let simple_translation_to_x86_ir t =
+    let ir_to_x86_ir ir =
+      let res = ir_to_x86_ir ir in
+      List.iter res ~f:(fun ir ->
+        List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
+      res
+    in
+    Block.iter t.root ~f:(fun block ->
+      add_count t.block_names block.id_hum;
+      block.instructions
+      <- Vec.concat_map block.instructions ~f:(fun ir ->
+           ir_to_x86_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
+      block.terminal <- Ir.x86_terminal (ir_to_x86_ir block.terminal));
+    t
+  ;;
+
+  let split_blocks t =
+    Block.iter_and_update_bookkeeping t.root ~f:(fun block ->
+      (* Create intermediate blocks when we go to multiple, for ease of
+           implementation of copies for phis *)
+      match true_terminal block with
+      | None -> ()
+      | Some true_terminal ->
+        let rep make a b =
+          block.insert_phi_moves <- false;
+          replace_true_terminal
+            block
+            (make
+               (mint_intermediate t ~from_block:block ~to_call_block:a)
+               (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
+        in
+        (match true_terminal with
+         | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
+         | JE (a, Some b) -> rep X86_ir.je a b
+         | JNE (a, Some b) -> rep X86_ir.jne a b
+         | NOOP
+         | AND (_, _)
+         | OR (_, _)
+         | MOV (_, _)
+         | ADD (_, _)
+         | SUB (_, _)
+         | IMUL _ | IDIV _ | MOD _ | LABEL _
+         | CMP (_, _) -> ()));
+    t
+  ;;
+end
+
+module Regalloc = struct
   type t =
     { var_ids : int Var.Table.t
     ; var_id_to_var : Var.t Int.Table.t
@@ -98,84 +221,7 @@ module Regalloc = struct
   ;;
 end
 
-let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
-  match x86_block.terminal with
-  | X86 terminal -> Some terminal
-  | X86_terminal terminals -> List.last terminals
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
-  | Load (_, _)
-  | Store (_, _)
-  | Move (_, _)
-  | Branch _ | Return _ | Unreachable -> None
-;;
-
-let replace_true_terminal (x86_block : Block.t) new_true_terminal =
-  match x86_block.terminal with
-  | X86 _terminal -> x86_block.terminal <- X86 new_true_terminal
-  | X86_terminal terminals ->
-    x86_block.terminal
-    <- X86_terminal
-         (List.take terminals (List.length terminals - 1)
-          @ [ new_true_terminal ])
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
-  | Load (_, _)
-  | Store (_, _)
-  | Move (_, _)
-  | Branch _ | Return _ | Unreachable -> ()
-;;
-
-let mint_intermediate
-  (from_block : Block.t)
-  (to_call_block : Block.t Call_block.t)
-  ~block_names
-  =
-  let name = "int_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum in
-  let rec go name =
-    if Hash_set.mem block_names name then go name ^ "_" else name
-  in
-  let name = go name in
-  Hash_set.add block_names name;
-  let block =
-    Block.create ~id_hum:name ~terminal:(X86 (X86_ir.jmp to_call_block))
-  in
-  block.args <- Vec.of_list to_call_block.args;
-  { Call_block.block; args = to_call_block.args }
-;;
-
-let compile (root : Block.t) =
-  let block_names = String.Hash_set.create () in
-  Block.iter root ~f:(fun block ->
-    Hash_set.add block_names block.id_hum;
-    block.instructions
-    <- Vec.concat_map block.instructions ~f:(fun ir ->
-         ir_to_x86_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
-    block.terminal <- Ir.x86_terminal (ir_to_x86_ir block.terminal));
-  Block.iter root ~f:(fun block ->
-    (* Create intermediate blocks when we go to multiple, for ease of
-           implementation of copies for phis *)
-    match true_terminal block with
-    | None -> ()
-    | Some true_terminal ->
-      let rep make a b =
-        block.insert_phi_moves <- false;
-        replace_true_terminal
-          block
-          (make
-             (mint_intermediate block a ~block_names)
-             (Some (mint_intermediate block b ~block_names)))
-      in
-      (match true_terminal with
-       | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
-       | JE (a, Some b) -> rep X86_ir.je a b
-       | JNE (a, Some b) -> rep X86_ir.jne a b
-       | NOOP
-       | AND (_, _)
-       | OR (_, _)
-       | MOV (_, _)
-       | ADD (_, _)
-       | SUB (_, _)
-       | IMUL _ | IDIV _ | MOD _ | LABEL _
-       | CMP (_, _)
-       | PAR_MOV _ -> ()));
-  root
+let compile (block : Block.t) =
+  let open Out_of_ssa in
+  create block |> simple_translation_to_x86_ir |> split_blocks |> root
 ;;

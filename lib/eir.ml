@@ -52,6 +52,10 @@ module Opt_flags = struct
   [@@deriving fields]
 
   let default = { unused_vars = true; constant_propagation = true; gvn = true }
+
+  let no_opt =
+    { unused_vars = false; constant_propagation = false; gvn = false }
+  ;;
 end
 
 module Opt = struct
@@ -440,12 +444,12 @@ module Opt = struct
   ;;
 end
 
-let optimize ssa =
-  let opt_state = Opt.create ~opt_flags:Opt_flags.default ssa in
+let optimize ?(opt_flags = Opt_flags.default) ssa =
+  let opt_state = Opt.create ~opt_flags ssa in
   Opt.run opt_state
 ;;
 
-let compile s =
+let compile ?opt_flags s =
   match
     Parser.parse_string s
     |> Result.map ~f:Cfg.process
@@ -453,6 +457,6 @@ let compile s =
   with
   | Error _ as e -> e
   | Ok ssa ->
-    optimize ssa;
+    optimize ?opt_flags ssa;
     Ok (Ssa.root ssa)
 ;;

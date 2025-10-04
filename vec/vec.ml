@@ -10,6 +10,11 @@ let create ?(capacity = 0) () =
   { arr = Array.create ~len:capacity (Obj.magic ()); length = 0 }
 ;;
 
+let clear t =
+  t.arr <- [||];
+  t.length <- 0
+;;
+
 let singleton x = { arr = [| x |]; length = 1 }
 let length t = t.length
 
@@ -221,7 +226,7 @@ let concat_mapi t ~f =
 
 let concat_map t ~f =
   let new_ = create () in
-  for i = 0 to t.length do
+  for i = 0 to t.length - 1 do
     f t.arr.(i) |> append new_
   done;
   new_
@@ -245,3 +250,10 @@ let to_sequence t =
 ;;
 
 let iter_nested t ~f = iter t ~f:(iter ~f)
+
+let%expect_test "concat_map" =
+  let a = of_list [ 1; 2; 3; 4; 5 ] in
+  print_s
+    [%sexp (concat_map a ~f:(fun i -> List.init i ~f:Fn.id |> of_list) : int t)];
+  [%expect {| (0 0 1 0 1 2 0 1 2 3 0 1 2 3 4) |}]
+;;
