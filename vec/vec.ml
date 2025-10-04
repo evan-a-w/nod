@@ -79,6 +79,14 @@ let fold t ~init ~f =
   !r
 ;;
 
+let foldr t ~init ~f =
+  let r = ref init in
+  for i = length t - 1 downto 0 do
+    r := f !r t.arr.(i)
+  done;
+  !r
+;;
+
 let fill_to_length t ~length ~f =
   let i = ref (t.length - 1) in
   while !i < length - 1 do
@@ -250,6 +258,23 @@ let to_sequence t =
 ;;
 
 let iter_nested t ~f = iter t ~f:(iter ~f)
+let iter_rev t ~f = iteri_rev t ~f:(fun _ x -> f x)
+
+let reverse t =
+  let new_ = create ~capacity:(length t) () in
+  iter_rev t ~f:(push new_);
+  new_
+;;
+
+let reverse_inplace t =
+  let end_ = ref (length t - 1) in
+  let start = ref 0 in
+  while !start < !end_ do
+    t.arr.(!start) <- t.arr.(!end_);
+    incr start;
+    decr end_
+  done
+;;
 
 let%expect_test "concat_map" =
   let a = of_list [ 1; 2; 3; 4; 5 ] in

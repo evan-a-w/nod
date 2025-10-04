@@ -83,6 +83,12 @@ let iter_and_update_bookkeeping root ~f =
   go root
 ;;
 
+let iter_instructions t ~f =
+  iter t ~f:(fun block ->
+    Vec.iter block.instructions ~f;
+    f block.terminal)
+;;
+
 module Pair = struct
   type nonrec t = t * t [@@deriving compare, hash, sexp]
 
