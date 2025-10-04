@@ -3,6 +3,7 @@ open Core
 module Reg = struct
   type t =
     | Unallocated of Var.t
+    | Allocated of Var.t * t
     | Junk
     | RBP (* frame pointer *)
     | RSP (* stack pointer *)
@@ -82,7 +83,7 @@ let fold_operands ins ~f ~init =
 
 let map_reg r ~f =
   match r with
-  | Reg.Unallocated v -> f v
+  | Reg.Unallocated v | Reg.Allocated (v, _) -> f v
   | _ -> Reg r
 ;;
 
@@ -112,12 +113,12 @@ let map_var_operands ins ~f =
 ;;
 
 let var_of_reg = function
-  | Reg.Unallocated v -> Some v
+  | Reg.Unallocated v | Allocated (v, _) -> Some v
   | _ -> None
 ;;
 
 let vars_of_reg = function
-  | Reg.Unallocated v -> Var.Set.singleton v
+  | Reg.Unallocated v | Allocated (v, _) -> Var.Set.singleton v
   | _ -> Var.Set.empty
 ;;
 
@@ -136,12 +137,14 @@ let regs_of_operand = function
 let map_def_reg r ~f =
   match r with
   | Reg.Unallocated v -> Reg.Unallocated (f v)
+  | Reg.Allocated (v, r) -> Reg.Allocated (f v, r)
   | _ -> r
 ;;
 
 let map_use_reg r ~f =
   match r with
   | Reg.Unallocated v -> Reg.Unallocated (f v)
+  | Reg.Allocated (v, r) -> Reg.Allocated (f v, r)
   | _ -> r
 ;;
 

@@ -15,7 +15,7 @@ let ir_to_x86_ir (ir : Ir.t) =
   in
   let reg v = Reg (Reg.unallocated v) in
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
-    [ mov (Reg Reg.rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
+    [ mov (Reg (Reg.allocated  Reg.rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
     ; make_instr (Ir.Lit_or_var.to_x86_ir_operand src2)
     ; mov (reg dest) (Reg take_reg)
     ]
@@ -492,10 +492,10 @@ module Regalloc = struct
     let edges =
       Hashtbl.to_alist edges
       |> List.map ~f:(fun (id, ids) ->
-        ( Reg_numbering.id_var reg_numbering id
-        , Set.map (module String) ids ~f:(Reg_numbering.id_var reg_numbering) ))
+        ( Reg_numbering.reg_of_id reg_numbering id
+        , Set.map (module Reg) ids ~f:(Reg_numbering.reg_of_id reg_numbering) ))
     in
-    print_s [%sexp (edges : (string * String.Set.t) list)]
+    print_s [%sexp (edges : (Reg.t * Reg.Set.t) list)]
   ;;
 
   let run root =
