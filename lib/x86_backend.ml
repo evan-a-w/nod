@@ -169,6 +169,89 @@ module Out_of_ssa = struct
          | CMP (_, _) -> ()));
     t
   ;;
+
+  let par_moves t ~dst_to_src =
+    let pending =
+      List.map dst_to_src ~f:(fun (dst, src) ->
+        Reg.unallocated dst, Reg.unallocated src)
+      |> Reg.Map.of_alist_exn
+      |> Ref.create
+    in
+    let temp () = new_name t.var_names "regalloc_scratch" |> Reg.unallocated in
+    let emitted = Vec.create () in
+    let emit dst src =
+      if Reg.equal dst src
+      then ()
+      else Vec.push emitted (Ir.x86 (mov (Reg dst) (Reg src)))
+    in
+    let rec go () =
+      if Map.is_empty !pending
+      then ()
+      else (
+        let emitted_any =
+          Map.fold
+            !pending
+            ~init:false
+            ~f:(fun ~key:dst ~data:src emitted_any ->
+              if Map.mem !pending src
+              then emitted_any
+              else (
+                emit dst src;
+                pending := Map.remove !pending dst;
+                true))
+        in
+        if not emitted_any
+        then (
+          let _dst, src = Map.min_elt_exn !pending in
+          let tmp = temp () in
+          emit tmp src;
+          pending
+          := Map.map !pending ~f:(fun src' ->
+               if Reg.equal src' src then tmp else src'));
+        go ())
+    in
+    go ();
+    emitted
+  ;;
+
+  let insert_par_moves t =
+    Block.iter t.root ~f:(fun block ->
+      if not block.insert_phi_moves
+      then ()
+      else (
+        match true_terminal block with
+        | None -> ()
+        | Some true_terminal ->
+          (match true_terminal with
+           | JMP cb ->
+             let dst_to_src =
+               List.zip_exn (Vec.to_list cb.block.args) cb.args
+             in
+             Vec.append block.instructions (par_moves t ~dst_to_src)
+           | RET _ ->
+             (* CR ewilliams: need to do moves for this actually *)
+             ()
+           | JNE _ | JE _ ->
+             (* [block.insert_phi_moves] should be false *) failwith "bug"
+           | NOOP
+           | AND (_, _)
+           | OR (_, _)
+           | MOV (_, _)
+           | ADD (_, _)
+           | SUB (_, _)
+           | IMUL _ | IDIV _ | MOD _ | LABEL _
+           | CMP (_, _) -> ())));
+    t
+  ;;
+
+  let process block =
+    block
+    |> create
+    |> simple_translation_to_x86_ir
+    |> split_blocks
+    |> insert_par_moves
+    |> root
+  ;;
 end
 
 module Regalloc = struct
@@ -221,7 +304,4 @@ module Regalloc = struct
   ;;
 end
 
-let compile (block : Block.t) =
-  let open Out_of_ssa in
-  create block |> simple_translation_to_x86_ir |> split_blocks |> root
-;;
+let compile block = Out_of_ssa.process block
