@@ -283,6 +283,10 @@ let uses = function
   | Unreachable | Noop -> []
 ;;
 
+let vars t =
+  Set.union (Var.Set.of_list (uses t)) (Var.Set.of_list (defs t)) |> Set.to_list
+;;
+
 let map_defs t ~f =
   match t with
   | Or a -> Or (map_arith_defs a ~f)

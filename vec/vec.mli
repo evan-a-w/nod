@@ -11,7 +11,9 @@ val iter : 'a t -> f:('a -> unit) -> unit
 val iter_nested : 'a t t -> f:('a -> unit) -> unit
 val iteri : 'a t -> f:(int -> 'a -> unit) -> unit
 val iteri_rev : 'a t -> f:(int -> 'a -> unit) -> unit
+val iter_rev : 'a t -> f:('a -> unit) -> unit
 val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
+val foldr : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
 val push : 'a t -> 'a -> unit
 val pop_exn : 'a t -> 'a
 val fill_to_length : 'a t -> length:int -> f:(int -> 'a) -> unit
@@ -39,3 +41,5 @@ val append_list : 'a t -> 'a list -> unit
 val append : 'a t -> 'a t -> unit
 val to_sequence : 'a t -> 'a Sequence.t
 val clear : 'a t -> unit
+val reverse : 'a t -> 'a t
+val reverse_inplace : 'a t -> unit

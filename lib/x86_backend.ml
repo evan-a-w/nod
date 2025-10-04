@@ -244,45 +244,62 @@ module Out_of_ssa = struct
     t
   ;;
 
+  let remove_call_block_args t =
+    Block.iter t.root ~f:(fun block ->
+      block.terminal <- Ir.remove_block_args block.terminal);
+    t
+  ;;
+
   let process block =
     block
     |> create
     |> simple_translation_to_x86_ir
     |> split_blocks
     |> insert_par_moves
+    |> remove_call_block_args
     |> root
   ;;
 end
 
-module Regalloc = struct
-  type t =
-    { var_ids : int Var.Table.t
-    ; var_id_to_var : Var.t Int.Table.t
-    ; interferences : Int.Hash_set.t Int.Table.t
+module Reg_numbering = struct
+  type var_state =
+    { mutable num_uses : int
+    ; id : int
     }
+  [@@deriving fields, sexp]
+
+  type t =
+    { vars : var_state Var.Table.t
+    ; id_to_var : Var.t Int.Table.t
+    }
+  [@@deriving fields, sexp]
 
   let num_reg_types = List.length Reg.Variants.descriptions
 
-  let var_id t var =
-    match Hashtbl.find t.var_ids var with
-    | Some id -> id
+  let var_state t var =
+    match Hashtbl.find t.vars var with
+    | Some state -> state
     | None ->
-      let id = Hashtbl.length t.var_ids in
-      Hashtbl.set t.var_ids ~key:var ~data:id;
-      Hashtbl.set t.var_id_to_var ~key:id ~data:var;
-      id
+      let id = Hashtbl.length t.vars + 1 in
+      let res = { num_uses = 0; id } in
+      Hashtbl.set t.vars ~key:var ~data:res;
+      Hashtbl.set t.id_to_var ~key:id ~data:var;
+      res
   ;;
+
+  let var_id t var = (var_state t var).id
+  let id_var t id = Hashtbl.find_exn t.id_to_var id
 
   let reg_id t (reg : Reg.t) =
     match reg with
-    | Unallocated v -> num_reg_types + var_id t v
+    | Unallocated v -> num_reg_types + (var_state t v).id
     | other -> Reg.Variants.to_rank other
   ;;
 
   let reg_of_id t id : Reg.t =
     match id with
     | id when id >= num_reg_types ->
-      Reg.unallocated (Hashtbl.find_exn t.var_id_to_var (id - num_reg_types))
+      Reg.unallocated (Hashtbl.find_exn t.id_to_var (id - num_reg_types))
     | 1 -> Junk
     | 2 -> RBP
     | 3 -> RSP
@@ -302,6 +319,192 @@ module Regalloc = struct
     | 17 -> R15
     | _ -> failwith "impossible"
   ;;
+
+  let create (root : Block.t) =
+    let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
+    let add_use v =
+      let s = var_state t v in
+      s.num_uses <- s.num_uses + 1
+    in
+    Block.iter_instructions root ~f:(fun ir ->
+      Ir.uses ir |> List.iter ~f:add_use;
+      Ir.defs ir
+      |> List.iter ~f:(fun def ->
+        let (_ : var_state) = var_state t def in
+        ()));
+    t
+  ;;
 end
 
-let compile block = Out_of_ssa.process block
+module Liveness = struct
+  type t =
+    { (* CR ewilliams: prob use bitsets *)
+      live_in : Int.Set.t
+    ; live_out : Int.Set.t
+    }
+  [@@deriving fields, equal, compare, sexp]
+
+  let empty = { live_in = Int.Set.empty; live_out = Int.Set.empty }
+end
+
+module Liveness_state = struct
+  type block_liveness =
+    { mutable instructions : Liveness.t Vec.t
+    ; mutable terminal : Liveness.t
+    ; mutable overall : Liveness.t
+    ; defs : Int.Set.t
+    ; uses : Int.Set.t
+    }
+  [@@deriving fields, sexp]
+
+  type t =
+    { blocks : block_liveness Block.Table.t
+    ; reg_numbering : Reg_numbering.t
+    }
+  [@@deriving fields, sexp]
+
+  let block_liveness t block = Hashtbl.find_exn t.blocks block
+  let var_id t v = (Reg_numbering.var_state t.reg_numbering v).id
+  let ir_uses t ir = Ir.uses ir |> List.map ~f:(var_id t) |> Int.Set.of_list
+  let ir_defs t ir = Ir.defs ir |> List.map ~f:(var_id t) |> Int.Set.of_list
+
+  (* uses = uses that aren't yet defined in block *)
+  let defs_and_uses t ~(block : Block.t) =
+    let f (~defs, ~uses) (ir : Ir.t) =
+      let new_uses = Set.diff (ir_uses t ir) defs in
+      let uses = Set.union uses new_uses in
+      let defs = Set.union defs (ir_defs t ir) in
+      ~defs, ~uses
+    in
+    let uses =
+      List.map (Vec.to_list block.args) ~f:(var_id t) |> Int.Set.of_list
+    in
+    let acc =
+      Vec.fold block.instructions ~init:(~defs:Int.Set.empty, ~uses) ~f
+    in
+    f acc block.terminal
+  ;;
+
+  let calculate_intra_block_liveness t root =
+    Block.iter root ~f:(fun block ->
+      let block_liveness = block_liveness t block in
+      let live_out = block_liveness.overall.live_out in
+      let f live_out ir =
+        let live_in =
+          Set.union (ir_uses t ir) (Set.diff live_out (ir_defs t ir))
+        in
+        { Liveness.live_in; live_out }
+      in
+      block_liveness.terminal <- f live_out block.terminal;
+      (* prob unnecessary *)
+      Vec.clear block_liveness.instructions;
+      let (_ : Liveness.t) =
+        Vec.foldr
+          block.instructions
+          ~init:block_liveness.terminal
+          ~f:(fun { live_out; live_in = _ } ir ->
+            let liveness = f live_out ir in
+            Vec.push block_liveness.instructions liveness;
+            liveness)
+      in
+      Vec.reverse_inplace block_liveness.instructions)
+  ;;
+
+  let initialize_block_liveness t block =
+    let ~defs, ~uses = defs_and_uses t ~block in
+    Hashtbl.set
+      t.blocks
+      ~key:block
+      ~data:
+        { instructions = Vec.create ()
+        ; terminal = Liveness.empty
+        ; overall = Liveness.empty
+        ; defs
+        ; uses
+        }
+  ;;
+
+  let calculate_block_liveness t root =
+    let worklist = Queue.create () in
+    Block.iter root ~f:(Queue.enqueue worklist);
+    while not (Queue.is_empty worklist) do
+      let block = Queue.dequeue_exn worklist in
+      (* live_out[b] = U LIVE_IN[succ] *)
+      let new_live_out =
+        block.children
+        |> Vec.to_list
+        |> List.map ~f:(fun block ->
+          block_liveness t block |> overall |> Liveness.live_in)
+        |> Int.Set.union_list
+      in
+      (* live_in[b] = use U (live_out / def) *)
+      let new_live_in =
+        Set.union
+          (block_liveness t block).uses
+          (Set.diff new_live_out (block_liveness t block).defs)
+      in
+      let new_liveness =
+        { Liveness.live_in = new_live_in; live_out = new_live_out }
+      in
+      if not (Liveness.equal new_liveness (block_liveness t block).overall)
+      then (
+        (block_liveness t block).overall <- new_liveness;
+        (* only needs pred blocks but cbf to compute *)
+        Block.iter root ~f:(Queue.enqueue worklist))
+    done
+  ;;
+
+  let create ~reg_numbering root =
+    let t = { blocks = Block.Table.create (); reg_numbering } in
+    Block.iter root ~f:(initialize_block_liveness t);
+    calculate_block_liveness t root;
+    calculate_intra_block_liveness t root;
+    t
+  ;;
+end
+
+module Regalloc = struct
+  let create_interference_graph liveness_state root =
+    let edges = Int.Table.create () in
+    let add_edge u v =
+      if u <> v
+      then (
+        Hashtbl.update edges u ~f:(function
+          | None -> Int.Set.singleton v
+          | Some s -> Set.add s v);
+        Hashtbl.update edges v ~f:(function
+          | None -> Int.Set.singleton u
+          | Some s -> Set.add s u))
+    in
+    Block.iter root ~f:(fun block ->
+      let block_liveness = Liveness_state.block_liveness liveness_state block in
+      List.zip_exn
+        (Vec.to_list block.instructions @ [ block.terminal ])
+        (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
+      |> List.iter ~f:(fun (ir, liveness) ->
+        List.iter (Ir.defs ir) ~f:(fun var ->
+          let u = Liveness_state.var_id liveness_state var in
+          Set.iter liveness.live_out ~f:(add_edge u))));
+    edges
+  ;;
+
+  let print_readable_interference ~edges ~reg_numbering =
+    let edges =
+      Hashtbl.to_alist edges
+      |> List.map ~f:(fun (id, ids) ->
+        ( Reg_numbering.id_var reg_numbering id
+        , Set.map (module String) ids ~f:(Reg_numbering.id_var reg_numbering) ))
+    in
+    print_s [%sexp (edges : (string * String.Set.t) list)]
+  ;;
+
+  let run root =
+    let reg_numbering = Reg_numbering.create root in
+    let liveness_state = Liveness_state.create ~reg_numbering root in
+    let edges = create_interference_graph liveness_state root in
+    print_readable_interference ~edges ~reg_numbering;
+    root
+  ;;
+end
+
+let compile block = Out_of_ssa.process block |> Regalloc.run
