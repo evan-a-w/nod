@@ -10,18 +10,9 @@ open! Core
 let process ((instrs, labels) : string Ir0.t Vec.t String.Map.t * string Vec.t)
   : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
   =
-  let new_block id_hum : Ir.Block.t =
-    { id_hum
-    ; Ir.Block.args = Vec.create ()
-    ; parents = Vec.create ()
-    ; children = Vec.create ()
-    ; instructions = Vec.create ()
-    ; terminal = Ir.unreachable
-    ; dfs_id = None
-    }
-  in
   let blocks =
-    Vec.map labels ~f:(fun label -> label, new_block label)
+    Vec.map labels ~f:(fun label ->
+      label, Block.create ~id_hum:label ~terminal:Ir.unreachable)
     |> Vec.to_list
     |> String.Map.of_alist_exn
   in

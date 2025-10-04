@@ -24,6 +24,8 @@ let add_block_args =
     | Noop
     | Return _ ) as t -> t
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f:on_call_block)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f:on_call_block) x86_irs)
   | Branch (Branch.Cond { cond; if_true; if_false }) ->
     Branch
       (Branch.Cond
