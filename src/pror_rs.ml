@@ -9,5 +9,5 @@ type sat_result = Sat of (int * bool) list | UnsatCore of int list
 external create: unit -> t = "create"
 external create_with_problem: int array array -> t = "create_with_problem"
 external run: t -> sat_result = "run"
-external run_with_assumptions: t -> sat_result = "run_with_assumptions"
+external run_with_assumptions: t -> int array -> sat_result = "run_with_assumptions"
 external add_clause: t -> unit = "add_clause"
