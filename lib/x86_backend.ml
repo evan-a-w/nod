@@ -298,6 +298,36 @@ module Reg_numbering = struct
   let var_id t var = (var_state t var).id
   let id_var t id = Hashtbl.find_exn t.id_to_var id
 
+  let reg_id t (reg : Reg.t) =
+    match reg with
+    | Unallocated v | Allocated (v, _) -> Reg.num_physical + var_id t v + 1
+    | other -> Reg.Variants.to_rank other + 1
+  ;;
+
+  let reg_of_id t id : Reg.t =
+    match id with
+    | id when id >= num_reg_types ->
+      Reg.unallocated (id_var t (id - num_reg_types))
+    | 2 -> Junk
+    | 3 -> RBP
+    | 4 -> RSP
+    | 5 -> RAX
+    | 6 -> RBX
+    | 7 -> RCX
+    | 8 -> RDX
+    | 9 -> RSI
+    | 10 -> RDI
+    | 11 -> R8
+    | 12 -> R9
+    | 13 -> R10
+    | 14 -> R11
+    | 15 -> R12
+    | 16 -> R13
+    | 17 -> R14
+    | 18 -> R15
+    | _ -> failwith "impossible"
+  ;;
+
   let create (root : Block.t) =
     let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
     let add_use v =
@@ -476,6 +506,67 @@ module Regalloc = struct
     print_s [%sexp (edges : (String.t * String.Set.t) list)]
   ;;
 
+  let initialize_assignments ~reg_numbering root =
+    let assignments = Int.Table.create () in
+    Block.iter_instructions root ~f:(fun ir ->
+      Ir.x86_regs ir
+      |> List.iter ~f:(function
+        (* pretty ugly, cbf to clean *)
+        | Allocated (_, Allocated _) | Allocated (_, Unallocated _) ->
+          failwith "bug"
+        | Reg.Allocated (var, to_) ->
+          let key = Reg_numbering.var_id reg_numbering var in
+          Hashtbl.add_exn assignments ~key ~data:to_
+        | _ -> ()));
+    assignments
+  ;;
+
+  let reg_pool : Reg.t list = [
+      RAX
+    ; RBX
+    ; RCX
+    ; RDX
+    ; R8
+    ; R9
+    ; R10
+    ; R11
+    ; R12
+    ; R13
+    ; R14
+    ; R15
+  ]
+
+let implies a b = [| [| -a; b |] |]
+let iff a b = [| [| -a; b |]; [| -b; a |] |]
+let xor a b = iff a (-b)
+
+let at_most_one variables =
+  [| [| -variables.(i); -variables.(j) |]
+     for i = 0 to Array.length variables - 1
+     for j = i + 1 to Array.length variables - 1
+  |]
+;;
+
+let exactly_one variables =
+  Array.concat
+    [ [| variables |]
+    ; [| [| -variables.(i); -variables.(j) |]
+         for i = 0 to Array.length variables - 1
+         for j = i + 1 to Array.length variables - 1
+      |]
+    ]
+;;
+
+let sat_constraints ~reg_numbering ~edges ~assignments =
+  (* 
+  Setup:
+  1. a variable for whether [id] is spilled
+  2. a variable for each physical reg saying [id] is assigned that physical reg
+  3. 
+
+  *)
+
+
   let run root =
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
@@ -483,6 +574,7 @@ module Regalloc = struct
     print_readable_interference ~edges ~reg_numbering;
     root
   ;;
+
 end
 
 let compile block = Out_of_ssa.process block |> Regalloc.run

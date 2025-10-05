@@ -2,9 +2,6 @@ open Core
 
 module Reg = struct
   type t =
-    | Unallocated of Var.t
-    | Allocated of Var.t * t
-    | Junk
     | RBP (* frame pointer *)
     | RSP (* stack pointer *)
     | RAX
@@ -21,7 +18,11 @@ module Reg = struct
     | R13
     | R14
     | R15
+    | Unallocated of Var.t
+    | Allocated of Var.t * t
   [@@deriving sexp, equal, compare, hash, variants]
+
+  let num_physical = List.length Variants.descriptions - 2
 
   include functor Comparable.Make
   include functor Hashable.Make

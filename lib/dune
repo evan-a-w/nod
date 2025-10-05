@@ -3,4 +3,6 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix parser_core vec pror_rs))
+ (libraries core core_unix parser_core vec pror_rs)
+ (flags (:standard -extension-universe beta))
+ )
