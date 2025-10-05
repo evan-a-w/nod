@@ -275,8 +275,11 @@ module Reg_numbering = struct
   type var_state =
     { mutable num_uses : int
     ; id : int
+    ; var : string
     }
   [@@deriving fields, sexp]
+
+  let var_state_score { num_uses; id = _; var = _ } = num_uses
 
   type t =
     { vars : var_state Var.Table.t
@@ -288,8 +291,8 @@ module Reg_numbering = struct
     match Hashtbl.find t.vars var with
     | Some state -> state
     | None ->
-      let id = Hashtbl.length t.vars + 1 in
-      let res = { num_uses = 0; id } in
+      let id = Hashtbl.length t.vars in
+      let res = { num_uses = 0; id; var } in
       Hashtbl.set t.vars ~key:var ~data:res;
       Hashtbl.set t.id_to_var ~key:id ~data:var;
       res
@@ -297,35 +300,6 @@ module Reg_numbering = struct
 
   let var_id t var = (var_state t var).id
   let id_var t id = Hashtbl.find_exn t.id_to_var id
-
-  let reg_id t (reg : Reg.t) =
-    match reg with
-    | Unallocated v | Allocated (v, _) -> Reg.num_physical + var_id t v + 1
-    | other -> Reg.Variants.to_rank other + 1
-  ;;
-
-  let reg_of_id t id : Reg.t =
-    match id with
-    | id when id > Reg.num_physical ->
-      Reg.unallocated (id_var t (id - Reg.num_physical - 1))
-    | 1 -> RBP (* frame pointer *)
-    | 2 -> RSP (* stack pointer *)
-    | 3 -> RAX
-    | 4 -> RBX
-    | 5 -> RCX
-    | 6 -> RDX
-    | 7 -> RSI
-    | 8 -> RDI
-    | 9 -> R8
-    | 10 -> R9
-    | 11 -> R10
-    | 12 -> R11
-    | 13 -> R12
-    | 14 -> R13
-    | 15 -> R14
-    | 16 -> R15
-    | _ -> failwith "impossible"
-  ;;
 
   let create (root : Block.t) =
     let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
@@ -393,24 +367,25 @@ module Liveness_state = struct
   ;;
 
   let calculate_intra_block_liveness t root =
+    (* print_s [%sexp (t.reg_numbering : Reg_numbering.t)]; *)
     Block.iter root ~f:(fun block ->
       let block_liveness = block_liveness t block in
-      let live_out = block_liveness.overall.live_out in
-      let f live_out ir =
-        let live_in =
-          Set.union (ir_uses t ir) (Set.diff live_out (ir_defs t ir))
+      let f ({ live_in; _ } : Liveness.t) ir =
+        let new_live_in =
+          Set.union (ir_uses t ir) (Set.diff live_in (ir_defs t ir))
         in
-        { Liveness.live_in; live_out }
+        (* print_s [%message (liveness : Liveness.t) (ir : Ir.t)]; *)
+        { Liveness.live_in = new_live_in; live_out = live_in }
       in
-      block_liveness.terminal <- f live_out block.terminal;
+      block_liveness.terminal <- f block_liveness.overall block.terminal;
       (* prob unnecessary *)
       Vec.clear block_liveness.instructions;
       let (_ : Liveness.t) =
         Vec.foldr
           block.instructions
           ~init:block_liveness.terminal
-          ~f:(fun { live_out; live_in = _ } ir ->
-            let liveness = f live_out ir in
+          ~f:(fun liveness ir ->
+            let liveness = f liveness ir in
             Vec.push block_liveness.instructions liveness;
             liveness)
       in
@@ -482,7 +457,7 @@ module Regalloc = struct
 
     type t = Var_pair.Set.t [@@deriving sexp, compare, equal]
 
-    let interfere t a b = Set.add t (Var_pair.create a b)
+    let interfere t a b = if a = b then t else Set.add t (Var_pair.create a b)
     let empty = Var_pair.Set.empty
     let edges t = t
 
@@ -514,8 +489,15 @@ module Regalloc = struct
     ;;
   end
 
-  let initialize_assignments ~reg_numbering root =
-    let assignments = Int.Table.create () in
+  module Assignment = struct
+    type t =
+      | Spill
+      | Reg of Reg.t
+    [@@deriving sexp, compare, hash, variants]
+  end
+
+  let initialize_assignments root =
+    let assignments = Var.Table.create () in
     Block.iter_instructions root ~f:(fun ir ->
       Ir.x86_regs ir
       |> List.iter ~f:(function
@@ -523,14 +505,9 @@ module Regalloc = struct
         | Allocated (_, Allocated _) | Allocated (_, Unallocated _) ->
           failwith "bug"
         | Reg.Allocated (var, to_) ->
-          let key = Reg_numbering.var_id reg_numbering var in
-          Hashtbl.add_exn assignments ~key ~data:to_
+          Hashtbl.add_exn assignments ~key:var ~data:(Assignment.reg to_)
         | _ -> ()));
     assignments
-  ;;
-
-  let reg_pool : Reg.t list =
-    [ RAX; RBX; RCX; RDX; R8; R9; R10; R11; R12; R13; R14; R15 ]
   ;;
 
   let implies a b = [| [| -a; b |] |]
@@ -554,54 +531,143 @@ module Regalloc = struct
       ]
   ;;
 
-  let sat_vars_per_var_id ~reg_numbering =
-    let max_phys_reg =
-      Array.map Reg.all_physical ~f:(Reg_numbering.reg_id reg_numbering)
-      |> Array.max_elt ~compare:Int.compare
-      |> Option.value_exn
-    in
-    (* there is also a var for if spilled, but that is just 0 index (phys reg ids are > 0)*)
-    max_phys_reg + 1
-  ;;
+  module type Sat = sig
+    val run : unit -> unit
+  end
 
-  let sat_constraints ~reg_numbering ~interference_graph =
-    (*
-       Setup:
+  let run_sat ~reg_numbering ~interference_graph ~assignments =
+    let (module Sat) =
+      (module struct
+        let reg_pool : Reg.t array =
+          [| RAX; RBX; RCX; RDX; R8; R9; R10; R11; R12; R13; R14; R15 |]
+        ;;
+
+        let sat_vars_per_var_id =
+          (* there is also a var for if spilled, but that is just 0 index (phys reg ids are > 0)*)
+          Array.length reg_pool + 1
+        ;;
+
+        (* Can eventually fuse non interfering registers
+
+     but if one is allocated to a specific physical register, we can only fuse variables that don't interfere with the same physical register
+
+     After all this can kill moves to same reg
+        *)
+
+        let var_ids =
+          Reg_numbering.vars reg_numbering
+          |> Hashtbl.data
+          |> List.map ~f:Reg_numbering.id
+          |> Array.of_list
+        ;;
+
+        let spill var_id = (var_id * sat_vars_per_var_id) + 1
+        let reg var_id idx = spill var_id + idx + 1
+
+        let backout_sat_var var =
+          let var_id = (var - 1) / sat_vars_per_var_id in
+          let reg = (var - 1) mod sat_vars_per_var_id in
+          if reg = 0
+          then var_id, `Spill
+          else var_id, `Assignment reg_pool.(reg - 1)
+        ;;
+
+        let all_reg_assignments var_id =
+          [| reg var_id i for i = 0 to Array.length reg_pool - 1 |]
+        ;;
+
+        let sat_constraints =
+          (*
+             Setup:
        1. a variable for whether [id] is spilled
           - use this as a flag before each relevant condition, so we can disable them easily via assumptions
           - start by pushing assumptions that all of these are false, and if we spill a variable, push it as true
        2. a variable for each physical reg saying [id] is assigned that physical reg
           - exactly one of these must be true
           - when variables are conflicting, we push a constraint to have [^a or ^b]
-    *)
-    let sat_vars_per_var_id = sat_vars_per_var_id ~reg_numbering in
-    let var_ids =
-      Reg_numbering.vars reg_numbering
-      |> Hashtbl.data
-      |> List.map ~f:Reg_numbering.id
-      |> Array.of_list
+          *)
+          let exactly_one_reg_per_var =
+            Array.concat_map var_ids ~f:(fun var_id ->
+              Array.map
+                (exactly_one (all_reg_assignments var_id))
+                ~f:(fun arr -> Array.append [| spill var_id |] arr))
+          in
+          let interferences =
+            Interference_graph.edges interference_graph
+            |> Set.to_array
+            |> Array.concat_map ~f:(fun (var_id, var_id') ->
+              Array.zip_exn
+                (all_reg_assignments var_id)
+                (all_reg_assignments var_id')
+              |> Array.map ~f:(fun (ass, ass') -> [| -ass; -ass' |]))
+          in
+          Array.append exactly_one_reg_per_var interferences
+        ;;
+
+        let () =
+          print_s
+            [%message "SAT constraints" (sat_constraints : int array array)]
+        ;;
+
+        let pror = Pror_rs.create_with_problem sat_constraints
+
+        let to_spill =
+          Reg_numbering.vars reg_numbering
+          |> Hashtbl.data
+          |> List.filter ~f:(fun { var; _ } ->
+            not (Hashtbl.mem assignments var))
+          |> List.sort
+               ~compare:
+                 (Comparable.lift Int.compare ~f:Reg_numbering.var_state_score)
+          |> Ref.create
+        ;;
+
+        let assumptions () =
+          Reg_numbering.vars reg_numbering
+          |> Hashtbl.to_alist
+          |> Array.of_list
+          |> Array.map ~f:(fun (var, { id; _ }) ->
+            match (Hashtbl.find assignments var : Assignment.t option) with
+            | Some Spill -> spill id
+            | Some (Reg reg) ->
+              (match
+                 Array.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
+               with
+               | None ->
+                 print_s [%message "Can't find" (reg : Reg.t)];
+                 spill id
+               (* we can just pretend it doesn't exist in this case, because it doesn't affect other assignments *)
+               | Some (i, _) -> spill id + i + 1)
+            | None -> -spill id)
+        ;;
+
+        let rec run () =
+          let assumptions = assumptions () in
+          print_s [%message "LOOP" (assumptions : int array)];
+          match Pror_rs.run_with_assumptions pror assumptions, !to_spill with
+          | UnsatCore _, [] ->
+            Error.raise_s
+              [%message
+                "Can't assign, but nothing to spill"
+                  (assignments : Assignment.t String.Table.t)]
+          | ( UnsatCore _
+            , ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill ) ->
+            to_spill := rest_to_spill;
+            Hashtbl.add_exn assignments ~key ~data:Spill;
+            run ()
+          | Sat res, _ ->
+            print_s [%message (res : (int * bool) list)];
+            List.iter res ~f:(fun (sat_var, b) ->
+              let var_id, x = backout_sat_var sat_var in
+              let var = Reg_numbering.id_var reg_numbering var_id in
+              match x with
+              | `Assignment reg when b ->
+                Hashtbl.add_exn assignments ~key:var ~data:(Reg reg)
+              | `Assignment _ | `Spill -> ())
+        ;;
+      end : Sat)
     in
-    let spill var_id = var_id * sat_vars_per_var_id in
-    let reg_assignment var_id reg =
-      spill var_id + Reg_numbering.reg_id reg_numbering reg
-    in
-    let all_reg_assignments var_id =
-      Array.map Reg.all_physical ~f:(reg_assignment var_id)
-    in
-    let exactly_one_reg_per_var =
-      Array.concat_map var_ids ~f:(fun var_id ->
-        Array.map
-          (exactly_one (all_reg_assignments var_id))
-          ~f:(fun arr -> Array.append [| spill var_id |] arr))
-    in
-    let interferences =
-      Interference_graph.edges interference_graph
-      |> Set.to_array
-      |> Array.concat_map ~f:(fun (var_id, var_id') ->
-        Array.zip_exn (all_reg_assignments var_id) (all_reg_assignments var_id')
-        |> Array.map ~f:(fun (ass, ass') -> [| -ass; -ass' |]))
-    in
-    Array.append exactly_one_reg_per_var interferences
+    Sat.run ()
   ;;
 
   let run root =
@@ -609,6 +675,9 @@ module Regalloc = struct
     let liveness_state = Liveness_state.create ~reg_numbering root in
     let interference_graph = Interference_graph.create liveness_state root in
     Interference_graph.print interference_graph ~reg_numbering;
+    let assignments = initialize_assignments root in
+    let () = run_sat ~reg_numbering ~interference_graph ~assignments in
+    print_s [%sexp (assignments : Assignment.t String.Table.t)];
     root
   ;;
 end

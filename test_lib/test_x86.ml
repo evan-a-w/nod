@@ -13,6 +13,8 @@ let test s =
           block.id_hum ~args:(block.args : string Vec.t) (instrs : Ir.t list)])
 ;;
 
+let%expect_test "a" = print_s [%sexp ([| i for i = 1 to 10 |] : int array)]
+
 let%expect_test "a" =
   test Examples.Textual.a;
   [%expect

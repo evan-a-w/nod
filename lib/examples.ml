@@ -25,6 +25,20 @@ end:
 |}
   ;;
 
+  let super_triv =
+    {|
+a:
+  mov %x, 10
+
+  mov %y, 20
+
+  sub %z, %y, %x
+
+  ret %z
+
+|}
+  ;;
+
   let b =
     {|
   (* Initialize two variables *)

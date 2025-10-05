@@ -40,7 +40,7 @@ pub fn run(mut t: ocaml::Pointer<T>) -> SatResult {
 }
 
 #[ocaml::func]
-#[ocaml::sig("t -> sat_result")]
+#[ocaml::sig("t -> int array -> sat_result")]
 pub fn run_with_assumptions(mut t: ocaml::Pointer<T>, assumptions: Vec<isize>) -> SatResult {
     t.as_mut().0.run_with_assumptions(&assumptions).into()
 }
