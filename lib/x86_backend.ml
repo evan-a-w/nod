@@ -306,25 +306,24 @@ module Reg_numbering = struct
 
   let reg_of_id t id : Reg.t =
     match id with
-    | id when id >= num_reg_types ->
-      Reg.unallocated (id_var t (id - num_reg_types))
-    | 2 -> Junk
-    | 3 -> RBP
-    | 4 -> RSP
-    | 5 -> RAX
-    | 6 -> RBX
-    | 7 -> RCX
-    | 8 -> RDX
-    | 9 -> RSI
-    | 10 -> RDI
-    | 11 -> R8
-    | 12 -> R9
-    | 13 -> R10
-    | 14 -> R11
-    | 15 -> R12
-    | 16 -> R13
-    | 17 -> R14
-    | 18 -> R15
+    | id when id > Reg.num_physical ->
+      Reg.unallocated (id_var t (id - Reg.num_physical - 1))
+    | 1 -> RBP (* frame pointer *)
+    | 2 -> RSP (* stack pointer *)
+    | 3 -> RAX
+    | 4 -> RBX
+    | 5 -> RCX
+    | 6 -> RDX
+    | 7 -> RSI
+    | 8 -> RDI
+    | 9 -> R8
+    | 10 -> R9
+    | 11 -> R10
+    | 12 -> R11
+    | 13 -> R12
+    | 14 -> R13
+    | 15 -> R14
+    | 16 -> R15
     | _ -> failwith "impossible"
   ;;
 
@@ -472,39 +471,48 @@ module Liveness_state = struct
 end
 
 module Regalloc = struct
-  let create_interference_graph liveness_state root =
-    let edges = Int.Table.create () in
-    let add_edge u v =
-      if u <> v
-      then (
-        Hashtbl.update edges u ~f:(function
-          | None -> Int.Set.singleton v
-          | Some s -> Set.add s v);
-        Hashtbl.update edges v ~f:(function
-          | None -> Int.Set.singleton u
-          | Some s -> Set.add s u))
-    in
-    Block.iter root ~f:(fun block ->
-      let block_liveness = Liveness_state.block_liveness liveness_state block in
-      List.zip_exn
-        (Vec.to_list block.instructions @ [ block.terminal ])
-        (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
-      |> List.iter ~f:(fun (ir, liveness) ->
-        List.iter (Ir.defs ir) ~f:(fun var ->
-          let u = Liveness_state.var_id liveness_state var in
-          Set.iter liveness.live_out ~f:(add_edge u))));
-    edges
-  ;;
+  module Interference_graph = struct
+    module Var_pair = struct
+      type t = int * int [@@deriving sexp, compare, equal]
 
-  let print_readable_interference ~edges ~reg_numbering =
-    let edges =
-      Hashtbl.to_alist edges
-      |> List.map ~f:(fun (id, ids) ->
-        ( Reg_numbering.id_var reg_numbering id
-        , Set.map (module String) ids ~f:(Reg_numbering.id_var reg_numbering) ))
-    in
-    print_s [%sexp (edges : (String.t * String.Set.t) list)]
-  ;;
+      let create a b : t = if a <= b then a, b else b, a
+
+      include functor Comparable.Make
+    end
+
+    type t = Var_pair.Set.t [@@deriving sexp, compare, equal]
+
+    let interfere t a b = Set.add t (Var_pair.create a b)
+    let empty = Var_pair.Set.empty
+    let edges t = t
+
+    let create liveness_state root =
+      let t = ref empty in
+      let add_edge u v = t := interfere !t u v in
+      Block.iter root ~f:(fun block ->
+        let block_liveness =
+          Liveness_state.block_liveness liveness_state block
+        in
+        List.zip_exn
+          (Vec.to_list block.instructions @ [ block.terminal ])
+          (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
+        |> List.iter ~f:(fun (ir, liveness) ->
+          List.iter (Ir.defs ir) ~f:(fun var ->
+            let u = Liveness_state.var_id liveness_state var in
+            Set.iter liveness.live_out ~f:(add_edge u))));
+      !t
+    ;;
+
+    let print ~reg_numbering t =
+      let edges =
+        Set.to_list t
+        |> List.map ~f:(fun (a, b) ->
+          ( Reg_numbering.id_var reg_numbering a
+          , Reg_numbering.id_var reg_numbering b ))
+      in
+      print_s [%sexp (edges : (String.t * String.t) list)]
+    ;;
+  end
 
   let initialize_assignments ~reg_numbering root =
     let assignments = Int.Table.create () in
@@ -521,60 +529,88 @@ module Regalloc = struct
     assignments
   ;;
 
-  let reg_pool : Reg.t list = [
-      RAX
-    ; RBX
-    ; RCX
-    ; RDX
-    ; R8
-    ; R9
-    ; R10
-    ; R11
-    ; R12
-    ; R13
-    ; R14
-    ; R15
-  ]
+  let reg_pool : Reg.t list =
+    [ RAX; RBX; RCX; RDX; R8; R9; R10; R11; R12; R13; R14; R15 ]
+  ;;
 
-let implies a b = [| [| -a; b |] |]
-let iff a b = [| [| -a; b |]; [| -b; a |] |]
-let xor a b = iff a (-b)
+  let implies a b = [| [| -a; b |] |]
+  let iff a b = [| [| -a; b |]; [| -b; a |] |]
+  let xor a b = iff a (-b)
 
-let at_most_one variables =
-  [| [| -variables.(i); -variables.(j) |]
-     for i = 0 to Array.length variables - 1
-     for j = i + 1 to Array.length variables - 1
-  |]
-;;
+  let at_most_one variables =
+    [| [| -variables.(i); -variables.(j) |]
+       for i = 0 to Array.length variables - 1
+       for j = i + 1 to Array.length variables - 1
+    |]
+  ;;
 
-let exactly_one variables =
-  Array.concat
-    [ [| variables |]
-    ; [| [| -variables.(i); -variables.(j) |]
-         for i = 0 to Array.length variables - 1
-         for j = i + 1 to Array.length variables - 1
-      |]
-    ]
-;;
+  let exactly_one variables =
+    Array.concat
+      [ [| variables |]
+      ; [| [| -variables.(i); -variables.(j) |]
+           for i = 0 to Array.length variables - 1
+           for j = i + 1 to Array.length variables - 1
+        |]
+      ]
+  ;;
 
-let sat_constraints ~reg_numbering ~edges ~assignments =
-  (* 
-  Setup:
-  1. a variable for whether [id] is spilled
-  2. a variable for each physical reg saying [id] is assigned that physical reg
-  3. 
+  let sat_vars_per_var_id ~reg_numbering =
+    let max_phys_reg =
+      Array.map Reg.all_physical ~f:(Reg_numbering.reg_id reg_numbering)
+      |> Array.max_elt ~compare:Int.compare
+      |> Option.value_exn
+    in
+    (* there is also a var for if spilled, but that is just 0 index (phys reg ids are > 0)*)
+    max_phys_reg + 1
+  ;;
 
-  *)
-
+  let sat_constraints ~reg_numbering ~interference_graph =
+    (*
+       Setup:
+       1. a variable for whether [id] is spilled
+          - use this as a flag before each relevant condition, so we can disable them easily via assumptions
+          - start by pushing assumptions that all of these are false, and if we spill a variable, push it as true
+       2. a variable for each physical reg saying [id] is assigned that physical reg
+          - exactly one of these must be true
+          - when variables are conflicting, we push a constraint to have [^a or ^b]
+    *)
+    let sat_vars_per_var_id = sat_vars_per_var_id ~reg_numbering in
+    let var_ids =
+      Reg_numbering.vars reg_numbering
+      |> Hashtbl.data
+      |> List.map ~f:Reg_numbering.id
+      |> Array.of_list
+    in
+    let spill var_id = var_id * sat_vars_per_var_id in
+    let reg_assignment var_id reg =
+      spill var_id + Reg_numbering.reg_id reg_numbering reg
+    in
+    let all_reg_assignments var_id =
+      Array.map Reg.all_physical ~f:(reg_assignment var_id)
+    in
+    let exactly_one_reg_per_var =
+      Array.concat_map var_ids ~f:(fun var_id ->
+        Array.map
+          (exactly_one (all_reg_assignments var_id))
+          ~f:(fun arr -> Array.append [| spill var_id |] arr))
+    in
+    let interferences =
+      Interference_graph.edges interference_graph
+      |> Set.to_array
+      |> Array.concat_map ~f:(fun (var_id, var_id') ->
+        Array.zip_exn (all_reg_assignments var_id) (all_reg_assignments var_id')
+        |> Array.map ~f:(fun (ass, ass') -> [| -ass; -ass' |]))
+    in
+    Array.append exactly_one_reg_per_var interferences
+  ;;
 
   let run root =
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
-    let edges = create_interference_graph liveness_state root in
-    print_readable_interference ~edges ~reg_numbering;
+    let interference_graph = Interference_graph.create liveness_state root in
+    Interference_graph.print interference_graph ~reg_numbering;
     root
   ;;
-
 end
 
 let compile block = Out_of_ssa.process block |> Regalloc.run
