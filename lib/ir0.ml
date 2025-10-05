@@ -287,6 +287,13 @@ let vars t =
   Set.union (Var.Set.of_list (uses t)) (Var.Set.of_list (defs t)) |> Set.to_list
 ;;
 
+let x86_regs t =
+  match t with
+  | X86 x86 -> X86_ir.regs x86
+  | X86_terminal x86s -> List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s |> X86_ir.Reg.Set.union_list |> Set.to_list
+  | _ -> []
+;;
+
 let map_defs t ~f =
   match t with
   | Or a -> Or (map_arith_defs a ~f)
