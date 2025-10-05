@@ -24,6 +24,26 @@ module Reg = struct
 
   let num_physical = List.length Variants.descriptions - 2
 
+  let all_physical =
+    [| RBP
+     ; RSP
+     ; RAX
+     ; RBX
+     ; RCX
+     ; RDX
+     ; RSI
+     ; RDI
+     ; R8
+     ; R9
+     ; R10
+     ; R11
+     ; R12
+     ; R13
+     ; R14
+     ; R15
+    |]
+  ;;
+
   include functor Comparable.Make
   include functor Hashable.Make
 end
