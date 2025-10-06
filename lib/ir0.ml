@@ -290,7 +290,10 @@ let vars t =
 let x86_regs t =
   match t with
   | X86 x86 -> X86_ir.regs x86
-  | X86_terminal x86s -> List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s |> X86_ir.Reg.Set.union_list |> Set.to_list
+  | X86_terminal x86s ->
+    List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s
+    |> X86_ir.Reg.Set.union_list
+    |> Set.to_list
   | _ -> []
 ;;
 
@@ -454,6 +457,14 @@ let call_blocks = function
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
     [ if_true; if_false ]
   | Branch (Branch.Uncond call) -> [ call ]
+;;
+
+let map_x86_operands t ~f =
+  match t with
+  | X86 x86_ir -> X86 (X86_ir.map_operands x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map ~f:(X86_ir.map_operands ~f) x86_irs)
+  | _ -> t
 ;;
 
 let uses_ex_args t =

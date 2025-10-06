@@ -443,6 +443,17 @@ module Liveness_state = struct
     calculate_intra_block_liveness t root;
     t
   ;;
+
+  let block_instructions_with_liveness t ~(block : Block.t) =
+    let block_liveness = block_liveness t block in
+    let instructions =
+      List.zip_exn
+        (Vec.to_list block.instructions)
+        (Vec.to_list block_liveness.instructions)
+    in
+    let terminal = block.terminal, block_liveness.terminal in
+    ~instructions, ~terminal
+  ;;
 end
 
 module Regalloc = struct
@@ -579,12 +590,12 @@ module Regalloc = struct
         let sat_constraints =
           (*
              Setup:
-       1. a variable for whether [id] is spilled
-          - use this as a flag before each relevant condition, so we can disable them easily via assumptions
-          - start by pushing assumptions that all of these are false, and if we spill a variable, push it as true
-       2. a variable for each physical reg saying [id] is assigned that physical reg
-          - exactly one of these must be true
-          - when variables are conflicting, we push a constraint to have [^a or ^b]
+             1. a variable for whether [id] is spilled
+                - use this as a flag before each relevant condition, so we can disable them easily via assumptions
+                - start by pushing assumptions that all of these are false, and if we spill a variable, push it as true
+             2. a variable for each physical reg saying [id] is assigned that physical reg
+                - exactly one of these must be true
+                - when variables are conflicting, we push a constraint to have [^a or ^b]
           *)
           let exactly_one_reg_per_var =
             Array.concat_map var_ids ~f:(fun var_id ->
@@ -670,6 +681,72 @@ module Regalloc = struct
     Sat.run ()
   ;;
 
+  let replace_regs ~root ~assignments ~liveness_state ~reg_numbering =
+    let spill_slot_by_var = String.Table.create () in
+    let free_spill_slots = ref Int.Set.empty in
+    let used_spill_slots = ref Int.Set.empty in
+    let get_spill_slot () =
+      match Set.min_elt !free_spill_slots with
+      | None -> Set.length !used_spill_slots
+      | Some x ->
+        free_spill_slots := Set.remove !free_spill_slots x;
+        x
+    in
+    let free_spill_slot spill_slot =
+      free_spill_slots := Set.add !free_spill_slots spill_slot
+    in
+    let prev_liveness = ref None in
+    let update_slots ({ live_in; live_out } : Liveness.t) =
+      let opened = Set.diff live_out live_in in
+      let closed = Set.diff live_in live_out in
+      Set.iter opened ~f:(fun var_id ->
+        let var = Reg_numbering.id_var reg_numbering var_id in
+        if Hashtbl.mem spill_slot_by_var var
+        then ()
+        else
+          Hashtbl.add_exn spill_slot_by_var ~key:var ~data:(get_spill_slot ()));
+      Set.iter closed ~f:(fun var_id ->
+        let var = Reg_numbering.id_var reg_numbering var_id in
+        Hashtbl.find_and_remove spill_slot_by_var var
+        |> Option.iter ~f:free_spill_slot)
+    in
+    let map_ir ir =
+      let map_reg = function
+        | Reg.Unallocated v ->
+          (match Hashtbl.find_exn assignments v with
+           | Assignment.Spill ->
+             Mem (RBP, Hashtbl.find_exn spill_slot_by_var v * 8)
+           | Reg r -> Reg r)
+        | Allocated (_, r) -> Reg r
+        | reg -> Reg reg
+      in
+      Ir.map_x86_operands ir ~f:(function
+        | Reg r -> map_reg r
+        | Mem (r, offset) ->
+          (* CR ewilliams: this is bad ...*)
+          Mem (map_reg r |> reg_of_operand_exn, offset)
+        | Imm _ as t -> t)
+    in
+    Block.iter root ~f:(fun block ->
+      let block_liveness = Liveness_state.block_liveness liveness_state block in
+      (match !prev_liveness with
+       | None -> ()
+       | Some ({ live_out; _ } : Liveness.t) ->
+         update_slots
+           { live_in = live_out; live_out = block_liveness.overall.live_in });
+      let new_instructions =
+        Vec.zip_exn block.instructions block_liveness.instructions
+        |> Vec.map ~f:(fun (instruction, liveness) ->
+          update_slots liveness;
+          map_ir instruction)
+      in
+      block.instructions <- new_instructions;
+      update_slots block_liveness.terminal;
+      block.terminal <- map_ir block.terminal;
+      prev_liveness := Some block_liveness.terminal);
+    root
+  ;;
+
   let run root =
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
@@ -678,7 +755,8 @@ module Regalloc = struct
     let assignments = initialize_assignments root in
     let () = run_sat ~reg_numbering ~interference_graph ~assignments in
     print_s [%sexp (assignments : Assignment.t String.Table.t)];
-    root
+    (* CR ewilliams: need to do prologue and epilogue for stack stuff *)
+    replace_regs ~root ~assignments ~liveness_state ~reg_numbering
   ;;
 end
 
