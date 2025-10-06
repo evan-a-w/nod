@@ -723,7 +723,7 @@ module Regalloc = struct
       Ir.map_x86_operands ir ~f:(function
         | Reg r -> map_reg r
         | Mem (r, offset) ->
-          (* CR ewilliams: this is bad ...*)
+          (* CR ewilliams: this is bad ... *)
           Mem (map_reg r |> reg_of_operand_exn, offset)
         | Imm _ as t -> t)
     in
