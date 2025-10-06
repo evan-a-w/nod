@@ -1,8 +1,8 @@
 open! Core
 open! Nod
 
-let test s =
-  match Eir.compile ~opt_flags:Eir.Opt_flags.no_opt s with
+let test ?(opt_flags = Eir.Opt_flags.no_opt) s =
+  match Eir.compile ~opt_flags s with
   | Error e -> Test_parser.print_error e
   | Ok root ->
     let x86 = X86_backend.compile root in

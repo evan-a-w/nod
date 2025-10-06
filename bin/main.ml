@@ -135,6 +135,8 @@ let _stepped3 () =
 ;;
 
 (* let () = Nod_test.Test_x86.test Nod.Examples.Textual.super_triv *)
-let () = Nod_test.Test_x86.test Nod.Examples.Textual.a
+let () =
+  Nod_test.Test_x86.test ~opt_flags:Eir.Opt_flags.default Nod.Examples.Textual.a
+;;
 
 (* stepped3 () *)

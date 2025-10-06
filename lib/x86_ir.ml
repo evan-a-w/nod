@@ -68,6 +68,11 @@ type operand =
   | Mem of Reg.t * int (* [reg + disp] *)
 [@@deriving sexp, equal, compare, hash]
 
+let reg_of_operand_exn = function
+  | Reg r -> r
+  | _ -> failwith "Not operand reg"
+;;
+
 type 'block t =
   | NOOP
   (* Use this tag things for regalloc bs where we mint temp vars and make them allocated to a particular hw reg when we need *)
@@ -333,6 +338,23 @@ let rec map_uses t ~f =
     JNE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JMP lbl -> JMP (map_call_block lbl)
   | NOOP | LABEL _ -> t
+;;
+
+let rec map_operands t ~f =
+  match t with
+  | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
+  | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
+  | MOV (dst, src) -> MOV (f dst, f src)
+  | AND (dst, src) -> AND (f dst, f src)
+  | OR (dst, src) -> OR (f dst, f src)
+  | ADD (dst, src) -> ADD (f dst, f src)
+  | SUB (dst, src) -> SUB (f dst, f src)
+  | IMUL op -> IMUL (f op)
+  | IDIV op -> IDIV (f op)
+  | MOD op -> MOD (f op)
+  | CMP (a, b) -> CMP (f a, f b)
+  | RET op -> RET (f op)
+  | JE _ | JNE _ | JMP _ | NOOP | LABEL _ -> t
 ;;
 
 let rec map_call_blocks t ~f =

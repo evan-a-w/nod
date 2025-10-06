@@ -21,7 +21,7 @@ c:
   branch 1, end, end
 
 end:
-  unreachable
+  ret %z
 |}
   ;;
 

@@ -103,6 +103,26 @@ let map t ~f =
   new_
 ;;
 
+let fold_map t ~init ~f =
+  let acc = ref init in
+  let new_ = create ~capacity:t.length () in
+  for i = 0 to t.length - 1 do
+    let acc', x = f !acc t.arr.(i) in
+    acc := acc';
+    push new_ x
+  done;
+  new_
+;;
+
+let zip_exn a b =
+  let new_ = create ~capacity:a.length () in
+  if a.length <> b.length then failwith "[zip_exn] diff lengths";
+  for i = 0 to a.length - 1 do
+    push new_ (a.arr.(i), b.arr.(i))
+  done;
+  new_
+;;
+
 let of_list l =
   let t = create ~capacity:(List.length l) () in
   List.iter l ~f:(push t);

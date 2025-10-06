@@ -18,6 +18,7 @@ val push : 'a t -> 'a -> unit
 val pop_exn : 'a t -> 'a
 val fill_to_length : 'a t -> length:int -> f:(int -> 'a) -> unit
 val map : 'a t -> f:('a -> 'b) -> 'b t
+val fold_map : 'a t -> init:'acc -> f:('acc -> 'a -> 'acc * 'b) -> 'b t
 val of_list : 'a list -> 'a t
 val to_list : 'a t -> 'a list
 val to_array : 'a t -> 'a array
@@ -43,3 +44,4 @@ val to_sequence : 'a t -> 'a Sequence.t
 val clear : 'a t -> unit
 val reverse : 'a t -> 'a t
 val reverse_inplace : 'a t -> unit
+val zip_exn : 'a t -> 'b t -> ('a * 'b) t
