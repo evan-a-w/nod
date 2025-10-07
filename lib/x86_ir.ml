@@ -19,7 +19,8 @@ module Reg = struct
     | R14
     | R15
     | Unallocated of Var.t
-    | Allocated of Var.t * t
+    | (* [t option] is [Some] if we force a particular reg, [None] if we force any reg *)
+      Allocated of Var.t * t option
   [@@deriving sexp, equal, compare, hash, variants]
 
   let num_physical = List.length Variants.descriptions - 2

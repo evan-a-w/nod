@@ -27,8 +27,10 @@ let ir_to_x86_ir ~var_names (ir : Ir.t) =
   in
   let reg v = Reg (Reg.unallocated v) in
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
-    let tmp_rax = Reg.allocated (new_name var_names "tmp_rax") Reg.rax in
-    let tmp_dst = Reg.allocated (new_name var_names "tmp_dst") take_reg in
+    let tmp_rax = Reg.allocated (new_name var_names "tmp_rax") (Some Reg.rax) in
+    let tmp_dst =
+      Reg.allocated (new_name var_names "tmp_dst") (Some take_reg)
+    in
     [ mov (Reg tmp_rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
     ; tag_def
         (tag_use
@@ -48,9 +50,19 @@ let ir_to_x86_ir ~var_names (ir : Ir.t) =
   | Sub arith -> make_arith sub arith
   | Return lit_or_var -> [ RET (operand_of_lit_or_var lit_or_var) ]
   | Move (v, lit_or_var) -> [ mov (reg v) (operand_of_lit_or_var lit_or_var) ]
-  | Load (v, mem) -> [ mov (reg v) (Ir.Mem.to_x86_ir_operand mem) ]
+  | Load (v, mem) ->
+    let force_physical =
+      Reg.allocated (new_name var_names "tmp_force_physical") None
+    in
+    [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
+    ; mov (reg v) (Reg force_physical)
+    ]
   | Store (lit_or_var, mem) ->
-    [ mov
+    let force_physical =
+      Reg.allocated (new_name var_names "tmp_force_physical") None
+    in
+    [ mov (Reg force_physical) (operand_of_lit_or_var lit_or_var)
+    ; mov
         (Ir.Mem.to_x86_ir_operand mem)
         (Ir0.Lit_or_var.to_x86_ir_operand lit_or_var)
     ]
@@ -509,16 +521,18 @@ module Regalloc = struct
 
   let initialize_assignments root =
     let assignments = Var.Table.create () in
+    let don't_spill = Var.Hash_set.create () in
     Block.iter_instructions root ~f:(fun ir ->
       Ir.x86_regs ir
       |> List.iter ~f:(function
         (* pretty ugly, cbf to clean *)
-        | Allocated (_, Allocated _) | Allocated (_, Unallocated _) ->
-          failwith "bug"
-        | Reg.Allocated (var, to_) ->
+        | Allocated (_, Some (Allocated _)) | Allocated (_, Some (Unallocated _))
+          -> failwith "bug"
+        | Reg.Allocated (var, Some to_) ->
           Hashtbl.add_exn assignments ~key:var ~data:(Assignment.reg to_)
+        | Reg.Allocated (var, None) -> Hash_set.add don't_spill var
         | _ -> ()));
-    assignments
+    ~assignments, ~don't_spill
   ;;
 
   let implies a b = [| [| -a; b |] |]
@@ -546,7 +560,7 @@ module Regalloc = struct
     val run : unit -> unit
   end
 
-  let run_sat ~reg_numbering ~interference_graph ~assignments =
+  let run_sat ~reg_numbering ~interference_graph ~assignments ~don't_spill =
     let (module Sat) =
       (module struct
         let reg_pool : Reg.t array =
@@ -626,7 +640,8 @@ module Regalloc = struct
           Reg_numbering.vars reg_numbering
           |> Hashtbl.data
           |> List.filter ~f:(fun { var; _ } ->
-            not (Hashtbl.mem assignments var))
+            (not (Hashtbl.mem assignments var))
+            && not (Hash_set.mem don't_spill var))
           |> List.sort
                ~compare:
                  (Comparable.lift Int.compare ~f:Reg_numbering.var_state_score)
@@ -717,14 +732,21 @@ module Regalloc = struct
            | Assignment.Spill ->
              Mem (RBP, Hashtbl.find_exn spill_slot_by_var v * 8)
            | Reg r -> Reg r)
-        | Allocated (_, r) -> Reg r
+        | Allocated (v, _) ->
+          Reg
+            (Hashtbl.find_exn assignments v
+             |> Assignment.reg_val
+             |> Option.value_exn)
         | reg -> Reg reg
       in
       Ir.map_x86_operands ir ~f:(function
         | Reg r -> map_reg r
         | Mem (r, offset) ->
-          (* CR ewilliams: this is bad ... *)
-          Mem (map_reg r |> reg_of_operand_exn, offset)
+          Mem
+            ( map_reg r
+              |> (* safe because we enforce no spills on the mem regs *)
+              reg_of_operand_exn
+            , offset )
         | Imm _ as t -> t)
     in
     Block.iter root ~f:(fun block ->
@@ -752,8 +774,10 @@ module Regalloc = struct
     let liveness_state = Liveness_state.create ~reg_numbering root in
     let interference_graph = Interference_graph.create liveness_state root in
     Interference_graph.print interference_graph ~reg_numbering;
-    let assignments = initialize_assignments root in
-    let () = run_sat ~reg_numbering ~interference_graph ~assignments in
+    let ~assignments, ~don't_spill = initialize_assignments root in
+    let () =
+      run_sat ~reg_numbering ~interference_graph ~assignments ~don't_spill
+    in
     print_s [%sexp (assignments : Assignment.t String.Table.t)];
     (* CR ewilliams: need to do prologue and epilogue for stack stuff *)
     replace_regs ~root ~assignments ~liveness_state ~reg_numbering
