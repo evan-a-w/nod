@@ -560,7 +560,13 @@ module Regalloc = struct
     val run : unit -> unit
   end
 
-  let run_sat ~reg_numbering ~interference_graph ~assignments ~don't_spill =
+  let run_sat
+    ~dump_crap
+    ~reg_numbering
+    ~interference_graph
+    ~assignments
+    ~don't_spill
+    =
     let (module Sat) =
       (module struct
         let reg_pool : Reg.t array =
@@ -630,8 +636,10 @@ module Regalloc = struct
         ;;
 
         let () =
-          print_s
-            [%message "SAT constraints" (sat_constraints : int array array)]
+          if dump_crap
+          then
+            print_s
+              [%message "SAT constraints" (sat_constraints : int array array)]
         ;;
 
         let pror = Pror_rs.create_with_problem sat_constraints
@@ -659,9 +667,7 @@ module Regalloc = struct
               (match
                  Array.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
                with
-               | None ->
-                 print_s [%message "Can't find" (reg : Reg.t)];
-                 spill id
+               | None -> spill id
                (* we can just pretend it doesn't exist in this case, because it doesn't affect other assignments *)
                | Some (i, _) -> spill id + i + 1)
             | None -> -spill id)
@@ -669,7 +675,6 @@ module Regalloc = struct
 
         let rec run () =
           let assumptions = assumptions () in
-          print_s [%message "LOOP" (assumptions : int array)];
           match Pror_rs.run_with_assumptions pror assumptions, !to_spill with
           | UnsatCore _, [] ->
             Error.raise_s
@@ -682,7 +687,7 @@ module Regalloc = struct
             Hashtbl.add_exn assignments ~key ~data:Spill;
             run ()
           | Sat res, _ ->
-            print_s [%message (res : (int * bool) list)];
+            if dump_crap then print_s [%message (res : (int * bool) list)];
             List.iter res ~f:(fun (sat_var, b) ->
               let var_id, x = backout_sat_var sat_var in
               let var = Reg_numbering.id_var reg_numbering var_id in
@@ -769,19 +774,27 @@ module Regalloc = struct
     root
   ;;
 
-  let run root =
+  let run ?(dump_crap = false) root =
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
     let interference_graph = Interference_graph.create liveness_state root in
-    Interference_graph.print interference_graph ~reg_numbering;
+    if dump_crap then Interference_graph.print interference_graph ~reg_numbering;
     let ~assignments, ~don't_spill = initialize_assignments root in
     let () =
-      run_sat ~reg_numbering ~interference_graph ~assignments ~don't_spill
+      run_sat
+        ~dump_crap
+        ~reg_numbering
+        ~interference_graph
+        ~assignments
+        ~don't_spill
     in
-    print_s [%sexp (assignments : Assignment.t String.Table.t)];
+    if dump_crap
+    then print_s [%sexp (assignments : Assignment.t String.Table.t)];
     (* CR ewilliams: need to do prologue and epilogue for stack stuff *)
     replace_regs ~root ~assignments ~liveness_state ~reg_numbering
   ;;
 end
 
-let compile block = Out_of_ssa.process block |> Regalloc.run
+let compile ?dump_crap block =
+  Out_of_ssa.process block |> Regalloc.run ?dump_crap
+;;
