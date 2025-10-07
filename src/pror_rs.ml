@@ -5,7 +5,7 @@ open! Bigarray
 (* file: lib.rs *)
 
 type t
-type sat_result = Sat of (int * bool) list | UnsatCore of int list
+type sat_result = Sat of (int * bool) list | UnsatCore of int array
 external create: unit -> t = "create"
 external create_with_problem: int array array -> t = "create_with_problem"
 external run: t -> sat_result = "run"

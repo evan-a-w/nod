@@ -131,12 +131,15 @@ let _stepped3 () =
   in
   match Pror_rs.create_with_problem formula |> Pror_rs.run with
   | Sat l -> print_s [%message "Sat" (l : (int * bool) list)]
-  | UnsatCore l -> print_s [%message "UnsatCore" (l : int list)]
+  | UnsatCore l -> print_s [%message "UnsatCore" (l : int array)]
 ;;
 
 (* let () = Nod_test.Test_x86.test Nod.Examples.Textual.super_triv *)
 let () =
-  Nod_test.Test_x86.test ~opt_flags:Eir.Opt_flags.default Nod.Examples.Textual.a
+  Nod_test.Test_x86.test
+    ~opt_flags:Eir.Opt_flags.no_opt
+    ~dump_crap:true
+    Nod.Examples.Textual.e2
 ;;
 
 (* stepped3 () *)

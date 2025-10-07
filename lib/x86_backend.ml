@@ -519,6 +519,18 @@ module Regalloc = struct
     [@@deriving sexp, compare, hash, variants]
   end
 
+  let update_assignment ~assignments ~var ~to_ =
+    Hashtbl.update assignments var ~f:(function
+      | None -> Assignment.reg to_
+      | Some (Assignment.Reg to' as x) when Reg.equal to' to_ -> x
+      | Some a ->
+        Error.raise_s
+          [%message
+            "Want to assign phys reg but already found"
+              (a : Assignment.t)
+              (to_ : Reg.t)])
+  ;;
+
   let initialize_assignments root =
     let assignments = Var.Table.create () in
     let don't_spill = Var.Hash_set.create () in
@@ -529,7 +541,7 @@ module Regalloc = struct
         | Allocated (_, Some (Allocated _)) | Allocated (_, Some (Unallocated _))
           -> failwith "bug"
         | Reg.Allocated (var, Some to_) ->
-          Hashtbl.add_exn assignments ~key:var ~data:(Assignment.reg to_)
+          update_assignment ~assignments ~var ~to_
         | Reg.Allocated (var, None) -> Hash_set.add don't_spill var
         | _ -> ()));
     ~assignments, ~don't_spill
@@ -593,7 +605,7 @@ module Regalloc = struct
         ;;
 
         let spill var_id = (var_id * sat_vars_per_var_id) + 1
-        let reg var_id idx = spill var_id + idx + 1
+        let reg_sat var_id idx = spill var_id + idx + 1
 
         let backout_sat_var var =
           let var_id = (var - 1) / sat_vars_per_var_id in
@@ -604,8 +616,10 @@ module Regalloc = struct
         ;;
 
         let all_reg_assignments var_id =
-          [| reg var_id i for i = 0 to Array.length reg_pool - 1 |]
+          [| reg_sat var_id i for i = 0 to Array.length reg_pool - 1 |]
         ;;
+
+        let () = print_s [%message (var_ids : int array)]
 
         let sat_constraints =
           (*
@@ -669,18 +683,20 @@ module Regalloc = struct
                with
                | None -> spill id
                (* we can just pretend it doesn't exist in this case, because it doesn't affect other assignments *)
-               | Some (i, _) -> spill id + i + 1)
+               | Some (i, _) -> reg_sat id i)
             | None -> -spill id)
         ;;
 
         let rec run () =
           let assumptions = assumptions () in
+          if dump_crap then print_s [%message "LOOP" (assumptions : int array)];
           match Pror_rs.run_with_assumptions pror assumptions, !to_spill with
-          | UnsatCore _, [] ->
+          | UnsatCore core, [] ->
             Error.raise_s
               [%message
                 "Can't assign, but nothing to spill"
-                  (assignments : Assignment.t String.Table.t)]
+                  (assignments : Assignment.t String.Table.t)
+                  (core : int array)]
           | ( UnsatCore _
             , ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill ) ->
             to_spill := rest_to_spill;
@@ -693,7 +709,7 @@ module Regalloc = struct
               let var = Reg_numbering.id_var reg_numbering var_id in
               match x with
               | `Assignment reg when b ->
-                Hashtbl.add_exn assignments ~key:var ~data:(Reg reg)
+                update_assignment ~assignments ~var ~to_:reg
               | `Assignment _ | `Spill -> ())
         ;;
       end : Sat)
@@ -775,6 +791,7 @@ module Regalloc = struct
   ;;
 
   let run ?(dump_crap = false) root =
+    if dump_crap then Block.print_verbose root;
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
     let interference_graph = Interference_graph.create liveness_state root in

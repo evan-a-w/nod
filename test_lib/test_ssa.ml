@@ -311,7 +311,7 @@ let%expect_test "all examples" =
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (instrs ((Return (Var z)))))
     =================================
     (a (args ())
      (instrs
@@ -334,15 +334,19 @@ let%expect_test "all examples" =
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args (z%0)))) (args (z%1))))
          (if_false ((block ((id_hum end) (args (z%0)))) (args (z%1)))))))))
-    (end (args (z%0)) (instrs (Unreachable)))
+    (end (args (z%0)) (instrs ((Return (Var z%0)))))
     ******************************
     (a (args ())
      (instrs ((Branch (Uncond ((block ((id_hum b) (args ()))) (args ())))))))
     (b (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move z%2 (Lit 15))
+       (Branch (Uncond ((block ((id_hum end) (args (z%0)))) (args (z%2))))))))
     (c (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
-    (end (args ()) (instrs (Unreachable)))
+     (instrs
+      ((Move z%1 (Lit 0))
+       (Branch (Uncond ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))
+    (end (args (z%0)) (instrs ((Return (Var z%0)))))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
     (%root
@@ -598,7 +602,8 @@ let%expect_test "all examples" =
        (Branch (Uncond ((block ((id_hum end) (args (x%2)))) (args (x%3))))))))
     (end (args (x%2)) (instrs ((Return (Var x%2)))))
     ++++++++++++++++++++++++++
-    ++++++++++++++++++++++++++ |}]
+    ++++++++++++++++++++++++++
+    |}]
 ;;
 
 let%expect_test "longer example" =
