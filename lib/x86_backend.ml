@@ -491,10 +491,14 @@ module Regalloc = struct
         let block_liveness =
           Liveness_state.block_liveness liveness_state block
         in
-        List.zip_exn
-          (Vec.to_list block.instructions @ [ block.terminal ])
-          (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
-        |> List.iter ~f:(fun (ir, liveness) ->
+        let zipped =
+          List.zip_exn
+            (Vec.to_list block.instructions @ [ block.terminal ])
+            (Vec.to_list block_liveness.instructions
+             @ [ block_liveness.terminal ])
+        in
+        print_s [%message (zipped : (Ir.t * Liveness.t) list)];
+        List.iter zipped ~f:(fun (ir, liveness) ->
           List.iter (Ir.defs ir) ~f:(fun var ->
             let u = Liveness_state.var_id liveness_state var in
             Set.iter liveness.live_out ~f:(add_edge u))));
