@@ -18,7 +18,7 @@ pub fn create_with_problem(problem: Vec<Vec<isize>>) -> ocaml::Pointer<T> {
 }
 
 #[derive(ocaml::FromValue, ocaml::ToValue, Clone)]
-#[ocaml::sig("Sat of (int * bool) list | UnsatCore of int list")]
+#[ocaml::sig("Sat of (int * bool) list | UnsatCore of int array")]
 pub enum SatResult {
     Sat(BTreeMap<usize, bool>),
     UnsatCore(Vec<isize>),

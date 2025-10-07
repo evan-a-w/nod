@@ -120,7 +120,7 @@ let%expect_test "all examples" =
       branch 1, end, end
 
     end:
-      unreachable
+      ret %z
 
     =================================
     (((a
@@ -139,7 +139,7 @@ let%expect_test "all examples" =
         (Branch
          (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
           (if_false ((block end) (args ())))))))
-      (end (Unreachable)))
+      (end ((Return (Var z)))))
      (a b c end))
     ---------------------------------
     ---------------------------------
