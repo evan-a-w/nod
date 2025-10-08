@@ -21,8 +21,8 @@ let%expect_test "trivi" =
     ((a (args ())
       (instrs
        ((X86 (MOV (Reg R15) (Imm 10))) (X86 (MOV (Reg R14) (Imm 20)))
-        (X86 (MOV (Reg R13) (Reg R14))) (X86 (SUB (Reg R13) (Reg R15)))
-        (X86_terminal ((RET (Reg R13))))))))
+        (X86 (MOV (Reg R14) (Reg R14))) (X86 (SUB (Reg R14) (Reg R15)))
+        (X86_terminal ((RET (Reg R14))))))))
     |}]
 ;;
 
@@ -55,8 +55,8 @@ let%expect_test "a" =
           (if_false ((block ((id_hum end) (args (z%0)))) (args (z%1))))))))))
     ((a (args ())
       (instrs
-       ((X86 (MOV (Reg R14) (Imm 10))) (X86 (MOV (Reg R13) (Imm 20)))
-        (X86 (MOV (Reg R15) (Reg R13))) (X86 (SUB (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R15) (Imm 10))) (X86 (MOV (Reg R14) (Imm 20)))
+        (X86 (MOV (Reg R14) (Reg R14))) (X86 (SUB (Reg R14) (Reg R15)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE ((block ((id_hum intermediate_a_to_b) (args ()))) (args ()))
@@ -65,90 +65,126 @@ let%expect_test "a" =
       (instrs ((X86 (JMP ((block ((id_hum b) (args ()))) (args ())))))))
      (b (args ())
       (instrs
-       ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Imm 5)))
+       ((X86 (MOV (Reg R15) (Reg R14))) (X86 (ADD (Reg R15) (Imm 5)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE ((block ((id_hum intermediate_b_to_end0) (args (z%2)))) (args ()))
            (((block ((id_hum intermediate_b_to_end) (args (z%2)))) (args ())))))))))
      (intermediate_b_to_end0 (args (z%2))
       (instrs
-       ((X86 (MOV (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R14) (Reg R15)))
         (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
-     (end (args (z%0)) (instrs ((X86_terminal ((RET (Reg R15)))))))
+     (end (args (z%0)) (instrs ((X86_terminal ((RET (Reg R14)))))))
      (intermediate_b_to_end (args (z%2))
       (instrs
-       ((X86 (MOV (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R14) (Reg R15)))
         (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
      (intermediate_a_to_c (args ())
       (instrs ((X86 (JMP ((block ((id_hum c) (args ()))) (args ())))))))
      (c (args ())
       (instrs
-       ((X86 (MOV (Reg R14) (Imm 0)))
+       ((X86 (MOV (Reg R15) (Imm 0)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE ((block ((id_hum intermediate_c_to_end0) (args (z%1)))) (args ()))
            (((block ((id_hum intermediate_c_to_end) (args (z%1)))) (args ())))))))))
      (intermediate_c_to_end0 (args (z%1))
       (instrs
-       ((X86 (MOV (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R14) (Reg R15)))
         (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
      (intermediate_c_to_end (args (z%1))
       (instrs
-       ((X86 (MOV (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R14) (Reg R15)))
         (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ()))))))))
     |}]
 ;;
 
 let%expect_test "e2" =
   test Examples.Textual.e2;
-  [%expect.unreachable]
-[@@expect.uncaught_exn
-  {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  ("Can't assign, but nothing to spill"
-    (assignments
-      ((cond Spill) (tmp_dst (Reg RAX)) (tmp_dst2 (Reg RAX))
-        (tmp_rax (Reg RAX)) (tmp_rax2 (Reg RAX)) (x Spill) (x%0 Spill)
-        (x%1 Spill) (x%2 Spill) (x%3 Spill) (x%4 Spill) (y Spill))))
-  Raised at Base__Error.raise in file "src/error.ml", line 9, characters 21-37
-  Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 18, characters 35-47
-  Called from Nod__X86_backend.Regalloc.run_sat.run in file "lib/x86_backend.ml", lines 692-695, characters 12-165
-  Called from Nod__X86_backend.Regalloc.run in file "lib/x86_backend.ml", lines 797-802, characters 6-125
-  Called from Nod_test__Test_x86.test in file "test_lib/test_x86.ml", line 9, characters 14-55
-  Called from Nod_test__Test_x86.test in file "test_lib/test_x86.ml" (inlined), lines 4-10, characters 9-259
-  Called from Nod_test__Test_x86.(fun) in file "test_lib/test_x86.ml", line 89, characters 2-26
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 264, characters 10-25
-
-  Trailing output
-  ---------------
-  ((start (args ())
-    (instrs
-     ((Move x (Lit 7)) (Move y (Lit 2))
-      (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
-      (Div ((dest x%1) (src1 (Var x%0)) (src2 (Var y))))
-      (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
-      (Branch
-       (Cond (cond (Var cond))
-        (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
-        (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
-   (ifTrue (args ())
-    (instrs
-     ((Move x%4 (Lit 999))
-      (Branch
-       (Cond (cond (Lit 1))
-        (if_true ((block ((id_hum end) (args (x%2)))) (args (x%4))))
-        (if_false ((block ((id_hum end) (args (x%2)))) (args (x%4)))))))))
-   (end (args (x%2)) (instrs ((Return (Var x%2)))))
-   (ifFalse (args ())
-    (instrs
-     ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
-      (Branch
-       (Cond (cond (Lit 1))
-        (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
-        (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3))))))))))
-  |}]
+  [%expect
+    {|
+    ((start (args ())
+      (instrs
+       ((Move x (Lit 7)) (Move y (Lit 2))
+        (Mul ((dest x%0) (src1 (Var x)) (src2 (Lit 3))))
+        (Div ((dest x%1) (src1 (Var x%0)) (src2 (Var y))))
+        (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+        (Branch
+         (Cond (cond (Var cond))
+          (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
+          (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
+     (ifTrue (args ())
+      (instrs
+       ((Move x%4 (Lit 999))
+        (Branch
+         (Cond (cond (Lit 1))
+          (if_true ((block ((id_hum end) (args (x%2)))) (args (x%4))))
+          (if_false ((block ((id_hum end) (args (x%2)))) (args (x%4)))))))))
+     (end (args (x%2)) (instrs ((Return (Var x%2)))))
+     (ifFalse (args ())
+      (instrs
+       ((Add ((dest x%3) (src1 (Var x%1)) (src2 (Lit 10))))
+        (Branch
+         (Cond (cond (Lit 1))
+          (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
+          (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3))))))))))
+    ((start (args ())
+      (instrs
+       ((X86 (MOV (Reg R14) (Imm 7))) (X86 (MOV (Reg R15) (Imm 2)))
+        (X86 (MOV (Reg RAX) (Reg R14)))
+        (X86 (Tag_def (Tag_use (IMUL (Imm 3)) (Reg RAX)) (Reg RAX)))
+        (X86 (MOV (Reg R14) (Reg RAX))) (X86 (MOV (Reg RAX) (Reg R14)))
+        (X86 (Tag_def (Tag_use (IDIV (Reg R15)) (Reg RAX)) (Reg RAX)))
+        (X86 (MOV (Reg R14) (Reg RAX))) (X86 (MOV (Reg R15) (Reg R15)))
+        (X86 (SUB (Reg R15) (Imm 2)))
+        (X86_terminal
+         ((CMP (Reg R15) (Imm 0))
+          (JNE
+           ((block ((id_hum intermediate_start_to_ifTrue) (args ()))) (args ()))
+           (((block ((id_hum intermediate_start_to_ifFalse) (args ())))
+             (args ())))))))))
+     (intermediate_start_to_ifTrue (args ())
+      (instrs ((X86 (JMP ((block ((id_hum ifTrue) (args ()))) (args ())))))))
+     (ifTrue (args ())
+      (instrs
+       ((X86 (MOV (Reg R14) (Imm 999)))
+        (X86_terminal
+         ((CMP (Imm 1) (Imm 0))
+          (JNE
+           ((block ((id_hum intermediate_ifTrue_to_end0) (args (x%4))))
+            (args ()))
+           (((block ((id_hum intermediate_ifTrue_to_end) (args (x%4))))
+             (args ())))))))))
+     (intermediate_ifTrue_to_end0 (args (x%4))
+      (instrs
+       ((X86 (MOV (Reg R15) (Reg R14)))
+        (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))
+     (end (args (x%2)) (instrs ((X86_terminal ((RET (Reg R15)))))))
+     (intermediate_ifTrue_to_end (args (x%4))
+      (instrs
+       ((X86 (MOV (Reg R15) (Reg R14)))
+        (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))
+     (intermediate_start_to_ifFalse (args ())
+      (instrs ((X86 (JMP ((block ((id_hum ifFalse) (args ()))) (args ())))))))
+     (ifFalse (args ())
+      (instrs
+       ((X86 (MOV (Reg R13) (Reg R14))) (X86 (ADD (Reg R13) (Imm 10)))
+        (X86_terminal
+         ((CMP (Imm 1) (Imm 0))
+          (JNE
+           ((block ((id_hum intermediate_ifFalse_to_end0) (args (x%3))))
+            (args ()))
+           (((block ((id_hum intermediate_ifFalse_to_end) (args (x%3))))
+             (args ())))))))))
+     (intermediate_ifFalse_to_end0 (args (x%3))
+      (instrs
+       ((X86 (MOV (Reg R15) (Reg R13)))
+        (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))
+     (intermediate_ifFalse_to_end (args (x%3))
+      (instrs
+       ((X86 (MOV (Reg R15) (Reg R13)))
+        (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ()))))))))
+    |}]
 ;;
 
 let%expect_test "c2" =
@@ -166,8 +202,8 @@ let%expect_test "c2" =
        ((X86 (MOV (Reg R14) (Imm 100))) (X86 (MOV (Reg R15) (Imm 6)))
         (X86 (MOV (Reg RAX) (Reg R14)))
         (X86 (Tag_def (Tag_use (MOD (Reg R15)) (Reg RAX)) (Reg RDX)))
-        (X86 (MOV (Reg R14) (Reg RDX))) (X86 (MOV (Reg R13) (Reg R14)))
-        (X86 (ADD (Reg R13) (Imm 1))) (X86_terminal ((RET (Reg R13))))))))
+        (X86 (MOV (Reg R15) (Reg RDX))) (X86 (MOV (Reg R15) (Reg R15)))
+        (X86 (ADD (Reg R15) (Imm 1))) (X86_terminal ((RET (Reg R15))))))))
     |}]
 ;;
 
@@ -279,8 +315,8 @@ let%expect_test "f" =
              (args ())))))))))
      (intermediate_start_to_outerCheck (args (partial j i))
       (instrs
-       ((X86 (MOV (Reg R11) (Reg R12))) (X86 (MOV (Reg R13) (Reg R14)))
-        (X86 (MOV (Reg R15) (Reg R14)))
+       ((X86 (MOV (Reg R11) (Reg R12))) (X86 (MOV (Reg R14) (Reg R15)))
+        (X86 (MOV (Reg R13) (Reg R15)))
         (X86
          (JMP
           ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0)))) (args ())))))))
@@ -299,7 +335,7 @@ let%expect_test "f" =
       (instrs ((X86 (JMP ((block ((id_hum outerBody) (args ()))) (args ())))))))
      (outerBody (args ())
       (instrs
-       ((X86 (MOV (Reg R13) (Imm 0))) (X86 (MOV (Reg R15) (Imm 0)))
+       ((X86 (MOV (Reg R14) (Imm 0))) (X86 (MOV (Reg R13) (Imm 0)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE
@@ -311,12 +347,12 @@ let%expect_test "f" =
              (args ())))))))))
      (intermediate_outerBody_to_innerCheck (args (partial%0 j%0))
       (instrs
-       ((X86 (MOV (Reg R9) (Reg R13))) (X86 (MOV (Reg R9) (Reg R15)))
+       ((X86 (MOV (Reg R9) (Reg R14))) (X86 (MOV (Reg R9) (Reg R13)))
         (X86
          (JMP ((block ((id_hum innerCheck) (args (partial%1 j%1)))) (args ())))))))
      (innerCheck (args (partial%1 j%1))
       (instrs
-       ((X86 (MOV (Reg R10) (Reg R13))) (X86 (SUB (Reg R10) (Imm 3)))
+       ((X86 (MOV (Reg R10) (Reg R14))) (X86 (SUB (Reg R10) (Imm 3)))
         (X86_terminal
          ((CMP (Reg R10) (Imm 0))
           (JNE
@@ -330,10 +366,10 @@ let%expect_test "f" =
       (instrs ((X86 (JMP ((block ((id_hum innerBody) (args ()))) (args ())))))))
      (innerBody (args ())
       (instrs
-       ((X86 (MOV (Reg R10) (Reg R13))) (X86 (AND (Reg R10) (Imm 1)))
-        (X86 (MOV (Reg R9) (Reg R10))) (X86 (SUB (Reg R9) (Imm 0)))
+       ((X86 (MOV (Reg R10) (Reg R14))) (X86 (AND (Reg R10) (Imm 1)))
+        (X86 (MOV (Reg R10) (Reg R10))) (X86 (SUB (Reg R10) (Imm 0)))
         (X86_terminal
-         ((CMP (Reg R9) (Imm 0))
+         ((CMP (Reg R10) (Imm 0))
           (JNE
            ((block ((id_hum intermediate_innerBody_to_doWork) (args ())))
             (args ()))
@@ -344,9 +380,9 @@ let%expect_test "f" =
      (doWork (args ())
       (instrs
        ((X86 (MOV (Reg RAX) (Reg R11)))
-        (X86 (Tag_def (Tag_use (IMUL (Reg R13)) (Reg RAX)) (Reg RAX)))
-        (X86 (MOV (Reg R9) (Reg RAX))) (X86 (MOV (Reg R10) (Reg R15)))
-        (X86 (ADD (Reg R10) (Reg R9))) (X86 (MOV (Reg R10) (Reg R13)))
+        (X86 (Tag_def (Tag_use (IMUL (Reg R14)) (Reg RAX)) (Reg RAX)))
+        (X86 (MOV (Reg R9) (Reg RAX))) (X86 (MOV (Reg R10) (Reg R13)))
+        (X86 (ADD (Reg R10) (Reg R9))) (X86 (MOV (Reg R10) (Reg R14)))
         (X86 (ADD (Reg R10) (Imm 1)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
@@ -369,7 +405,7 @@ let%expect_test "f" =
          (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
      (innerExit (args (partial%2 j%2))
       (instrs
-       ((X86 (MOV (Reg R10) (Reg R12))) (X86 (ADD (Reg R10) (Reg R15)))
+       ((X86 (MOV (Reg R10) (Reg R12))) (X86 (ADD (Reg R10) (Reg R13)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE
@@ -387,15 +423,15 @@ let%expect_test "f" =
      (outerInc (args (total%1))
       (instrs
        ((X86 (MOV (Reg R11) (Reg R11))) (X86 (ADD (Reg R11) (Imm 1)))
-        (X86 (MOV (Reg R11) (Reg R11))) (X86 (MOV (Reg R13) (Reg R13)))
-        (X86 (MOV (Reg R13) (Reg R13))) (X86 (MOV (Reg R10) (Reg R15)))
-        (X86 (MOV (Reg R15) (Reg R10)))
+        (X86 (MOV (Reg R11) (Reg R11))) (X86 (MOV (Reg R14) (Reg R14)))
+        (X86 (MOV (Reg R14) (Reg R14))) (X86 (MOV (Reg R13) (Reg R13)))
+        (X86 (MOV (Reg R13) (Reg R13)))
         (X86_terminal
          ((JMP
            ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0)))) (args ()))))))))
      (intermediate_innerExit_to_exit (args (total%0 partial%0 j%0))
       (instrs
-       ((X86 (MOV (Reg R11) (Reg R13))) (X86 (MOV (Reg R11) (Reg R15)))
+       ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R13)))
         (X86 (MOV (Reg R11) (Reg R10)))
         (X86
          (JMP ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))
@@ -405,7 +441,7 @@ let%expect_test "f" =
       (instrs ((X86 (JMP ((block ((id_hum skipEven) (args ()))) (args ())))))))
      (skipEven (args ())
       (instrs
-       ((X86 (MOV (Reg R10) (Reg R13))) (X86 (ADD (Reg R10) (Imm 1)))
+       ((X86 (MOV (Reg R10) (Reg R14))) (X86 (ADD (Reg R10) (Imm 1)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE
@@ -419,17 +455,17 @@ let%expect_test "f" =
              (args ())))))))))
      (intermediate_skipEven_to_innerCheck (args (partial%0 j%4))
       (instrs
-       ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R15)))
+       ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R13)))
         (X86
          (JMP ((block ((id_hum innerCheck) (args (partial%1 j%1)))) (args ())))))))
      (intermediate_skipEven_to_innerExit (args (partial%0 j%4))
       (instrs
-       ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R15)))
+       ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R13)))
         (X86
          (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
      (intermediate_innerCheck_to_innerExit (args (partial%0 j%0))
       (instrs
-       ((X86 (MOV (Reg R9) (Reg R13))) (X86 (MOV (Reg R9) (Reg R15)))
+       ((X86 (MOV (Reg R9) (Reg R14))) (X86 (MOV (Reg R9) (Reg R13)))
         (X86
          (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
      (intermediate_outerBody_to_outerInc (args (total))
@@ -438,13 +474,13 @@ let%expect_test "f" =
         (X86 (JMP ((block ((id_hum outerInc) (args (total%1)))) (args ())))))))
      (intermediate_outerCheck_to_exit (args (total partial j))
       (instrs
-       ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R14)))
+       ((X86 (MOV (Reg R11) (Reg R15))) (X86 (MOV (Reg R11) (Reg R15)))
         (X86 (MOV (Reg R11) (Reg R12)))
         (X86
          (JMP ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))
      (intermediate_start_to_exit (args (total partial j))
       (instrs
-       ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R14)))
+       ((X86 (MOV (Reg R11) (Reg R15))) (X86 (MOV (Reg R11) (Reg R15)))
         (X86 (MOV (Reg R11) (Reg R12)))
         (X86
          (JMP ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ()))))))))
@@ -484,19 +520,19 @@ let%expect_test "fib" =
      (fib_exit (args ()) (instrs ((Return (Var a%0))))))
     ((%root (args ())
       (instrs
-       ((X86 (MOV (Reg R13) (Imm 10)))
+       ((X86 (MOV (Reg R14) (Imm 10)))
         (X86_terminal ((JMP ((block ((id_hum fib_start) (args ()))) (args ()))))))))
      (fib_start (args ())
       (instrs
-       ((X86 (MOV (Reg R12) (Reg R13))) (X86 (MOV (Reg R15) (Imm 0)))
-        (X86 (MOV (Reg R11) (Imm 1))) (X86 (MOV (Reg R14) (Reg R15)))
-        (X86 (MOV (Reg R14) (Reg R11))) (X86 (MOV (Reg R15) (Reg R12)))
+       ((X86 (MOV (Reg R12) (Reg R14))) (X86 (MOV (Reg R15) (Imm 0)))
+        (X86 (MOV (Reg R13) (Imm 1))) (X86 (MOV (Reg R15) (Reg R15)))
+        (X86 (MOV (Reg R13) (Reg R13))) (X86 (MOV (Reg R12) (Reg R12)))
         (X86_terminal
          ((JMP ((block ((id_hum fib_check) (args (a%0 count%0 b%0)))) (args ()))))))))
      (fib_check (args (a%0 count%0 b%0))
       (instrs
        ((X86_terminal
-         ((CMP (Reg R15) (Imm 0))
+         ((CMP (Reg R12) (Imm 0))
           (JNE
            ((block ((id_hum intermediate_fib_check_to_fib_body) (args ())))
             (args ()))
@@ -506,16 +542,16 @@ let%expect_test "fib" =
       (instrs ((X86 (JMP ((block ((id_hum fib_body) (args ()))) (args ())))))))
      (fib_body (args ())
       (instrs
-       ((X86 (MOV (Reg R12) (Reg R14))) (X86 (ADD (Reg R12) (Reg R14)))
-        (X86 (MOV (Reg R13) (Reg R14))) (X86 (MOV (Reg R14) (Reg R12)))
-        (X86 (MOV (Reg R12) (Reg R15))) (X86 (SUB (Reg R12) (Imm 1)))
-        (X86 (MOV (Reg R14) (Reg R13))) (X86 (MOV (Reg R14) (Reg R14)))
-        (X86 (MOV (Reg R15) (Reg R12)))
+       ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Reg R13)))
+        (X86 (MOV (Reg R15) (Reg R13))) (X86 (MOV (Reg R14) (Reg R14)))
+        (X86 (MOV (Reg R12) (Reg R12))) (X86 (SUB (Reg R12) (Imm 1)))
+        (X86 (MOV (Reg R15) (Reg R15))) (X86 (MOV (Reg R13) (Reg R14)))
+        (X86 (MOV (Reg R12) (Reg R12)))
         (X86_terminal
          ((JMP ((block ((id_hum fib_check) (args (a%0 count%0 b%0)))) (args ()))))))))
      (intermediate_fib_check_to_fib_exit (args ())
       (instrs ((X86 (JMP ((block ((id_hum fib_exit) (args ()))) (args ())))))))
-     (fib_exit (args ()) (instrs ((X86_terminal ((RET (Reg R14))))))))
+     (fib_exit (args ()) (instrs ((X86_terminal ((RET (Reg R15))))))))
     |}]
 ;;
 
@@ -577,7 +613,7 @@ let%expect_test "sum 100" =
      (body (args ())
       (instrs
        ((X86 (MOV (Reg R13) (Reg R15))) (X86 (ADD (Reg R13) (Reg R15)))
-        (X86 (MOV (Reg R12) (Reg R15))) (X86 (ADD (Reg R12) (Imm 1)))
+        (X86 (MOV (Reg R13) (Reg R15))) (X86 (ADD (Reg R13) (Imm 1)))
         (X86_terminal
          ((CMP (Imm 1) (Imm 0))
           (JNE
@@ -587,11 +623,11 @@ let%expect_test "sum 100" =
              (args ())))))))))
      (intermediate_body_to_check (args (sum%2 i%2))
       (instrs
-       ((X86 (MOV (Reg R15) (Reg R12))) (X86 (MOV (Reg R15) (Reg R13)))
+       ((X86 (MOV (Reg R15) (Reg R13))) (X86 (MOV (Reg R15) (Reg R13)))
         (X86 (JMP ((block ((id_hum check) (args (sum%1 i%1)))) (args ())))))))
      (intermediate_body_to_exit (args (sum%2 i%2))
       (instrs
-       ((X86 (MOV (Reg R14) (Reg R12))) (X86 (MOV (Reg R14) (Reg R13)))
+       ((X86 (MOV (Reg R14) (Reg R13))) (X86 (MOV (Reg R14) (Reg R13)))
         (X86 (JMP ((block ((id_hum exit) (args (sum%0 i%0)))) (args ())))))))
      (exit (args (sum%0 i%0)) (instrs ((X86_terminal ((RET (Reg R14)))))))
      (intermediate_check_to_exit (args (sum%1 i%1))
