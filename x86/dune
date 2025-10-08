@@ -1,6 +1,0 @@
-(library
- (name nod_x86)
- (preprocess
-  (pps ppx_jane))
- (inline_tests)
- (libraries core core_unix parser_core vec))

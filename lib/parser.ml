@@ -5,10 +5,10 @@ open Parser_comb
 
 module State = struct
   type t =
-    { blocks : string Ir.t' Vec.t String.Map.t
+    { blocks : string Ir0.t Vec.t String.Map.t
     ; labels : string Vec.t
     ; current_block : string
-    ; current_instrs : string Ir.t' Vec.t
+    ; current_instrs : string Ir0.t Vec.t
     }
 
   let create () =
@@ -92,15 +92,14 @@ let arith () =
 let branch () =
   match%bind lit_or_var_or_ident () with
   | `Ident label ->
-    return
-      (Ir.Branch (Ir.Branch.Uncond { Ir.Call_block.block = label; args = [] }))
+    return (Ir.branch (Uncond { Ir.Call_block.block = label; args = [] }))
   | `Lit_or_var cond ->
     let%bind (_ : Pos.t) = comma () in
     let%bind label1 = ident () in
     let%bind (_ : Pos.t) = comma () in
     let%map label2 = ident () in
-    Ir.Branch
-      (Ir.Branch.Cond
+    Ir.branch
+      (Cond
          { cond
          ; if_true = { Ir.Call_block.block = label1; args = [] }
          ; if_false = { Ir.Call_block.block = label2; args = [] }
@@ -110,35 +109,35 @@ let branch () =
 let instr' = function
   | "add" ->
     let%map a = arith () in
-    Ir.Add a
+    Ir.add a
   | "and" ->
     let%map a = arith () in
-    Ir.And a
+    Ir.and_ a
   | "or" ->
     let%map a = arith () in
-    Ir.Or a
+    Ir.or_ a
   | "sub" ->
     let%map a = arith () in
-    Ir.Sub a
+    Ir.sub a
   | "mul" ->
     let%map a = arith () in
-    Ir.Mul a
+    Ir.mul a
   | "div" ->
     let%map a = arith () in
-    Ir.Div a
+    Ir.div a
   | "mod" ->
     let%map a = arith () in
-    Ir.Mod a
+    Ir.mod_ a
   | "mov" | "move" ->
     let%bind dest = var () in
     let%bind (_ : Pos.t) = comma () in
     let%map src = lit_or_var () in
-    Ir.Move (dest, src)
+    Ir.move dest src
   | "b" | "branch" -> branch ()
   | "return" | "ret" ->
     let%map res = lit_or_var () in
-    Ir.Return res
-  | "unreachable" -> return Ir.Unreachable
+    Ir.return res
+  | "unreachable" -> return Ir.unreachable
   | s -> fail (`Unknown_instruction s)
 ;;
 
