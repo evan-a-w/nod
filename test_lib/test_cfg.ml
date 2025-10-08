@@ -1,6 +1,5 @@
 open! Core
 open! Nod
-module Cfg = Cfg.Process (Ir)
 
 let test s =
   s
@@ -11,7 +10,7 @@ let test s =
     let _, _, blocks = Cfg.process blocks in
     Vec.iter blocks ~f:(fun block ->
       let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-      print_s [%message block.id_hum (instrs : Ir.Instr.t list)])
+      print_s [%message block.id_hum (instrs : Ir.t list)])
 ;;
 
 let%expect_test "f" =
@@ -113,7 +112,7 @@ let%expect_test "all examples" =
       branch 1, end, end
 
     end:
-      unreachable
+      ret %z
 
     =================================
     (a
@@ -137,7 +136,7 @@ let%expect_test "all examples" =
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs (Unreachable)))
+    (end (instrs ((Return (Var z)))))
     ---------------------------------
     ---------------------------------
 
@@ -386,5 +385,6 @@ let%expect_test "all examples" =
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs ((Return (Var x)))))
-    --------------------------------- |}]
+    ---------------------------------
+    |}]
 ;;

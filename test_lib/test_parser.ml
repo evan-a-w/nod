@@ -35,7 +35,7 @@ let test s =
   |> function
   | Error e -> print_error e
   | Ok blocks ->
-    print_s [%sexp (blocks : string Ir.t' Vec.t String.Map.t * string Vec.t)]
+    print_s [%sexp (blocks : string Ir0.t Vec.t String.Map.t * string Vec.t)]
 ;;
 
 let%expect_test "simple" =
@@ -120,7 +120,7 @@ let%expect_test "all examples" =
       branch 1, end, end
 
     end:
-      unreachable
+      ret %z
 
     =================================
     (((a
@@ -139,7 +139,7 @@ let%expect_test "all examples" =
         (Branch
          (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
           (if_false ((block end) (args ())))))))
-      (end (Unreachable)))
+      (end ((Return (Var z)))))
      (a b c end))
     ---------------------------------
     ---------------------------------

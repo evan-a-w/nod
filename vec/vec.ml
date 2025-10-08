@@ -10,6 +10,11 @@ let create ?(capacity = 0) () =
   { arr = Array.create ~len:capacity (Obj.magic ()); length = 0 }
 ;;
 
+let clear t =
+  t.arr <- [||];
+  t.length <- 0
+;;
+
 let singleton x = { arr = [| x |]; length = 1 }
 let length t = t.length
 
@@ -74,6 +79,14 @@ let fold t ~init ~f =
   !r
 ;;
 
+let foldr t ~init ~f =
+  let r = ref init in
+  for i = length t - 1 downto 0 do
+    r := f !r t.arr.(i)
+  done;
+  !r
+;;
+
 let fill_to_length t ~length ~f =
   let i = ref (t.length - 1) in
   while !i < length - 1 do
@@ -86,6 +99,26 @@ let map t ~f =
   let new_ = create ~capacity:t.length () in
   for i = 0 to t.length - 1 do
     push new_ (f t.arr.(i))
+  done;
+  new_
+;;
+
+let fold_map t ~init ~f =
+  let acc = ref init in
+  let new_ = create ~capacity:t.length () in
+  for i = 0 to t.length - 1 do
+    let acc', x = f !acc t.arr.(i) in
+    acc := acc';
+    push new_ x
+  done;
+  new_
+;;
+
+let zip_exn a b =
+  let new_ = create ~capacity:a.length () in
+  if a.length <> b.length then failwith "[zip_exn] diff lengths";
+  for i = 0 to a.length - 1 do
+    push new_ (a.arr.(i), b.arr.(i))
   done;
   new_
 ;;
@@ -221,7 +254,7 @@ let concat_mapi t ~f =
 
 let concat_map t ~f =
   let new_ = create () in
-  for i = 0 to t.length do
+  for i = 0 to t.length - 1 do
     f t.arr.(i) |> append new_
   done;
   new_
@@ -245,3 +278,29 @@ let to_sequence t =
 ;;
 
 let iter_nested t ~f = iter t ~f:(iter ~f)
+let iter_rev t ~f = iteri_rev t ~f:(fun _ x -> f x)
+
+let reverse t =
+  let new_ = create ~capacity:(length t) () in
+  iter_rev t ~f:(push new_);
+  new_
+;;
+
+let reverse_inplace t =
+  let end_ = ref (length t - 1) in
+  let start = ref 0 in
+  while !start < !end_ do
+    let tmp = t.arr.(!start) in
+    t.arr.(!start) <- t.arr.(!end_);
+    t.arr.(!end_) <- tmp;
+    incr start;
+    decr end_
+  done
+;;
+
+let%expect_test "concat_map" =
+  let a = of_list [ 1; 2; 3; 4; 5 ] in
+  print_s
+    [%sexp (concat_map a ~f:(fun i -> List.init i ~f:Fn.id |> of_list) : int t)];
+  [%expect {| (0 0 1 0 1 2 0 1 2 3 0 1 2 3 4) |}]
+;;

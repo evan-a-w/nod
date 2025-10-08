@@ -1,0 +1,16 @@
+(rule
+ (targets libpror_rs.a dllpror_rs.so)
+ (deps (glob_files *.rs))
+ (action
+  (progn
+   (run sh -c "cd %{project_root}/../.. && cargo build --release")
+   (run sh -c
+     "mv %{project_root}/../../target/release/libpror_rs.so ./dllpror_rs.so 2> /dev/null || \
+      mv %{project_root}/../../target/release/libpror_rs.dylib ./dllpror_rs.so")
+   (run mv %{project_root}/../../target/release/libpror_rs.a libpror_rs.a))))
+
+(library
+ (name pror_rs)
+ (foreign_archives pror_rs)
+ (c_library_flags
+  (-lpthread -lc -lm)))
