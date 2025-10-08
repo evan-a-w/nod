@@ -331,7 +331,7 @@ end
 
 module Liveness = struct
   type t =
-    { (* CR ewilliams: prob use bitsets *)
+    { (* CR-soon ewilliams: prob use bitsets *)
       live_in : Int.Set.t
     ; live_out : Int.Set.t
     }
@@ -386,7 +386,20 @@ module Liveness_state = struct
         let new_live_in =
           Set.union (ir_uses t ir) (Set.diff live_in (ir_defs t ir))
         in
-        (* print_s [%message (liveness : Liveness.t) (ir : Ir.t)]; *)
+        (* let () = *)
+        (*   let live_out = *)
+        (*     String.Set.map live_in ~f:(Reg_numbering.id_var t.reg_numbering) *)
+        (*   in *)
+        (*   let live_in = *)
+        (*     String.Set.map new_live_in ~f:(Reg_numbering.id_var t.reg_numbering) *)
+        (*   in *)
+        (*   print_s *)
+        (*     [%message *)
+        (*       (ir : Ir.t) *)
+        (*         ~_: *)
+        (*           ([%sexp { live_in : String.Set.t; live_out : String.Set.t }] *)
+        (*            : Sexp.t)] *)
+        (* in *)
         { Liveness.live_in = new_live_in; live_out = live_in }
       in
       block_liveness.terminal <- f block_liveness.overall block.terminal;
@@ -484,7 +497,7 @@ module Regalloc = struct
     let empty = Var_pair.Set.empty
     let edges t = t
 
-    let create liveness_state root =
+    let create ~reg_numbering:_ ~liveness_state root =
       let t = ref empty in
       let add_edge u v = t := interfere !t u v in
       Block.iter root ~f:(fun block ->
@@ -496,9 +509,27 @@ module Regalloc = struct
             (Vec.to_list block.instructions @ [ block.terminal ])
             (Vec.to_list block_liveness.instructions
              @ [ block_liveness.terminal ])
+          (* |> List.map ~f:(fun (ir, liveness) -> *)
+          (*   let live_in = *)
+          (*     String.Set.map *)
+          (*       liveness.live_in *)
+          (*       ~f:(Reg_numbering.id_var reg_numbering) *)
+          (*   in *)
+          (*   let live_out = *)
+          (*     String.Set.map *)
+          (*       liveness.live_out *)
+          (*       ~f:(Reg_numbering.id_var reg_numbering) *)
+          (*   in *)
+          (*   ( ir *)
+          (*   , ( liveness *)
+          (*     , ( [%sexp { live_in : String.Set.t; live_out : String.Set.t }] *)
+          (*       , Ir.uses ir *)
+          (*       , Ir.defs ir ) ) )) *)
         in
-        print_s [%message (zipped : (Ir.t * Liveness.t) list)];
-        List.iter zipped ~f:(fun (ir, liveness) ->
+        (* print_s *)
+        (*   [%message *)
+        (*     (zipped : (Ir.t * (_ * (Sexp.t * string list * string list))) list)]; *)
+        List.iter zipped ~f:(fun (ir, liveness (* , _) *)) ->
           List.iter (Ir.defs ir) ~f:(fun var ->
             let u = Liveness_state.var_id liveness_state var in
             Set.iter liveness.live_out ~f:(add_edge u))));
@@ -622,8 +653,6 @@ module Regalloc = struct
         let all_reg_assignments var_id =
           [| reg_sat var_id i for i = 0 to Array.length reg_pool - 1 |]
         ;;
-
-        let () = print_s [%message (var_ids : int array)]
 
         let sat_constraints =
           (*
@@ -798,7 +827,9 @@ module Regalloc = struct
     if dump_crap then Block.print_verbose root;
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
-    let interference_graph = Interference_graph.create liveness_state root in
+    let interference_graph =
+      Interference_graph.create ~reg_numbering ~liveness_state root
+    in
     if dump_crap then Interference_graph.print interference_graph ~reg_numbering;
     let ~assignments, ~don't_spill = initialize_assignments root in
     let () =

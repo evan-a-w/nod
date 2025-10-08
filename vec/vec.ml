@@ -290,7 +290,9 @@ let reverse_inplace t =
   let end_ = ref (length t - 1) in
   let start = ref 0 in
   while !start < !end_ do
+    let tmp = t.arr.(!start) in
     t.arr.(!start) <- t.arr.(!end_);
+    t.arr.(!end_) <- tmp;
     incr start;
     decr end_
   done
