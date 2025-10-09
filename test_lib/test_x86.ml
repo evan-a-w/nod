@@ -207,6 +207,27 @@ let%expect_test "c2" =
     |}]
 ;;
 
+let%expect_test "alloca lowers" =
+  test {|
+mov %n, 24
+alloca %ptr, 16
+alloca %dyn, %n
+ret %dyn
+|};
+  [%expect
+    {|
+    ((%root (args ())
+      (instrs
+       ((Move n (Lit 24)) (Alloca ((dest ptr) (size (Lit 16))))
+        (Alloca ((dest dyn) (size (Var n)))) (Return (Var dyn))))))
+    ((%root (args ())
+      (instrs
+       ((X86 (MOV (Reg R15) (Imm 24))) (X86 (MOV (Reg R14) (Reg RSP)))
+        (X86 (SUB (Reg RSP) (Imm 16))) (X86 (MOV (Reg R14) (Reg RSP)))
+        (X86 (SUB (Reg RSP) (Reg R15))) (X86_terminal ((RET (Reg R14))))))))
+    |}]
+;;
+
 let%expect_test "f" =
   test Examples.Textual.f;
   [%expect

@@ -69,6 +69,10 @@ let ir_to_x86_ir ~var_names (ir : Ir.t) =
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
+  | Alloca { dest; size } ->
+    [ mov (reg dest) (Reg Reg.RSP)
+    ; sub (Reg Reg.RSP) (operand_of_lit_or_var size)
+    ]
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
     [ cmp (operand_of_lit_or_var cond) (Imm Int64.zero)
@@ -80,7 +84,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   match x86_block.terminal with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
+  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Alloca _
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
@@ -95,7 +99,7 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
     <- X86_terminal
          (List.take terminals (List.length terminals - 1)
           @ [ new_true_terminal ])
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _
+  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Alloca _
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)

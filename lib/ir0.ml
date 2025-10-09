@@ -83,6 +83,18 @@ let map_arith_uses t ~f =
 
 let map_arith_lit_or_vars t ~f = { t with src1 = f t.src1; src2 = f t.src2 }
 
+type alloca =
+  { dest : Var.t
+  ; size : Lit_or_var.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
+let map_alloca_defs t ~f = { t with dest = f t.dest }
+
+let map_alloca_uses t ~f = { t with size = Lit_or_var.map_vars ~f t.size }
+
+let map_alloca_lit_or_vars t ~f = { t with size = f t.size }
+
 module Branch = struct
   type 'block t =
     | Cond of
@@ -179,6 +191,7 @@ type 'block t =
   | Mul of arith
   | Div of arith
   | Mod of arith
+  | Alloca of alloca
   | Load of Var.t * Mem.t
   | Store of Lit_or_var.t * Mem.t
   | Move of Var.t * Lit_or_var.t
@@ -194,6 +207,7 @@ let filter_map_call_blocks t ~f =
   | X86 x86_ir -> X86_ir.filter_map_call_blocks x86_ir ~f
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(X86_ir.filter_map_call_blocks ~f)
+  | Alloca _
   | And _
   | Or _
   | Noop
@@ -254,6 +268,7 @@ let defs = function
   | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
+  | Alloca a -> [ a.dest ]
   | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
   | Load (a, _) -> [ a ]
   | Move (var, _) -> [ var ]
@@ -264,6 +279,7 @@ let blocks = function
   | X86 x86_ir -> X86_ir.blocks x86_ir
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.blocks x86_irs
   | Branch b -> Branch.blocks b
+  | Alloca _
   | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _ | And _ | Or _
   | Move (_, _)
   | Unreachable | Noop | Return _ -> []
@@ -273,6 +289,7 @@ let uses = function
   | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
+  | Alloca a -> Lit_or_var.vars a.size
   | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a ->
     Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
@@ -306,6 +323,7 @@ let map_defs t ~f =
   | Div a -> Div (map_arith_defs a ~f)
   | Mod a -> Mod (map_arith_defs a ~f)
   | Sub a -> Sub (map_arith_defs a ~f)
+  | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
@@ -323,6 +341,7 @@ let map_uses t ~f =
   | Div a -> Div (map_arith_uses a ~f)
   | Mod a -> Mod (map_arith_uses a ~f)
   | Sub a -> Sub (map_arith_uses a ~f)
+  | Alloca a -> Alloca (map_alloca_uses a ~f)
   | Store (a, b) -> Store (Lit_or_var.map_vars a ~f, Mem.map_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_vars b ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
@@ -338,6 +357,7 @@ let is_terminal = function
   | X86 x86_ir -> X86_ir.is_terminal x86_ir
   | X86_terminal _ -> true
   | Branch _ | Unreachable | Return _ -> true
+  | Alloca _
   | Add _
   | Mul _
   | Div _
@@ -357,6 +377,7 @@ let map_call_blocks t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f) x86_irs)
+  | Alloca _
   | Unreachable
   | Add _
   | Mul _
@@ -377,6 +398,7 @@ let iter_call_blocks t ~f =
   | Branch b -> Branch.iter_call_blocks b ~f
   | X86 x86_ir -> X86_ir.iter_call_blocks x86_ir ~f
   | X86_terminal x86_irs -> List.iter ~f:(X86_ir.iter_call_blocks ~f) x86_irs
+  | Alloca _
   | Unreachable
   | Add _
   | Mul _
@@ -400,6 +422,7 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Mul a -> Mul a
   | Div a -> Div a
   | Mod a -> Mod a
+  | Alloca a -> Alloca a
   | Store (a, b) -> Store (a, b)
   | Load (a, b) -> Load (a, b)
   | Sub a -> Sub a
@@ -422,6 +445,7 @@ let map_lit_or_vars t ~f =
   | Div a -> Div (map_arith_lit_or_vars a ~f)
   | Mod a -> Mod (map_arith_lit_or_vars a ~f)
   | Sub a -> Sub (map_arith_lit_or_vars a ~f)
+  | Alloca a -> Alloca (map_alloca_lit_or_vars a ~f)
   | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
   | Move (var, b) -> Move (var, f b)
@@ -449,6 +473,7 @@ let call_blocks = function
   | Mod _
   | Sub _
   | Move _
+  | Alloca _
   | Unreachable
   | Noop
   | Return _ -> []
