@@ -88,6 +88,22 @@ end:
         (Branch (Uncond ((block end) (args ()))))))
       (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4)))))) (end (Unreachable)))
      (%root a b end))
+|}]
+;;
+
+let%expect_test "alloca parses" =
+  {|
+mov %len, 8
+alloca %ptr, 16
+alloca %dyn, %len
+ret %ptr
+|}
+  |> test;
+  [%expect {|
+    (((%root
+       ((Move len (Lit 8)) (Alloca ((dest ptr) (size (Lit 16))))
+        (Alloca ((dest dyn) (size (Var len)))) (Return (Var ptr)))))
+     (%root))
     |}]
 ;;
 

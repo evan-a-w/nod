@@ -15,6 +15,7 @@ let add_block_args =
     | Or _
     | Mul _
     | Div _
+    | Alloca _
     | Load _
     | Store _
     | Mod _
@@ -46,6 +47,7 @@ let remove_block_args =
     | Or _
     | Mul _
     | Div _
+    | Alloca _
     | Load _
     | Store _
     | Mod _

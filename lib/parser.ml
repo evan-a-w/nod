@@ -128,6 +128,11 @@ let instr' = function
   | "mod" ->
     let%map a = arith () in
     Ir.mod_ a
+  | "alloca" ->
+    let%bind dest = var () in
+    let%bind (_ : Pos.t) = comma () in
+    let%map size = lit_or_var () in
+    Ir.alloca { dest; size }
   | "mov" | "move" ->
     let%bind dest = var () in
     let%bind (_ : Pos.t) = comma () in
