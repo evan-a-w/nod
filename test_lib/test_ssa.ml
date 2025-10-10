@@ -8,7 +8,7 @@ let test ?don't_opt s =
   |> Result.map ~f:Cfg.process
   |> Result.map ~f:Ssa.create
   |> function
-  | Error e -> Test_parser.print_error e
+  | Error e -> Parser.error_to_string e |> print_endline
   | Ok ssa ->
     let go (ssa : Ssa.t) =
       Vec.iter ssa.in_order ~f:(fun block ->

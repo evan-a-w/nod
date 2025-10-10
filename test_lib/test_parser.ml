@@ -1,41 +1,12 @@
 open! Core
 open! Nod
 
-type error =
-  [ `Duplicate_label of string
-  | `Expected_digit of char
-  | `Unexpected_character of char
-  | `Unexpected_end_of_input
-  | `Unexpected_eof_in_comment
-  | `Unexpected_token of Token.t * Pos.t
-  | `Unknown_instruction of string
-  ]
-
-let print_error = function
-  | `Duplicate_label s -> Printf.printf "Error: duplicate label '%s'\n" s
-  | `Expected_digit c ->
-    Printf.printf "Error: expected a digit but got '%c'\n" c
-  | `Unexpected_character c ->
-    Printf.printf "Error: unexpected character '%c'\n" c
-  | `Unexpected_end_of_input -> Printf.printf "Error: unexpected end of input\n"
-  | `Unexpected_eof_in_comment ->
-    Printf.printf "Error: unexpected EOF in comment\n"
-  | `Unexpected_token (tok, pos) ->
-    Printf.printf
-      "Error: unexpected token %s at %s\n"
-      (Token.to_string tok)
-      (Pos.to_string pos)
-  | `Unknown_instruction s ->
-    Printf.printf "Error: unknown instruction '%s'\n" s
-;;
-
 let test s =
   s
   |> Parser.parse_string
   |> function
-  | Error e -> print_error e
-  | Ok blocks ->
-    print_s [%sexp (blocks : string Ir0.t Vec.t String.Map.t * string Vec.t)]
+  | Error e -> Parser.error_to_string e |> print_endline
+  | Ok output -> print_s [%sexp (output : Parser.output)]
 ;;
 
 let%expect_test "simple" =
@@ -46,8 +17,7 @@ a:
 add %a, 1, 2
 b:
 add %a, %a, 4
-|}
-  |> test;
+|} |> test;
   [%expect
     {|
     (((%root
@@ -97,9 +67,9 @@ mov %len, 8
 alloca %ptr, 16
 alloca %dyn, %len
 ret %ptr
-|}
-  |> test;
-  [%expect {|
+|} |> test;
+  [%expect
+    {|
     (((%root
        ((Move len (Lit 8)) (Alloca ((dest ptr) (size (Lit 16))))
         (Alloca ((dest dyn) (size (Var len)))) (Return (Var ptr)))))

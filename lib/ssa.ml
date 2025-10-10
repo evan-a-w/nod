@@ -372,7 +372,7 @@ let create_uninit ~in_order def_uses =
   }
 ;;
 
-let create (root, _block_by_label, in_order) =
+let create (~root, ~blocks:_, ~in_order) =
   Def_uses.create root
   |> create_uninit ~in_order
   |> calculate_dominator_tree

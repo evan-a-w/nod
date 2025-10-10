@@ -1,16 +1,25 @@
 open! Core
 open! Nod
 
+let map_function_roots ~f functions =
+  Map.map ~f:(Function.map_root ~f) functions
+;;
+
 let test s =
   s
   |> Parser.parse_string
+  |> Result.map ~f:(map_function_roots ~f:Cfg.process)
   |> function
-  | Error e -> Test_parser.print_error e
-  | Ok blocks ->
-    let _, _, blocks = Cfg.process blocks in
-    Vec.iter blocks ~f:(fun block ->
-      let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-      print_s [%message block.id_hum (instrs : Ir.t list)])
+  | Error e -> Parser.error_to_string e |> print_endline
+  | Ok fns ->
+    Map.iter
+      fns
+      ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+        Vec.iter blocks ~f:(fun block ->
+          let instrs =
+            Vec.to_list block.Block.instructions @ [ block.terminal ]
+          in
+          print_s [%message block.id_hum (instrs : Ir.t list)]))
 ;;
 
 let%expect_test "f" =
