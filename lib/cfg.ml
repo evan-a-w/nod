@@ -7,16 +7,14 @@ open! Core
 
      to an actual cfg, [Ir.t]
 *)
-let process ((instrs, labels) : string Ir0.t Vec.t String.Map.t * string Vec.t)
-  : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
-  =
+let process (~instrs_by_label, ~labels) =
   let blocks =
     Vec.map labels ~f:(fun label ->
       label, Block.create ~id_hum:label ~terminal:Ir.unreachable)
     |> Vec.to_list
     |> String.Map.of_alist_exn
   in
-  let ordered = Vec.map labels ~f:(Map.find_exn blocks) in
+  let in_order = Vec.map labels ~f:(Map.find_exn blocks) in
   Vec.iteri labels ~f:(fun i label ->
     let block = Map.find_exn blocks label in
     let found_terminal = ref false in
@@ -30,7 +28,8 @@ let process ((instrs, labels) : string Ir0.t Vec.t String.Map.t * string Vec.t)
       block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
     in
     Vec.iter
-      (Map.find instrs label |> Option.value_or_thunk ~default:Vec.create)
+      (Map.find instrs_by_label label
+       |> Option.value_or_thunk ~default:Vec.create)
       ~f:(fun instr ->
         if !found_terminal
         then ()
@@ -45,26 +44,25 @@ let process ((instrs, labels) : string Ir0.t Vec.t String.Map.t * string Vec.t)
       match Vec.get_opt labels (i + 1) with
       | None -> add_terminal Ir.unreachable
       | Some block' -> add_terminal (Ir.jump_to block')));
-  Map.find_exn blocks (Vec.get labels 0), blocks, ordered
+  ~root:(Map.find_exn blocks (Vec.get labels 0)), ~blocks, ~in_order
 ;;
 
 let process'
   ~is_label
   ~add_fall_through_to_terminal
   (instrs : string Ir0.t Vec.t)
-  : Ir.Block.t * Ir.Block.t String.Map.t * Ir.Block.t Vec.t
   =
-  let blocks = Vec.create () in
+  let labels = Vec.create () in
   let label_n = ref 0 in
   let curr_label = ref "%root" in
   let curr_instrs = Vec.create () in
-  let instrs_by_block = ref String.Map.empty in
+  let instrs_by_label = ref String.Map.empty in
   let new_block new_label =
     let new_instrs = Vec.create () in
-    instrs_by_block
-    := Map.add_exn !instrs_by_block ~key:!curr_label ~data:new_instrs;
+    instrs_by_label
+    := Map.add_exn !instrs_by_label ~key:!curr_label ~data:new_instrs;
     Vec.switch curr_instrs new_instrs;
-    Vec.push blocks !curr_label;
+    Vec.push labels !curr_label;
     curr_label := new_label
   in
   Vec.iter instrs ~f:(fun instr ->
@@ -86,5 +84,6 @@ let process'
       incr label_n;
       new_block new_label)
     else Vec.push curr_instrs instr);
-  process (!instrs_by_block, blocks)
+  let instrs_by_label = !instrs_by_label in
+  process (~instrs_by_label, ~labels)
 ;;

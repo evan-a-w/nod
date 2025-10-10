@@ -93,26 +93,20 @@ module Make (Token : Token_intf.S) = struct
   let until_inc f = until f >> skip 1
   let until_inc_token tok = until_inc (Token.equal tok)
 
-  let delimited0 ~delimiter p =
-    let rec loop acc =
-      let%bind x = p in
-      match%bind delimiter with
-      | None -> return (List.rev (x :: acc))
-      | Some _ -> loop (x :: acc)
+  let delimited0
+    ~(delimiter : (_, 'pos, 'state, 'err) parser)
+    (p : ('res, 'pos, 'state, 'err) parser)
+    state
+    =
+    let rec loop acc state =
+      match p state with
+      | Error _ -> Ok (acc, state)
+      | Ok x ->
+        (match delimiter state with
+         | Error _ -> Ok (List.rev (x :: acc), state)
+         | Ok _ -> loop (x :: acc) state)
     in
-    loop []
-  ;;
-
-  let delimited1 ~delimiter p =
-    let%bind first = p in
-    let rec loop acc =
-      match%bind delimiter with
-      | None -> return (List.rev acc)
-      | Some _ ->
-        let%bind x = p in
-        loop (x :: acc)
-    in
-    loop [ first ]
+    loop [] state
   ;;
 
   let many p state =

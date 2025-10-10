@@ -3,16 +3,57 @@ open Parser_core
 module Parser_comb = Parser_comb.Make (Token)
 open Parser_comb
 
+type unprocessed_cfg =
+  instrs_by_label:string Ir0.t Vec.t Core.String.Map.t * labels:string Vec.t
+[@@deriving sexp]
+
+type error =
+  [ `Duplicate_label of string
+  | `Expected_digit of char
+  | `Unexpected_character of char
+  | `Unexpected_end_of_input
+  | `Unexpected_eof_in_comment
+  | `Unexpected_token of Token.t * Pos.t
+  | `Unknown_instruction of string
+  | `Choices of error list
+  ]
+
+type output = unprocessed_cfg Function0.t' String.Map.t [@@deriving sexp]
+
+let rec error_to_string : error -> string = function
+  | `Duplicate_label s -> Printf.sprintf "Error: duplicate label '%s'\n" s
+  | `Expected_digit c ->
+    Printf.sprintf "Error: expected a digit but got '%c'\n" c
+  | `Unexpected_character c ->
+    Printf.sprintf "Error: unexpected character '%c'\n" c
+  | `Unexpected_end_of_input ->
+    Printf.sprintf "Error: unexpected end of input\n"
+  | `Unexpected_eof_in_comment ->
+    Printf.sprintf "Error: unexpected EOF in comment\n"
+  | `Unexpected_token (tok, pos) ->
+    Printf.sprintf
+      "Error: unexpected token %s at %s\n"
+      (Token.to_string tok)
+      (Pos.to_string pos)
+  | `Unknown_instruction s ->
+    Printf.sprintf "Error: unknown instruction '%s'\n" s
+  | `Choices [ error ] -> error_to_string error
+  | `Choices l ->
+    Printf.sprintf
+      "Error: errors in choices `%s`\n"
+      (String.concat (List.map l ~f:error_to_string) ~sep:", ")
+;;
+
 module State = struct
   type t =
-    { blocks : string Ir0.t Vec.t String.Map.t
+    { instrs_by_label : string Ir0.t Vec.t String.Map.t
     ; labels : string Vec.t
     ; current_block : string
     ; current_instrs : string Ir0.t Vec.t
     }
 
   let create () =
-    { blocks = String.Map.empty
+    { instrs_by_label = String.Map.empty
     ; labels = Vec.create ()
     ; current_block = "%root"
     ; current_instrs = Vec.create ()
@@ -59,7 +100,7 @@ let lit_or_var_or_ident () =
 let seen_label ~label =
   let%bind state = get_state () in
   let%bind () =
-    if Map.mem state.State.blocks label
+    if Map.mem state.State.instrs_by_label label
     then fail (`Duplicate_label label)
     else return ()
   in
@@ -69,11 +110,13 @@ let seen_label ~label =
     Vec.push state.State.labels state.current_block;
     let vec = Vec.create () in
     let%bind state =
-      match Map.add state.State.blocks ~key:state.current_block ~data:vec with
+      match
+        Map.add state.State.instrs_by_label ~key:state.current_block ~data:vec
+      with
       | `Duplicate -> fail (`Duplicate_label state.current_block)
-      | `Ok blocks ->
+      | `Ok instrs_by_label ->
         Vec.switch vec state.current_instrs;
-        return { state with blocks; current_block = label }
+        return { state with instrs_by_label; current_block = label }
     in
     set_state state)
 ;;
@@ -155,10 +198,10 @@ let rec instr () =
   | Some _ | None -> instr' instr_or_label
 ;;
 
-let parser () =
+let instructions_parser () =
   let rec go () =
     match%bind peek () with
-    | None -> return ()
+    | None | Some (Token.R_brace, _) -> return ()
     | Some _ ->
       let%bind i = instr () in
       let%bind state = get_state () in
@@ -168,7 +211,43 @@ let parser () =
   let%bind () = go () in
   let%bind () = seen_label ~label:"" in
   let%map state = get_state () in
-  state.State.blocks, state.labels
+  state.State.instrs_by_label, state.labels
+;;
+
+let function_parser () =
+  let%bind name = ident () in
+  let%bind (_ : Pos.t) = expect Token.L_paren in
+  let%bind args = delimited0 ~delimiter:(expect Token.Comma) (ident ()) in
+  let%bind (_ : Pos.t) = expect Token.R_paren in
+  let%bind instrs_by_label, labels = instructions_parser () in
+  let%map (_ : Pos.t) = expect Token.R_brace in
+  { Function.name
+  ; args = List.map args ~f:fst
+  ; call_conv = Default
+  ; root = ~instrs_by_label, ~labels
+  }
+;;
+
+let assume_root () =
+  (* just so I don't need to migrate tests rn *)
+  let%map instrs_by_label, labels = instructions_parser () in
+  String.Map.of_list_with_key_exn
+    ~get_key:Function.name
+    [ { Function.name = "root"
+      ; call_conv = Default
+      ; root = ~instrs_by_label, ~labels
+      ; args = []
+      }
+    ]
+;;
+
+let program_parser () =
+  many (function_parser ())
+  >>| String.Map.of_list_with_key_exn ~get_key:Function.name
+;;
+
+let parser () : (output, Pos.t, State.t, _) Parser_comb.parser =
+  program_parser () <|> assume_root ()
 ;;
 
 let parse_string s =

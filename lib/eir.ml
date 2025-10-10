@@ -444,19 +444,29 @@ module Opt = struct
   ;;
 end
 
-let optimize ?(opt_flags = Opt_flags.default) ssa =
+let map_function_roots ~f functions =
+  Map.map ~f:(Function.map_root ~f) functions
+;;
+
+let optimize_root ?(opt_flags = Opt_flags.default) ssa =
   let opt_state = Opt.create ~opt_flags ssa in
   Opt.run opt_state
+;;
+
+let optimize ?opt_flags functions =
+  Map.iter
+    ~f:(fun ({ root; _ } : _ Function.t') -> optimize_root ?opt_flags root)
+    functions
 ;;
 
 let compile ?opt_flags s =
   match
     Parser.parse_string s
-    |> Result.map ~f:Cfg.process
-    |> Result.map ~f:Ssa.create
+    |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+    |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   with
   | Error _ as e -> e
-  | Ok ssa ->
-    optimize ?opt_flags ssa;
-    Ok (Ssa.root ssa)
+  | Ok functions ->
+    optimize ?opt_flags functions;
+    Ok (map_function_roots ~f:Ssa.root functions)
 ;;
