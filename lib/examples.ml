@@ -6,7 +6,7 @@ module Textual = struct
 a:
   mov %x, 10
 
-  mov %y, 20
+/e mov %y, 20
 
   sub %z, %y, %x
 

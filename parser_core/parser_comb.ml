@@ -101,10 +101,10 @@ module Make (Token : Token_intf.S) = struct
     let rec loop acc state =
       match p state with
       | Error _ -> Ok (acc, state)
-      | Ok x ->
+      | Ok (x, state) ->
         (match delimiter state with
          | Error _ -> Ok (List.rev (x :: acc), state)
-         | Ok _ -> loop (x :: acc) state)
+         | Ok (_, state) -> loop (x :: acc) state)
     in
     loop [] state
   ;;

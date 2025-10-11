@@ -218,15 +218,12 @@ let instructions_parser () =
 let function_parser () =
   let%bind name = ident () in
   let%bind (_ : Pos.t) = expect Token.L_paren in
-  let%bind args = delimited0 ~delimiter:(expect Token.Comma) (ident ()) in
+  let%bind args = delimited0 ~delimiter:(expect Token.Comma) (var ()) in
   let%bind (_ : Pos.t) = expect Token.R_paren in
+  let%bind (_ : Pos.t) = expect Token.L_brace in
   let%bind instrs_by_label, labels = instructions_parser () in
   let%map (_ : Pos.t) = expect Token.R_brace in
-  { Function.name
-  ; args = List.map args ~f:fst
-  ; call_conv = Default
-  ; root = ~instrs_by_label, ~labels
-  }
+  { Function.name; args; call_conv = Default; root = ~instrs_by_label, ~labels }
 ;;
 
 let assume_root () =

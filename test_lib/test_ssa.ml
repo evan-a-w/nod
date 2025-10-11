@@ -29,6 +29,10 @@ let test ?don't_opt s =
        go fns)
 ;;
 
+let%expect_test "funs" =
+  test {| a(%x, %y, %z) {add %a, %x, %y add %a, %a, %z return %a} |}
+;;
+
 let%expect_test "fib" =
   test Examples.Textual.fib;
   [%expect
