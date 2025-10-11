@@ -126,15 +126,16 @@ module Def_uses = struct
   [@@deriving fields]
 
   let update_def_uses t ~block =
+    let update tbl x =
+      Hash_set.add t.vars x;
+      Hash_set.add
+        (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
+        block
+    in
+    Vec.iter block.Block.args ~f:(update t.defs);
     Vec.iter (Block.instructions block) ~f:(fun instr ->
       let uses = Ir.uses instr in
       let defs = Ir.defs instr in
-      let update tbl x =
-        Hash_set.add t.vars x;
-        Hash_set.add
-          (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
-          block
-      in
       List.iter uses ~f:(update t.uses);
       List.iter defs ~f:(update t.defs))
   ;;

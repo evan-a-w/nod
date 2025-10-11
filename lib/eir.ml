@@ -448,6 +448,13 @@ let map_function_roots ~f functions =
   Map.map ~f:(Function.map_root ~f) functions
 ;;
 
+let set_entry_block_args functions =
+  Map.iter functions ~f:(fun { Function.root = root_data; args; _ } ->
+    let ~root:block, ~blocks:_, ~in_order:_ = root_data in
+    List.iter args ~f:(Vec.push block.Block.args));
+  functions
+;;
+
 let optimize_root ?(opt_flags = Opt_flags.default) ssa =
   let opt_state = Opt.create ~opt_flags ssa in
   Opt.run opt_state
@@ -463,6 +470,7 @@ let compile ?opt_flags s =
   match
     Parser.parse_string s
     |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+    |> Result.map ~f:set_entry_block_args
     |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   with
   | Error _ as e -> e
