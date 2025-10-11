@@ -195,11 +195,9 @@ let tokens ~file s =
 ;;
 
 let%expect_test "tokens" =
-  let s =
-    {|let x = 123 25.05
+  let s = {|let x = 123 25.05
 in x {} :  (* a
-b c *) "hi there \""  |}
-  in
+b c *) "hi there \""  |} in
   (match tokens ~file:"test" s with
    | Ok tokens -> print_s [%message (tokens : (Token.t * Pos.t) list)]
    | Error _ -> ());

@@ -135,11 +135,15 @@ let _stepped3 () =
 ;;
 
 (* let () = Nod_test.Test_x86.test Nod.Examples.Textual.super_triv *)
+(* let () = *)
+(*   Nod_test.Test_x86.test *)
+(*     ~opt_flags:Eir.Opt_flags.no_opt *)
+(*     ~dump_crap:false *)
+(*     Nod.Examples.Textual.e2 *)
+(* ;; *)
+
 let () =
-  Nod_test.Test_x86.test
-    ~opt_flags:Eir.Opt_flags.no_opt
-    ~dump_crap:false
-    Nod.Examples.Textual.e2
+  Test_ssa.test {| a(%x, %y, %z) {add %a, %x, %y add %a, %a, %z return %a} |}
 ;;
 
 (* stepped3 () *)
