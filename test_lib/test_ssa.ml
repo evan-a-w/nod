@@ -6,6 +6,7 @@ let test ?don't_opt s =
   print_endline "=================================";
   Parser.parse_string s
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:Eir.set_entry_block_args
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
   |> function
   | Error e -> Parser.error_to_string e |> print_endline
@@ -30,7 +31,42 @@ let test ?don't_opt s =
 ;;
 
 let%expect_test "funs" =
-  test {| a(%x, %y, %z) {add %a, %x, %y add %a, %a, %z return %a} |}
+  test {| a(%x, %y, %z) {add %a, %x, %y add %a, %a, %z return %a} |};
+  [%expect
+    {|
+    (%root
+     (instrs
+      ((Add ((dest a) (src1 (Var x)) (src2 (Var y))))
+       (Add ((dest a) (src1 (Var a)) (src2 (Var z)))) (Return (Var a)))))
+    =================================
+    (%root (args (x y z))
+     (instrs
+      ((Add ((dest a) (src1 (Var x)) (src2 (Var y))))
+       (Add ((dest a%0) (src1 (Var a)) (src2 (Var z)))) (Return (Var a%0)))))
+    ******************************
+    (%root (args (x y z))
+     (instrs
+      ((Add ((dest a) (src1 (Var x)) (src2 (Var y))))
+       (Add ((dest a%0) (src1 (Var a)) (src2 (Var z)))) (Return (Var a%0)))))
+    |}]
+;;
+
+let%expect_test "eir compile with args" =
+  match Eir.compile {| a(%x, %y) {add %z, %x, %y return %z} |} with
+  | Error e -> Parser.error_to_string e |> print_endline
+  | Ok fns ->
+    Map.iter fns ~f:(fun { Function.root = block; _ } ->
+      let instrs = Vec.to_list block.Block.instructions @ [ block.terminal ] in
+      print_s
+        [%message
+          block.Block.id_hum
+            ~args:(block.Block.args : string Vec.t)
+            (instrs : Ir.t list)]);
+    [%expect
+      {|
+    (%root (args (x y))
+     (instrs ((Add ((dest z) (src1 (Var x)) (src2 (Var y)))) (Return (Var z)))))
+    |}]
 ;;
 
 let%expect_test "fib" =
