@@ -20,14 +20,19 @@ add %a, %a, 4
 |} |> test;
   [%expect
     {|
-    (((%root
-       ((Move a (Lit 3))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block a) (args ())))
-          (if_false ((block b) (args ())))))))
-      (a ((Add ((dest a) (src1 (Lit 1)) (src2 (Lit 2))))))
-      (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4)))))))
-     (%root a b))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move a (Lit 3))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block a) (args ())))
+               (if_false ((block b) (args ())))))))
+           (a ((Add ((dest a) (src1 (Lit 1)) (src2 (Lit 2))))))
+           (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4))))))))
+         (~labels (%root a b))))
+       (args ()) (name root))))
     |}]
 ;;
 
@@ -48,17 +53,23 @@ end:
   |> test;
   [%expect
     {|
-    (((%root
-       ((Move a (Lit 3))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block a) (args ())))
-          (if_false ((block b) (args ())))))))
-      (a
-       ((Add ((dest a) (src1 (Lit 1)) (src2 (Lit 2))))
-        (Branch (Uncond ((block end) (args ()))))))
-      (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4)))))) (end (Unreachable)))
-     (%root a b end))
-|}]
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move a (Lit 3))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block a) (args ())))
+               (if_false ((block b) (args ())))))))
+           (a
+            ((Add ((dest a) (src1 (Lit 1)) (src2 (Lit 2))))
+             (Branch (Uncond ((block end) (args ()))))))
+           (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4))))))
+           (end (Unreachable))))
+         (~labels (%root a b end))))
+       (args ()) (name root))))
+    |}]
 ;;
 
 let%expect_test "alloca parses" =
@@ -70,10 +81,15 @@ ret %ptr
 |} |> test;
   [%expect
     {|
-    (((%root
-       ((Move len (Lit 8)) (Alloca ((dest ptr) (size (Lit 16))))
-        (Alloca ((dest dyn) (size (Var len)))) (Return (Var ptr)))))
-     (%root))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move len (Lit 8)) (Alloca ((dest ptr) (size (Lit 16))))
+             (Alloca ((dest dyn) (size (Var len)))) (Return (Var ptr))))))
+         (~labels (%root))))
+       (args ()) (name root))))
     |}]
 ;;
 
@@ -109,24 +125,29 @@ let%expect_test "all examples" =
       ret %z
 
     =================================
-    (((a
-       ((Move x (Lit 10)) (Move y (Lit 20))
-        (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block b) (args ())))
-          (if_false ((block c) (args ())))))))
-      (b
-       ((Add ((dest z) (src1 (Var z)) (src2 (Lit 5))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (c
-       ((Move z (Lit 0))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (end ((Return (Var z)))))
-     (a b c end))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((a
+            ((Move x (Lit 10)) (Move y (Lit 20))
+             (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block b) (args ())))
+               (if_false ((block c) (args ())))))))
+           (b
+            ((Add ((dest z) (src1 (Var z)) (src2 (Lit 5))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (c
+            ((Move z (Lit 0))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (end ((Return (Var z))))))
+         (~labels (a b c end))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -149,19 +170,24 @@ let%expect_test "all examples" =
       unreachable
 
     =================================
-    (((%root
-       ((Move a (Lit 4)) (Move b (Lit 5))
-        (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block divide) (args ())))
-          (if_false ((block end) (args ())))))))
-      (divide
-       ((Div ((dest c) (src1 (Var c)) (src2 (Lit 2))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (end (Unreachable)))
-     (%root divide end))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move a (Lit 4)) (Move b (Lit 5))
+             (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block divide) (args ())))
+               (if_false ((block end) (args ())))))))
+           (divide
+            ((Div ((dest c) (src1 (Var c)) (src2 (Lit 2))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (end (Unreachable))))
+         (~labels (%root divide end))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -182,11 +208,16 @@ let%expect_test "all examples" =
       unreachable
 
     =================================
-    (((entry
-       ((Move a (Lit 100)) (Move b (Lit 6))
-        (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-        (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
-     (entry))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((entry
+            ((Move a (Lit 100)) (Move b (Lit 6))
+             (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
+             (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable))))
+         (~labels (entry))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -216,20 +247,25 @@ let%expect_test "all examples" =
       unreachable
 
     =================================
-    (((%root
-       ((Move i (Lit 0)) (Move sum (Lit 0))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block loop) (args ())))
-          (if_false ((block loop) (args ())))))))
-      (end (Unreachable))
-      (loop
-       ((Add ((dest sum) (src1 (Var sum)) (src2 (Var i))))
-        (Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
-        (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i))))
-        (Branch
-         (Cond (cond (Var cond)) (if_true ((block loop) (args ())))
-          (if_false ((block end) (args ()))))))))
-     (%root loop end))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move i (Lit 0)) (Move sum (Lit 0))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block loop) (args ())))
+               (if_false ((block loop) (args ())))))))
+           (end (Unreachable))
+           (loop
+            ((Add ((dest sum) (src1 (Var sum)) (src2 (Var i))))
+             (Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
+             (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i))))
+             (Branch
+              (Cond (cond (Var cond)) (if_true ((block loop) (args ())))
+               (if_false ((block end) (args ())))))))))
+         (~labels (%root loop end))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -262,26 +298,31 @@ let%expect_test "all examples" =
       unreachable
 
     =================================
-    (((end (Unreachable))
-      (ifFalse
-       ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (ifTrue
-       ((Move x (Lit 999))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (start
-       ((Move x (Lit 7)) (Move y (Lit 2))
-        (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
-        (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
-        (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
-        (Branch
-         (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
-          (if_false ((block ifFalse) (args ()))))))))
-     (start ifTrue ifFalse end))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((end (Unreachable))
+           (ifFalse
+            ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (ifTrue
+            ((Move x (Lit 999))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (start
+            ((Move x (Lit 7)) (Move y (Lit 2))
+             (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
+             (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+             (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+             (Branch
+              (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
+               (if_false ((block ifFalse) (args ())))))))))
+         (~labels (start ifTrue ifFalse end))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -302,11 +343,17 @@ let%expect_test "all examples" =
       return %res
 
     =================================
-    (((entry
-       ((Move a (Lit 100)) (Move b (Lit 6))
-        (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-        (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res)))))
-     (entry))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((entry
+            ((Move a (Lit 100)) (Move b (Lit 6))
+             (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
+             (Add ((dest res) (src1 (Var res)) (src2 (Lit 1))))
+             (Return (Var res))))))
+         (~labels (entry))))
+       (args ()) (name root))))
     ---------------------------------
     ---------------------------------
 
@@ -339,26 +386,31 @@ let%expect_test "all examples" =
       return %x
 
     =================================
-    (((end ((Return (Var x))))
-      (ifFalse
-       ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (ifTrue
-       ((Move x (Lit 999))
-        (Branch
-         (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
-          (if_false ((block end) (args ())))))))
-      (start
-       ((Move x (Lit 7)) (Move y (Lit 2))
-        (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
-        (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
-        (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
-        (Branch
-         (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
-          (if_false ((block ifFalse) (args ()))))))))
-     (start ifTrue ifFalse end))
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((end ((Return (Var x))))
+           (ifFalse
+            ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (ifTrue
+            ((Move x (Lit 999))
+             (Branch
+              (Cond (cond (Lit 1)) (if_true ((block end) (args ())))
+               (if_false ((block end) (args ())))))))
+           (start
+            ((Move x (Lit 7)) (Move y (Lit 2))
+             (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
+             (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
+             (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+             (Branch
+              (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
+               (if_false ((block ifFalse) (args ())))))))))
+         (~labels (start ifTrue ifFalse end))))
+       (args ()) (name root))))
     ---------------------------------
     |}]
 ;;
