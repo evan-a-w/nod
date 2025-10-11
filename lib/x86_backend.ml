@@ -828,7 +828,6 @@ module Regalloc = struct
   ;;
 
   let run ?(dump_crap = false) root =
-    if dump_crap then Block.print_verbose root;
     let reg_numbering = Reg_numbering.create root in
     let liveness_state = Liveness_state.create ~reg_numbering root in
     let interference_graph =
@@ -851,6 +850,10 @@ module Regalloc = struct
   ;;
 end
 
-let compile ?dump_crap block =
-  Out_of_ssa.process block |> Regalloc.run ?dump_crap
+let compile ?dump_crap (functions : Function.t String.Map.t) =
+  Map.map
+    functions
+    ~f:
+      (Function.map_root ~f:(fun block ->
+         Out_of_ssa.process block |> Regalloc.run ?dump_crap))
 ;;

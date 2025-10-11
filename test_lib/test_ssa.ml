@@ -5,25 +5,28 @@ let test ?don't_opt s =
   Test_cfg.test s;
   print_endline "=================================";
   Parser.parse_string s
-  |> Result.map ~f:Cfg.process
-  |> Result.map ~f:Ssa.create
+  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
   |> function
   | Error e -> Parser.error_to_string e |> print_endline
-  | Ok ssa ->
-    let go (ssa : Ssa.t) =
-      Vec.iter ssa.in_order ~f:(fun block ->
-        let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-        print_s
-          [%message
-            block.id_hum ~args:(block.args : string Vec.t) (instrs : Ir.t list)])
+  | Ok fns ->
+    let go fns =
+      Map.iter fns ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+        Vec.iter ssa.in_order ~f:(fun block ->
+          let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+          print_s
+            [%message
+              block.id_hum
+                ~args:(block.args : string Vec.t)
+                (instrs : Ir.t list)]))
     in
-    go ssa;
+    go fns;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize ssa;
-       go ssa)
+       Eir.optimize fns;
+       go fns)
 ;;
 
 let%expect_test "fib" =

@@ -119,6 +119,13 @@ module Make (Token : Token_intf.S) = struct
     Ok (List.rev res, state')
   ;;
 
+  let exhaust p state =
+    match many p state with
+    | Error _ as e -> e
+    | Ok (_, ([], _)) as r -> r
+    | Ok (_, (a :: _, _)) -> Error (`Unexpected_token a)
+  ;;
+
   let choice
     :  ('res, 'pos, 'state, 'err) parser list
     -> ('res, 'pos, 'state, 'err) parser

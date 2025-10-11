@@ -11,3 +11,5 @@ type 'block t' =
 let map_root { name; root; call_conv; args } ~f =
   { name; call_conv; root = f root; args }
 ;;
+
+let iter_root { root; name = _; call_conv = _; args = _ } ~f = f root

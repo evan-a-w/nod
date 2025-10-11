@@ -89,14 +89,14 @@ let iter_instructions t ~f =
     f block.terminal)
 ;;
 
-let print_verbose root =
+let to_sexp_verbose root =
   let ts = Vec.create () in
   iter root ~f:(fun t ->
     let instrs = Vec.to_list t.instructions @ [ t.terminal ] in
     Vec.push
       ts
       [%message t.id_hum ~args:(t.args : string Vec.t) (instrs : t Ir0.t list)]);
-  print_s [%sexp (ts : Sexp.t Vec.t)]
+  [%sexp (ts : Sexp.t Vec.t)]
 ;;
 
 module Pair = struct
