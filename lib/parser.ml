@@ -19,7 +19,8 @@ type error =
   | `Choices of error list
   ]
 
-type output = unprocessed_cfg Function0.t' String.Map.t [@@deriving sexp]
+type output = (unprocessed_cfg, unit) Function0.t' String.Map.t
+[@@deriving sexp]
 
 let rec error_to_string : error -> string = function
   | `Duplicate_label s -> Printf.sprintf "Error: duplicate label '%s'\n" s
@@ -223,7 +224,12 @@ let function_parser () =
   let%bind (_ : Pos.t) = expect Token.L_brace in
   let%bind instrs_by_label, labels = instructions_parser () in
   let%map (_ : Pos.t) = expect Token.R_brace in
-  { Function.name; args; call_conv = Default; root = ~instrs_by_label, ~labels }
+  { Function.name
+  ; args
+  ; call_conv = Default
+  ; root = ~instrs_by_label, ~labels
+  ; extra = ()
+  }
 ;;
 
 let assume_root () =
@@ -235,6 +241,7 @@ let assume_root () =
       ; call_conv = Default
       ; root = ~instrs_by_label, ~labels
       ; args = []
+      ; extra = ()
       }
     ]
 ;;
