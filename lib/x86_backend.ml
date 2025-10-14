@@ -850,7 +850,7 @@ module Regalloc = struct
   ;;
 end
 
-let compile ?dump_crap (functions : unit Function.t String.Map.t) =
+let compile ?dump_crap (functions : Function.t String.Map.t) =
   Map.map
     functions
     ~f:
