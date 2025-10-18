@@ -259,9 +259,9 @@ ret %dyn
       (root
        ((%root (args ())
          (instrs
-          ((X86 (MOV (Reg R15) (Imm 24))) (X86 (MOV (Reg R14) (Reg RSP)))
-           (X86 (SUB (Reg RSP) (Imm 16))) (X86 (MOV (Reg R14) (Reg RSP)))
-           (X86 (SUB (Reg RSP) (Reg R15))) (X86_terminal ((RET (Reg R14)))))))))
+          ((X86 (MOV (Reg R15) (Imm 24))) (X86 (ALLOCA (Reg R14) 16))
+           (X86 (MOV (Reg R14) (Reg RSP))) (X86 (SUB (Reg RSP) (Reg R15)))
+           (X86_terminal ((RET (Reg R14)))))))))
       (args ()) (name root)))
     |}]
 ;;
