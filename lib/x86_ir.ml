@@ -24,10 +24,10 @@ module Reg = struct
   [@@deriving sexp, equal, compare, hash, variants]
 
   let integer_arguments = [ RDI; RSI; RDX; RCX; R8; R9 ]
-  let integer_results = [ RDI; RSI; RDX; RCX; R8; R9 ]
+  let integer_results = [ RAX; RDX ]
 
   (* let float_arguments = [ XMM0; XMM1; XMM2; XMM3; XMM4; XMM5; XMM6; XMM7 ] *)
-  (* let float_results = [] *)
+  (* let float_results = [ XMM0; XMM1 ] *)
   let num_physical = List.length Variants.descriptions - 2
 
   let all_physical =
