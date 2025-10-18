@@ -13,7 +13,11 @@ let new_name map v =
   v'
 ;;
 
-let ir_to_x86_ir ~var_names (ir : Ir.t) =
+(* CR ewilliams: This should lookup smth *)
+let call_conv ~fn:_ = Call_conv.Default
+
+let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
+  assert (Call_conv.(equal this_call_conv default));
   let operand_of_lit_or_var (lit_or_var : Ir.Lit_or_var.t) =
     match lit_or_var with
     | Lit l -> Imm l
@@ -70,6 +74,7 @@ let ir_to_x86_ir ~var_names (ir : Ir.t) =
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
+    assert (Call_conv.(equal (call_conv ~fn) default));
     [ CALL
         { fn
         ; results = List.map results ~f:Reg.unallocated
@@ -95,8 +100,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Branch _ | Return _ | Unreachable
-  | Call _ -> None
+  | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
 let replace_true_terminal (x86_block : Block.t) new_true_terminal =
@@ -111,8 +115,7 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Branch _ | Return _ | Unreachable
-  | Call _ -> ()
+  | Branch _ | Return _ | Unreachable | Call _ -> ()
 ;;
 
 module Out_of_ssa = struct
@@ -155,9 +158,9 @@ module Out_of_ssa = struct
     { Call_block.block; args = to_call_block.args }
   ;;
 
-  let simple_translation_to_x86_ir t =
+  let simple_translation_to_x86_ir ~this_call_conv t =
     let ir_to_x86_ir ir =
-      let res = ir_to_x86_ir ~var_names:t.var_names ir in
+      let res = ir_to_x86_ir ~this_call_conv ~var_names:t.var_names ir in
       List.iter res ~f:(fun ir ->
         List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
       res
@@ -269,15 +272,15 @@ module Out_of_ssa = struct
              (* [block.insert_phi_moves] should be false *)
              failwith "bug"
              (* both of these tag things should prob be handled *)
-          | Tag_use _ | Tag_def _ | NOOP
-          | AND (_, _)
-          | OR (_, _)
-          | MOV (_, _)
-          | ADD (_, _)
-          | SUB (_, _)
-          | IMUL _ | IDIV _ | MOD _ | LABEL _
-          | CMP (_, _)
-          | CALL _ -> ())));
+           | Tag_use _ | Tag_def _ | NOOP
+           | AND (_, _)
+           | OR (_, _)
+           | MOV (_, _)
+           | ADD (_, _)
+           | SUB (_, _)
+           | IMUL _ | IDIV _ | MOD _ | LABEL _
+           | CMP (_, _)
+           | CALL _ -> ())));
     t
   ;;
 
@@ -287,10 +290,10 @@ module Out_of_ssa = struct
     t
   ;;
 
-  let process block =
+  let process ~this_call_conv block =
     block
     |> create
-    |> simple_translation_to_x86_ir
+    |> simple_translation_to_x86_ir ~this_call_conv
     |> split_blocks
     |> insert_par_moves
     |> remove_call_block_args
@@ -862,9 +865,8 @@ module Regalloc = struct
 end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
-  Map.map
-    functions
-    ~f:
-      (Function.map_root ~f:(fun block ->
-         Out_of_ssa.process block |> Regalloc.run ?dump_crap))
+  Map.map functions ~f:(fun f ->
+    Function.map_root f ~f:(fun block ->
+      Out_of_ssa.process ~this_call_conv:f.call_conv block
+      |> Regalloc.run ?dump_crap))
 ;;
