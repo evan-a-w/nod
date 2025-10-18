@@ -13,7 +13,7 @@ let new_name map v =
   v'
 ;;
 
-(* CR ewilliams: This should lookup smth *)
+(* CR-soon ewilliams: This should lookup smth *)
 let call_conv ~fn:_ = Call_conv.Default
 
 let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
@@ -299,9 +299,7 @@ module Out_of_ssa = struct
                List.zip_exn (Vec.to_list cb.block.args) cb.args
              in
              Vec.append block.instructions (par_moves t ~dst_to_src)
-           | RET _ ->
-             (* CR ewilliams: need to do moves for this actually *)
-             ()
+           | RET _ -> ()
            | JNE _ | JE _ ->
              (* [block.insert_phi_moves] should be false *)
              failwith "bug"
@@ -332,8 +330,16 @@ module Out_of_ssa = struct
     |> split_blocks
     |> insert_par_moves
     |> remove_call_block_args
-    (* CR ewilliams: do stuff to get args into vars (read from stack / regs) *)
-    (* CR ewilliams: Some peephole opts to make things less absurd *)
+    (* CR ewilliams:
+       Prologue and epilogue (but keep them, we need to add more later)
+       1. do stuff to get args into vars (read from stack / regs)
+          Stack management, incl all the allocas (prob just lower them here?)
+       2. epilogue that does actual ret, make all rets jump to that
+       3. Later on, don't do this for leaf functions?
+    *)
+    (* CR-soon ewilliams: Some peephole opts to make things less absurd
+       omit pointless instructions (eg. moves to constants, moves to same reg, etc.)
+    *)
     |> root
   ;;
 end
@@ -906,7 +912,6 @@ module Regalloc = struct
     in
     if dump_crap
     then print_s [%sexp (assignments : Assignment.t String.Table.t)];
-    (* CR ewilliams: need to do prologue and epilogue for stack stuff *)
     replace_regs ~root ~assignments ~liveness_state ~reg_numbering
   ;;
 end
@@ -1018,6 +1023,10 @@ module Call_conv = struct
           |> Option.value ~default:Int64.zero
       })
   ;;
+
+  (* CR ewilliams: Save/restore before and after calls, all live regs that are clobbered
+
+     For first version, can just do all used regs that are clobbered. *)
 end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
@@ -1031,6 +1040,5 @@ let compile ?dump_crap (functions : Function.t String.Map.t) =
   in
   Map.map functions ~f:(fun (~function_, ~spill_slots_used:_) -> function_)
 ;;
-(* CR ewilliams: later omit pointless instructions (eg. moves to constants, moves to same reg, etc.)*)
 
 (* |> Call_conv.process *)
