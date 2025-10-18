@@ -93,6 +93,27 @@ ret %ptr
     |}]
 ;;
 
+let%expect_test "call parses" =
+  {|
+call foo()
+call bar(%a, 7) -> (%r0, %r1)
+ret %r0
+|} |> test;
+  [%expect
+    {|
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Call (fn foo) (results ()) (args ()))
+             (Call (fn bar) (results (r0 r1)) (args ((Var a) (Lit 7))))
+             (Return (Var r0))))))
+         (~labels (%root))))
+       (args ()) (name root))))
+    |}]
+;;
+
 let%expect_test "all examples" =
   List.iter Examples.Textual.all ~f:(fun s ->
     print_endline "---------------------------------";

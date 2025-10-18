@@ -177,6 +177,22 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%map size = lit_or_var () in
     Ir.alloca { dest; size }
+  | "call" ->
+    let%bind fn = ident () in
+    let%bind (_ : Pos.t) = expect Token.L_paren in
+    let%bind args = delimited0 ~delimiter:(expect Token.Comma) (lit_or_var ()) in
+    let%bind (_ : Pos.t) = expect Token.R_paren in
+    let%bind results =
+      match%bind peek () with
+      | Some (Token.Arrow, _) ->
+        let%bind (_ : Pos.t) = expect Token.Arrow in
+        let%bind (_ : Pos.t) = expect Token.L_paren in
+        let%bind res = delimited0 ~delimiter:(expect Token.Comma) (var ()) in
+        let%map (_ : Pos.t) = expect Token.R_paren in
+        res
+      | _ -> return []
+    in
+    return (Ir.call ~fn ~results ~args)
   | "mov" | "move" ->
     let%bind dest = var () in
     let%bind (_ : Pos.t) = comma () in
