@@ -106,13 +106,14 @@ type 'block t =
   | JNE of 'block Call_block.t * 'block Call_block.t option
   | JMP of 'block Call_block.t
   | RET of operand
+  | ALLOCA of operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
   match ins with
-  | Tag_use (_, r) | Tag_def (_, r) -> f init r
+  | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
   | MOV (dst, src)
   | AND (dst, src)
   | OR (dst, src)
@@ -152,6 +153,7 @@ let map_var_operand op ~f =
 
 let rec map_var_operands ins ~f =
   match ins with
+  | ALLOCA (a, b) -> ALLOCA (map_var_operand a ~f, b)
   | Tag_def (ins, r) -> Tag_def (map_var_operands ins ~f, map_var_operand r ~f)
   | Tag_use (ins, r) -> Tag_use (map_var_operands ins ~f, map_var_operand r ~f)
   | AND (dst, src) -> AND (map_var_operand dst ~f, map_var_operand src ~f)
@@ -238,8 +240,8 @@ let rec reg_defs ins : Reg.Set.t =
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
   | MOV (dst, _) -> regs_of_operand dst
-  | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _) ->
-    regs_of_operand dst
+  | ALLOCA (dst, _) | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _)
+    -> regs_of_operand dst
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | CALL { results; _ } -> Reg.Set.of_list results
   | PUSH _ -> Reg.Set.of_list [ Reg.RSP ]
@@ -264,7 +266,7 @@ let rec reg_uses ins : Reg.Set.t =
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
-  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
+  | ALLOCA _ | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
 let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
@@ -295,6 +297,7 @@ let rec blocks instr =
   | CALL _
   | PUSH _
   | POP _
+  | ALLOCA _
   | LABEL _ -> []
   | JMP lbl -> Call_block.blocks lbl
   | JE (lbl, next) | JNE (lbl, next) ->
@@ -303,6 +306,7 @@ let rec blocks instr =
 
 let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
+  | ALLOCA (a, b) -> ALLOCA (a, b)
   | Tag_def (ins, r) -> Tag_def (map_blocks ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_blocks ins ~f, r)
   | LABEL s -> LABEL s
@@ -336,6 +340,7 @@ let rec filter_map_call_blocks t ~f =
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | NOOP
   | MOV _
+  | ALLOCA _
   | ADD _
   | SUB _
   | IMUL _
@@ -359,6 +364,7 @@ let unreachable = NOOP
 let rec map_defs t ~f =
   let map_dst op = map_def_operand op ~f in
   match t with
+  | ALLOCA (a, b) -> ALLOCA (map_dst a, b)
   | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
   | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
   | MOV (dst, src) -> MOV (map_dst dst, src)
@@ -381,6 +387,7 @@ let rec map_uses t ~f =
   let map_op op = map_use_operand op ~f in
   let map_call_block cb = Call_block.map_uses cb ~f in
   match t with
+  | ALLOCA (a, b) -> ALLOCA (map_op a, b)
   | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
   | MOV (dst, src) -> MOV (dst, map_op src)
@@ -406,6 +413,7 @@ let rec map_uses t ~f =
 
 let rec map_operands t ~f =
   match t with
+  | ALLOCA (a, b) -> ALLOCA (f a, b)
   | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
   | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
   | MOV (dst, src) -> MOV (f dst, f src)
@@ -449,7 +457,7 @@ let rec map_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ | PUSH _ | POP _ -> t
+  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
 ;;
 
 let rec iter_call_blocks t ~f =
@@ -470,7 +478,7 @@ let rec iter_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ | PUSH _ | POP _ -> ()
+  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> ()
 ;;
 
 let rec call_blocks = function
@@ -485,7 +493,7 @@ let rec call_blocks = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ | PUSH _ | POP _ -> []
+  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
 ;;
 
 let map_lit_or_vars t ~f:_ = t
@@ -501,5 +509,5 @@ let rec is_terminal = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
-  | CALL _ | PUSH _ | POP _ -> false
+  | ALLOCA _ | CALL _ | PUSH _ | POP _ -> false
 ;;

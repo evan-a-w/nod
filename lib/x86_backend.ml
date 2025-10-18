@@ -110,9 +110,10 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
           }
       ]
     @ post_moves
-  | Alloca { dest; size } ->
+  | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
+  | Alloca { dest; size = Var v } ->
     [ mov (reg dest) (Reg Reg.RSP)
-    ; sub (Reg Reg.RSP) (operand_of_lit_or_var size)
+    ; sub (Reg Reg.RSP) (Reg (Reg.unallocated v))
     ]
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
@@ -224,7 +225,7 @@ module Out_of_ssa = struct
          | JNE (a, Some b) ->
            rep X86_ir.jne a b
            (* both of these tag things should prob be handled *)
-         | Tag_use _ | Tag_def _ | NOOP
+         | Tag_use _ | Tag_def _ | NOOP | ALLOCA _
          | AND (_, _)
          | OR (_, _)
          | MOV (_, _)
@@ -305,6 +306,7 @@ module Out_of_ssa = struct
            | AND (_, _)
            | OR (_, _)
            | MOV (_, _)
+           | ALLOCA _
            | ADD (_, _)
            | SUB (_, _)
            | IMUL _ | IDIV _ | MOD _ | LABEL _
@@ -867,7 +869,13 @@ module Regalloc = struct
       update_slots block_liveness.terminal;
       block.terminal <- map_ir block.terminal;
       prev_liveness := Some block_liveness.terminal);
-    root
+    let spill_slots_used =
+      match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with
+      | None, None -> 0
+      | Some a, Some b -> Int.max a b
+      | Some a, None | None, Some a -> a
+    in
+    ~root, ~spill_slots_used
   ;;
 
   let run ?(dump_crap = false) root =
@@ -895,11 +903,16 @@ end
 
 module Call_conv = struct
   type fn_state =
-    { clobbers : Reg.Set.t
-    ; block_names : String.Hash_set.t
+    { block_names : String.Hash_set.t
+    ; to_restore : Reg.Set.t
+    ; clobbers : Reg.Set.t
+    ; spill_slots_used : int
+    ; bytes_alloca'd : int64
     }
 
-  let calc_edges (functions : Function.t String.Map.t) =
+  let calc_edges
+    (functions : (function_:Function.t * spill_slots_used:int) String.Map.t)
+    =
     let edges = String.Table.create () in
     let defs = String.Table.create () in
     let uses_fn fn1 fn2 =
@@ -909,7 +922,8 @@ module Call_conv = struct
       Hash_set.add edges fn2
     in
     let block_names = String.Table.create () in
-    Map.iter functions ~f:(fun function_ ->
+    let bytes_alloca'd = String.Table.create () in
+    Map.iter functions ~f:(fun (~function_, ~spill_slots_used:_) ->
       let on_x86_irs (ir : Ir.t) ~f =
         match ir with
         | X86 x86 -> f x86
@@ -926,6 +940,10 @@ module Call_conv = struct
         on_x86_irs ir ~f:(fun x86_ir ->
           match x86_ir with
           | CALL { fn; results = _; args = _ } -> uses_fn function_.name fn
+          | ALLOCA (_, bytes) ->
+            Hashtbl.update bytes_alloca'd function_.name ~f:(function
+              | None -> bytes
+              | Some x -> Int64.(x + bytes))
           | _ -> ()));
       let block_names_for_this =
         Block.to_list function_.root
@@ -934,7 +952,7 @@ module Call_conv = struct
       in
       Hashtbl.add_exn block_names ~key:function_.name ~data:block_names_for_this;
       Hashtbl.add_exn defs ~key:function_.name ~data:!this_defs);
-    ~edges, ~defs, ~block_names
+    ~edges, ~defs, ~block_names, ~bytes_alloca'd
   ;;
 
   let callee_saved ~call_conv =
@@ -942,17 +960,27 @@ module Call_conv = struct
     | Default -> Reg.integer_callee_saved |> Reg.Set.of_list
   ;;
 
-  let init_state (functions : Function.t String.Map.t) : fn_state String.Map.t =
+  let init_state
+    (functions : (function_:Function.t * spill_slots_used:int) String.Map.t)
+    : fn_state String.Map.t
+    =
     (* dumb algo to work out clobbers, I think doing scc to sort out cycles first would make it O(n) instead *)
-    let ~edges, ~defs, ~block_names = calc_edges functions in
+    let ~edges, ~defs, ~block_names, ~bytes_alloca'd = calc_edges functions in
     let worklist = Queue.create () in
     let clobbers = String.Table.create () in
+    let to_restore = String.Table.create () in
     Map.iter functions ~f:(Queue.enqueue worklist);
     while not (Queue.is_empty worklist) do
-      let fn = Queue.dequeue_exn worklist in
+      let ~function_:fn, ~spill_slots_used:_ = Queue.dequeue_exn worklist in
       let old_clobbers =
         Hashtbl.find_or_add clobbers fn.name ~default:(fun () -> Reg.Set.empty)
       in
+      Hashtbl.update to_restore fn.name ~f:(function
+        | Some x -> x
+        | None ->
+          Set.inter
+            (Hashtbl.find_exn defs fn.name)
+            (callee_saved ~call_conv:fn.call_conv));
       let new_clobbers_raw =
         Reg.Set.union_list
           (Hashtbl.find_exn defs fn.name
@@ -970,17 +998,29 @@ module Call_conv = struct
       if not (Reg.Set.equal new_clobbers old_clobbers)
       then Map.iter functions ~f:(Queue.enqueue worklist)
     done;
-    Map.map functions ~f:(fun fn ->
+    Map.map functions ~f:(fun (~function_:fn, ~spill_slots_used) ->
       { clobbers = Hashtbl.find_exn clobbers fn.name
+      ; to_restore = Hashtbl.find_exn to_restore fn.name
       ; block_names = Hashtbl.find_exn block_names fn.name
+      ; spill_slots_used
+      ; bytes_alloca'd =
+          Hashtbl.find bytes_alloca'd fn.name
+          |> Option.value ~default:Int64.zero
       })
   ;;
 end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
-  Map.map functions ~f:(fun f ->
-    Function.map_root f ~f:(fun block ->
-      Out_of_ssa.process ~this_call_conv:f.call_conv block
-      |> Regalloc.run ?dump_crap))
+  let functions =
+    Map.map functions ~f:(fun f ->
+      let ~root, ~spill_slots_used =
+        Out_of_ssa.process ~this_call_conv:f.call_conv f.root
+        |> Regalloc.run ?dump_crap
+      in
+      ~function_:{ f with root }, ~spill_slots_used)
+  in
+  Map.map functions ~f:(fun (~function_, ~spill_slots_used:_) -> function_)
 ;;
+(* CR ewilliams: later omit pointless instructions (eg. moves to constants, moves to same reg, etc.)*)
+
 (* |> Call_conv.process *)
