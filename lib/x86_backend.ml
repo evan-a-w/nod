@@ -75,12 +75,28 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    [ CALL
-        { fn
-        ; results = List.map results ~f:Reg.unallocated
-        ; args = List.map args ~f:operand_of_lit_or_var
-        }
-    ]
+    let pre_moves =
+      Sequence.zip_full
+        (Sequence.of_list args)
+        (Sequence.of_list X86_ir.Reg.integer_arguments)
+      |> Sequence.filter_map ~f:(function
+        | `Right _ -> None
+        | `Left x -> push (operand_of_lit_or_var x)
+        | `Both (arg, reg) ->
+          let force_physical =
+            Reg.allocated (new_name var_names "arg_reg") (Some reg)
+          in
+          let instr = mov (Reg force_physical) (operand_of_lit_or_var arg) in
+          Some instr)
+      |> Sequence.to_list
+    in
+    pre_moves
+    @ [ CALL
+          { fn
+          ; results = List.map results ~f:Reg.unallocated
+          ; args = List.map args ~f:operand_of_lit_or_var
+          }
+      ]
   | Alloca { dest; size } ->
     [ mov (reg dest) (Reg Reg.RSP)
     ; sub (Reg Reg.RSP) (operand_of_lit_or_var size)
@@ -183,27 +199,27 @@ module Out_of_ssa = struct
       | Some true_terminal ->
         let rep make a b =
           block.insert_phi_moves <- false;
-         replace_true_terminal
-           block
-           (make
-              (mint_intermediate t ~from_block:block ~to_call_block:a)
-              (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
-       in
-       (match true_terminal with
-        | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
-        | JE (a, Some b) -> rep X86_ir.je a b
-        | JNE (a, Some b) ->
-          rep X86_ir.jne a b
-          (* both of these tag things should prob be handled *)
-        | Tag_use _ | Tag_def _ | NOOP
-        | AND (_, _)
-        | OR (_, _)
-        | MOV (_, _)
-        | ADD (_, _)
-        | SUB (_, _)
-        | IMUL _ | IDIV _ | MOD _ | LABEL _
-        | CMP (_, _)
-        | CALL _ | PUSH _ | POP _ -> ()));
+          replace_true_terminal
+            block
+            (make
+               (mint_intermediate t ~from_block:block ~to_call_block:a)
+               (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
+        in
+        (match true_terminal with
+         | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
+         | JE (a, Some b) -> rep X86_ir.je a b
+         | JNE (a, Some b) ->
+           rep X86_ir.jne a b
+           (* both of these tag things should prob be handled *)
+         | Tag_use _ | Tag_def _ | NOOP
+         | AND (_, _)
+         | OR (_, _)
+         | MOV (_, _)
+         | ADD (_, _)
+         | SUB (_, _)
+         | IMUL _ | IDIV _ | MOD _ | LABEL _
+         | CMP (_, _)
+         | CALL _ | PUSH _ | POP _ -> ()));
     t
   ;;
 
@@ -274,13 +290,13 @@ module Out_of_ssa = struct
              (* both of these tag things should prob be handled *)
            | Tag_use _ | Tag_def _ | NOOP
            | AND (_, _)
-          | OR (_, _)
-          | MOV (_, _)
-          | ADD (_, _)
-          | SUB (_, _)
-          | IMUL _ | IDIV _ | MOD _ | LABEL _
-          | CMP (_, _)
-          | CALL _ | PUSH _ | POP _ -> ())));
+           | OR (_, _)
+           | MOV (_, _)
+           | ADD (_, _)
+           | SUB (_, _)
+           | IMUL _ | IDIV _ | MOD _ | LABEL _
+           | CMP (_, _)
+           | CALL _ | PUSH _ | POP _ -> ())));
     t
   ;;
 
