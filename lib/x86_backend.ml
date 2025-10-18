@@ -69,6 +69,13 @@ let ir_to_x86_ir ~var_names (ir : Ir.t) =
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
+  | Call { fn; results; args } ->
+    [ CALL
+        { fn
+        ; results = List.map results ~f:Reg.unallocated
+        ; args = List.map args ~f:operand_of_lit_or_var
+        }
+    ]
   | Alloca { dest; size } ->
     [ mov (reg dest) (Reg Reg.RSP)
     ; sub (Reg Reg.RSP) (operand_of_lit_or_var size)
@@ -88,7 +95,8 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Branch _ | Return _ | Unreachable -> None
+  | Branch _ | Return _ | Unreachable
+  | Call _ -> None
 ;;
 
 let replace_true_terminal (x86_block : Block.t) new_true_terminal =
@@ -103,7 +111,8 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Branch _ | Return _ | Unreachable -> ()
+  | Branch _ | Return _ | Unreachable
+  | Call _ -> ()
 ;;
 
 module Out_of_ssa = struct
@@ -190,7 +199,8 @@ module Out_of_ssa = struct
          | ADD (_, _)
          | SUB (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
-         | CMP (_, _) -> ()));
+         | CMP (_, _)
+         | CALL _ -> ()));
     t
   ;;
 
@@ -259,14 +269,15 @@ module Out_of_ssa = struct
              (* [block.insert_phi_moves] should be false *)
              failwith "bug"
              (* both of these tag things should prob be handled *)
-           | Tag_use _ | Tag_def _ | NOOP
-           | AND (_, _)
-           | OR (_, _)
-           | MOV (_, _)
-           | ADD (_, _)
-           | SUB (_, _)
-           | IMUL _ | IDIV _ | MOD _ | LABEL _
-           | CMP (_, _) -> ())));
+          | Tag_use _ | Tag_def _ | NOOP
+          | AND (_, _)
+          | OR (_, _)
+          | MOV (_, _)
+          | ADD (_, _)
+          | SUB (_, _)
+          | IMUL _ | IDIV _ | MOD _ | LABEL _
+          | CMP (_, _)
+          | CALL _ -> ())));
     t
   ;;
 

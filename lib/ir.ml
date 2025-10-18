@@ -21,6 +21,7 @@ let add_block_args =
     | Mod _
     | Sub _
     | Move _
+    | Call _
     | Unreachable
     | Noop
     | Return _ ) as t -> t
@@ -53,6 +54,7 @@ let remove_block_args =
     | Mod _
     | Sub _
     | Move _
+    | Call _
     | Unreachable
     | Noop
     | Return _ ) as t -> t

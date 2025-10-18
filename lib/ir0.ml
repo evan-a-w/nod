@@ -90,9 +90,7 @@ type alloca =
 [@@deriving sexp, compare, equal, hash]
 
 let map_alloca_defs t ~f = { t with dest = f t.dest }
-
 let map_alloca_uses t ~f = { t with size = Lit_or_var.map_vars ~f t.size }
-
 let map_alloca_lit_or_vars t ~f = { t with size = f t.size }
 
 module Branch = struct
@@ -192,6 +190,11 @@ type 'block t =
   | Div of arith
   | Mod of arith
   | Alloca of alloca
+  | Call of
+      { fn : string
+      ; results : Var.t list
+      ; args : Lit_or_var.t list
+      }
   | Load of Var.t * Mem.t
   | Store of Lit_or_var.t * Mem.t
   | Move of Var.t * Lit_or_var.t
@@ -220,7 +223,8 @@ let filter_map_call_blocks t ~f =
   | Return _
   | Load _
   | Store _
-  | Unreachable -> []
+  | Unreachable
+  | Call _ -> []
   | Branch b -> Branch.filter_map_call_blocks b ~f
 ;;
 
@@ -272,6 +276,7 @@ let defs = function
   | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
   | Load (a, _) -> [ a ]
   | Move (var, _) -> [ var ]
+  | Call { results; _ } -> results
   | Branch _ | Unreachable | Noop | Return _ | Store _ -> []
 ;;
 
@@ -280,8 +285,17 @@ let blocks = function
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.blocks x86_irs
   | Branch b -> Branch.blocks b
   | Alloca _
-  | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Store _ | Load _ | And _ | Or _
+  | Add _
+  | Sub _
+  | Mul _
+  | Div _
+  | Mod _
+  | Store _
+  | Load _
+  | And _
+  | Or _
   | Move (_, _)
+  | Call _
   | Unreachable | Noop | Return _ -> []
 ;;
 
@@ -295,6 +309,7 @@ let uses = function
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
   | Load (_, b) -> Mem.vars b
   | Move (_, src) -> Lit_or_var.vars src
+  | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
   | Unreachable | Noop -> []
@@ -326,6 +341,8 @@ let map_defs t ~f =
   | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
+  | Call { fn; results; args } ->
+    Call { fn; results = List.map results ~f; args }
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_defs ~f) x86_irs)
@@ -346,6 +363,12 @@ let map_uses t ~f =
   | Load (a, b) -> Load (a, Mem.map_vars b ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
+  | Call { fn; results; args } ->
+    Call
+      { fn
+      ; results
+      ; args = List.map args ~f:(Lit_or_var.map_vars ~f)
+      }
   | Branch b -> Branch (Branch.map_uses b ~f)
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->
@@ -368,7 +391,8 @@ let is_terminal = function
   | Load _
   | Store _
   | And _
-  | Or _ -> false
+  | Or _
+  | Call _ -> false
 ;;
 
 let map_call_blocks t ~f =
@@ -390,7 +414,8 @@ let map_call_blocks t ~f =
   | Store _
   | Return _
   | And _
-  | Or _ -> t
+  | Or _
+  | Call _ -> t
 ;;
 
 let iter_call_blocks t ~f =
@@ -411,7 +436,8 @@ let iter_call_blocks t ~f =
   | Store _
   | Return _
   | And _
-  | Or _ -> ()
+  | Or _
+  | Call _ -> ()
 ;;
 
 let map_blocks (t : 'a t) ~f : 'b t =
@@ -427,6 +453,7 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Load (a, b) -> Load (a, b)
   | Sub a -> Sub a
   | Move (var, b) -> Move (var, b)
+  | Call call -> Call call
   | Branch b -> Branch (Branch.map_blocks b ~f)
   | Noop -> Noop
   | Return var -> Return var
@@ -449,6 +476,7 @@ let map_lit_or_vars t ~f =
   | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
   | Move (var, b) -> Move (var, f b)
+  | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
   | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
   | Return var -> Return (f var)
   | Noop -> Noop
@@ -476,7 +504,8 @@ let call_blocks = function
   | Alloca _
   | Unreachable
   | Noop
-  | Return _ -> []
+  | Return _
+  | Call _ -> []
   | X86 x86_ir -> X86_ir.call_blocks x86_ir
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.call_blocks x86_irs
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
