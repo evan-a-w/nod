@@ -295,8 +295,7 @@ let blocks = function
   | And _
   | Or _
   | Move (_, _)
-  | Call _
-  | Unreachable | Noop | Return _ -> []
+  | Call _ | Unreachable | Noop | Return _ -> []
 ;;
 
 let uses = function
@@ -326,6 +325,14 @@ let x86_regs t =
     List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s
     |> X86_ir.Reg.Set.union_list
     |> Set.to_list
+  | _ -> []
+;;
+
+let x86_reg_defs t =
+  match t with
+  | X86 x86 -> X86_ir.reg_defs x86 |> Set.to_list
+  | X86_terminal x86s ->
+    List.map ~f:X86_ir.reg_defs x86s |> X86_ir.Reg.Set.union_list |> Set.to_list
   | _ -> []
 ;;
 
@@ -364,11 +371,7 @@ let map_uses t ~f =
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Call { fn; results; args } ->
-    Call
-      { fn
-      ; results
-      ; args = List.map args ~f:(Lit_or_var.map_vars ~f)
-      }
+    Call { fn; results; args = List.map args ~f:(Lit_or_var.map_vars ~f) }
   | Branch b -> Branch (Branch.map_uses b ~f)
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->

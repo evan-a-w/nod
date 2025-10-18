@@ -24,6 +24,7 @@ module Reg = struct
   [@@deriving sexp, equal, compare, hash, variants]
 
   let integer_arguments = [ RDI; RSI; RDX; RCX; R8; R9 ]
+  let integer_callee_saved = [ RBX; RSP; RBP; R12; R13; R14; R15 ]
   let integer_results = [ RAX; RDX ]
 
   (* let float_arguments = [ XMM0; XMM1; XMM2; XMM3; XMM4; XMM5; XMM6; XMM7 ] *)
@@ -448,8 +449,7 @@ let rec map_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _
-  | PUSH _ | POP _ -> t
+  | RET _ | CALL _ | PUSH _ | POP _ -> t
 ;;
 
 let rec iter_call_blocks t ~f =
@@ -470,8 +470,7 @@ let rec iter_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _
-  | PUSH _ | POP _ -> ()
+  | RET _ | CALL _ | PUSH _ | POP _ -> ()
 ;;
 
 let rec call_blocks = function
@@ -486,8 +485,7 @@ let rec call_blocks = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _
-  | PUSH _ | POP _ -> []
+  | RET _ | CALL _ | PUSH _ | POP _ -> []
 ;;
 
 let map_lit_or_vars t ~f:_ = t
@@ -503,7 +501,5 @@ let rec is_terminal = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
-  | CALL _
-  | PUSH _
-  | POP _ -> false
+  | CALL _ | PUSH _ | POP _ -> false
 ;;

@@ -52,6 +52,12 @@ let iter root ~f =
   go root
 ;;
 
+let to_list root =
+  let res = ref [] in
+  iter root ~f:(fun block -> res := block :: !res);
+  List.rev !res
+;;
+
 let iter_and_update_bookkeeping root ~f =
   let rec go block =
     match dfs_id block with
