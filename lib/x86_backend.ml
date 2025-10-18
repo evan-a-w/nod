@@ -16,6 +16,10 @@ let new_name map v =
 (* CR ewilliams: This should lookup smth *)
 let call_conv ~fn:_ = Call_conv.Default
 
+let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
+  Int.max (List.length args - List.length Reg.integer_arguments) 0
+;;
+
 let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let operand_of_lit_or_var (lit_or_var : Ir.Lit_or_var.t) =
@@ -328,6 +332,8 @@ module Out_of_ssa = struct
     |> split_blocks
     |> insert_par_moves
     |> remove_call_block_args
+    (* CR ewilliams: do stuff to get args into vars (read from stack / regs) *)
+    (* CR ewilliams: Some peephole opts to make things less absurd *)
     |> root
   ;;
 end
@@ -833,6 +839,10 @@ module Regalloc = struct
         | Reg.Unallocated v ->
           (match Hashtbl.find_exn assignments v with
            | Assignment.Spill ->
+             (* RBP is whatever stack is at start of fn
+
+                Stack looks like args then ret pointer then spills then actual state
+             *)
              Mem (RBP, Hashtbl.find_exn spill_slot_by_var v * 8)
            | Reg r -> Reg r)
         | Allocated (v, _) ->
@@ -1012,12 +1022,12 @@ end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
   let functions =
-    Map.map functions ~f:(fun f ->
+    Map.map functions ~f:(fun fn ->
       let ~root, ~spill_slots_used =
-        Out_of_ssa.process ~this_call_conv:f.call_conv f.root
+        Out_of_ssa.process ~this_call_conv:fn.call_conv fn.root
         |> Regalloc.run ?dump_crap
       in
-      ~function_:{ f with root }, ~spill_slots_used)
+      ~function_:{ fn with root }, ~spill_slots_used)
   in
   Map.map functions ~f:(fun (~function_, ~spill_slots_used:_) -> function_)
 ;;
