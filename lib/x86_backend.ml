@@ -183,27 +183,27 @@ module Out_of_ssa = struct
       | Some true_terminal ->
         let rep make a b =
           block.insert_phi_moves <- false;
-          replace_true_terminal
-            block
-            (make
-               (mint_intermediate t ~from_block:block ~to_call_block:a)
-               (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
-        in
-        (match true_terminal with
-         | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
-         | JE (a, Some b) -> rep X86_ir.je a b
-         | JNE (a, Some b) ->
-           rep X86_ir.jne a b
-           (* both of these tag things should prob be handled *)
-         | Tag_use _ | Tag_def _ | NOOP
-         | AND (_, _)
-         | OR (_, _)
-         | MOV (_, _)
-         | ADD (_, _)
-         | SUB (_, _)
-         | IMUL _ | IDIV _ | MOD _ | LABEL _
-         | CMP (_, _)
-         | CALL _ -> ()));
+         replace_true_terminal
+           block
+           (make
+              (mint_intermediate t ~from_block:block ~to_call_block:a)
+              (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
+       in
+       (match true_terminal with
+        | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
+        | JE (a, Some b) -> rep X86_ir.je a b
+        | JNE (a, Some b) ->
+          rep X86_ir.jne a b
+          (* both of these tag things should prob be handled *)
+        | Tag_use _ | Tag_def _ | NOOP
+        | AND (_, _)
+        | OR (_, _)
+        | MOV (_, _)
+        | ADD (_, _)
+        | SUB (_, _)
+        | IMUL _ | IDIV _ | MOD _ | LABEL _
+        | CMP (_, _)
+        | CALL _ | PUSH _ | POP _ -> ()));
     t
   ;;
 
@@ -274,13 +274,13 @@ module Out_of_ssa = struct
              (* both of these tag things should prob be handled *)
            | Tag_use _ | Tag_def _ | NOOP
            | AND (_, _)
-           | OR (_, _)
-           | MOV (_, _)
-           | ADD (_, _)
-           | SUB (_, _)
-           | IMUL _ | IDIV _ | MOD _ | LABEL _
-           | CMP (_, _)
-           | CALL _ -> ())));
+          | OR (_, _)
+          | MOV (_, _)
+          | ADD (_, _)
+          | SUB (_, _)
+          | IMUL _ | IDIV _ | MOD _ | LABEL _
+          | CMP (_, _)
+          | CALL _ | PUSH _ | POP _ -> ())));
     t
   ;;
 
