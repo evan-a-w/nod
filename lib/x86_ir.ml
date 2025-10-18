@@ -97,6 +97,8 @@ type 'block t =
       ; results : Reg.t list
       ; args : operand list
       }
+  | PUSH of Reg.t
+  | POP of Reg.t
   | LABEL of string
   | CMP of operand * operand
   | JE of 'block Call_block.t * 'block Call_block.t option
@@ -122,6 +124,12 @@ let fold_operands ins ~f ~init =
   | CALL { results; args; _ } ->
     let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
     List.fold args ~init ~f:(fun acc op -> f acc op)
+  | PUSH reg ->
+    let init = fold_operand (Reg reg) ~f ~init in
+    fold_operand (Reg Reg.RSP) ~f ~init
+  | POP reg ->
+    let init = fold_operand (Reg reg) ~f ~init in
+    fold_operand (Reg Reg.RSP) ~f ~init
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
@@ -164,6 +172,14 @@ let rec map_var_operands ins ~f =
       ; results = List.map results ~f:map_result
       ; args = List.map args ~f:(fun op -> map_var_operand op ~f)
       }
+  | PUSH reg ->
+    (match map_var_operand (Reg reg) ~f with
+     | Reg reg' -> PUSH reg'
+     | _ -> failwith "expected reg operand in PUSH")
+  | POP reg ->
+    (match map_var_operand (Reg reg) ~f with
+     | Reg reg' -> POP reg'
+     | _ -> failwith "expected reg operand in POP")
   | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
   | RET op -> RET (map_var_operand op ~f)
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
@@ -228,6 +244,8 @@ let rec reg_defs ins : Reg.Set.t =
     regs_of_operand dst
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | CALL { results; _ } -> Reg.Set.of_list results
+  | PUSH _ -> Reg.Set.of_list [ Reg.RSP ]
+  | POP reg -> Reg.Set.of_list [ Reg.RSP; reg ]
   | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
@@ -243,6 +261,8 @@ let rec reg_uses ins : Reg.Set.t =
     Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET op -> regs_of_operand op
+  | PUSH reg -> Reg.Set.of_list [ Reg.RSP; reg ]
+  | POP _ -> Reg.Set.of_list [ Reg.RSP ]
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
@@ -275,6 +295,8 @@ let rec blocks instr =
   | AND _
   | OR _
   | CALL _
+  | PUSH _
+  | POP _
   | LABEL _ -> []
   | JMP lbl -> Call_block.blocks lbl
   | JE (lbl, next) | JNE (lbl, next) ->
@@ -295,6 +317,8 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | IDIV x -> IDIV x
   | MOD x -> MOD x
   | CALL call -> CALL call
+  | PUSH reg -> PUSH reg
+  | POP reg -> POP reg
   | CMP (x, y) -> CMP (x, y)
   | JE (lbl, next) ->
     JE
@@ -324,6 +348,8 @@ let rec filter_map_call_blocks t ~f =
   | AND _
   | OR _
   | CALL _
+  | PUSH _
+  | POP _
   | LABEL _ -> []
   | JMP lbl -> f lbl |> Option.to_list
   | JE (lbl, next) | JNE (lbl, next) ->
@@ -344,6 +370,8 @@ let rec map_defs t ~f =
   | SUB (dst, src) -> SUB (map_dst dst, src)
   | CALL { fn; results; args } ->
     CALL { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
+  | POP reg -> POP (map_def_reg reg ~f)
+  | PUSH _ -> t
   | NOOP | IDIV _ | MOD _ | LABEL _ | IMUL _
   | CMP (_, _)
   | JE (_, _)
@@ -369,6 +397,8 @@ let rec map_uses t ~f =
   | RET op -> RET (map_op op)
   | CALL { fn; results; args } ->
     CALL { fn; results; args = List.map args ~f:map_op }
+  | PUSH reg -> PUSH (map_use_reg reg ~f)
+  | POP reg -> POP reg
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JNE (lbl, next) ->
     JNE (map_call_block lbl, Option.map next ~f:map_call_block)
@@ -398,6 +428,14 @@ let rec map_operands t ~f =
     in
     CALL
       { fn; results = List.map results ~f:map_result; args = List.map args ~f }
+  | PUSH reg ->
+    (match f (Reg reg) with
+     | Reg reg' -> PUSH reg'
+     | _ -> failwith "expected reg operand when mapping PUSH")
+  | POP reg ->
+    (match f (Reg reg) with
+     | Reg reg' -> POP reg'
+     | _ -> failwith "expected reg operand when mapping POP")
   | JE _ | JNE _ | JMP _ | NOOP | LABEL _ -> t
 ;;
 
@@ -416,7 +454,8 @@ let rec map_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ -> t
+  | RET _ | CALL _
+  | PUSH _ | POP _ -> t
 ;;
 
 let rec iter_call_blocks t ~f =
@@ -437,7 +476,8 @@ let rec iter_call_blocks t ~f =
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ -> ()
+  | RET _ | CALL _
+  | PUSH _ | POP _ -> ()
 ;;
 
 let rec call_blocks = function
@@ -452,7 +492,8 @@ let rec call_blocks = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
-  | RET _ | CALL _ -> []
+  | RET _ | CALL _
+  | PUSH _ | POP _ -> []
 ;;
 
 let map_lit_or_vars t ~f:_ = t
@@ -468,5 +509,7 @@ let rec is_terminal = function
   | SUB (_, _)
   | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
-  | CALL _ -> false
+  | CALL _
+  | PUSH _
+  | POP _ -> false
 ;;
