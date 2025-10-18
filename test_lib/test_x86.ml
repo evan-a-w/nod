@@ -565,6 +565,81 @@ let%expect_test "f" =
     |}]
 ;;
 
+let%expect_test "fib_rec" =
+  test Examples.Textual.fib_recursive;
+  [%expect
+    {|
+    (((call_conv Default)
+      (root
+       ((%root (args (arg))
+         (instrs
+          ((Branch
+            (Cond (cond (Var arg))
+             (if_true ((block ((id_hum check1_) (args ()))) (args ())))
+             (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1)))))))))
+        (check1_ (args ())
+         (instrs
+          ((Sub ((dest m1%0) (src1 (Var arg)) (src2 (Lit 1))))
+           (Branch
+            (Cond (cond (Var m1%0))
+             (if_true ((block ((id_hum rec) (args ()))) (args ())))
+             (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1%0)))))))))
+        (rec (args ())
+         (instrs
+          ((Call (fn fib) (results (sub1_res)) (args ((Var m1%0))))
+           (Sub ((dest m2) (src1 (Var m1%0)) (src2 (Lit 1))))
+           (Call (fn fib) (results (sub2_res)) (args ((Var m2))))
+           (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
+           (Return (Var res)))))
+        (ret_1 (args (m1%0)) (instrs ((Return (Lit 1)))))))
+      (args (arg)) (name fib)))
+    (((call_conv Default)
+      (root
+       ((%root (args (arg))
+         (instrs
+          ((X86_terminal
+            ((CMP (Reg R14) (Imm 0))
+             (JNE
+              ((block ((id_hum intermediate_%root_to_check1_) (args ())))
+               (args ()))
+              (((block ((id_hum intermediate_%root_to_ret_1) (args (m1))))
+                (args ())))))))))
+        (intermediate_%root_to_check1_ (args ())
+         (instrs ((X86 (JMP ((block ((id_hum check1_) (args ()))) (args ())))))))
+        (check1_ (args ())
+         (instrs
+          ((X86 (MOV (Reg R15) (Reg R14))) (X86 (SUB (Reg R15) (Imm 1)))
+           (X86_terminal
+            ((CMP (Reg R15) (Imm 0))
+             (JNE
+              ((block ((id_hum intermediate_check1__to_rec) (args ())))
+               (args ()))
+              (((block ((id_hum intermediate_check1__to_ret_1) (args (m1%0))))
+                (args ())))))))))
+        (intermediate_check1__to_rec (args ())
+         (instrs ((X86 (JMP ((block ((id_hum rec) (args ()))) (args ())))))))
+        (rec (args ())
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg R15)))
+           (X86 (CALL (fn fib) (results (R14)) (args ((Reg R15)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (MOV (Reg R13) (Reg R15)))
+           (X86 (SUB (Reg R13) (Imm 1))) (X86 (MOV (Reg RDI) (Reg R13)))
+           (X86 (CALL (fn fib) (results (R13)) (args ((Reg R13)))))
+           (X86 (MOV (Reg R13) (Reg RAX))) (X86 (MOV (Reg R14) (Reg R14)))
+           (X86 (ADD (Reg R14) (Reg R13))) (X86_terminal ((RET (Reg R14)))))))
+        (intermediate_check1__to_ret_1 (args (m1%0))
+         (instrs
+          ((X86 (MOV (Reg R15) (Reg R15))) (X86 (MOV (Reg R15) (Reg R15)))
+           (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))
+        (ret_1 (args (m1%0)) (instrs ((X86_terminal ((RET (Imm 1)))))))
+        (intermediate_%root_to_ret_1 (args (m1))
+         (instrs
+          ((X86 (MOV (Reg R15) (Reg R14)))
+           (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))))
+      (args (arg)) (name fib)))
+    |}]
+;;
+
 let%expect_test "fib" =
   test Examples.Textual.fib;
   [%expect

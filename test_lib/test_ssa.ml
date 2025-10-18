@@ -150,6 +150,75 @@ let%expect_test "fib" =
     (fib_exit (args ()) (instrs ((Return (Var a%0))))) |}]
 ;;
 
+let%expect_test "fib_rec" = test Examples.Textual.fib_recursive;
+  [%expect {|
+    (%root
+     (instrs
+      ((Branch
+        (Cond (cond (Var arg))
+         (if_true ((block ((id_hum check1_) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args ()))) (args ()))))))))
+    (check1_
+     (instrs
+      ((Sub ((dest m1) (src1 (Var arg)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Var m1))
+         (if_true ((block ((id_hum rec) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args ()))) (args ()))))))))
+    (ret_1 (instrs ((Return (Lit 1)))))
+    (rec
+     (instrs
+      ((Call (fn fib) (results (sub1_res)) (args ((Var m1))))
+       (Sub ((dest m2) (src1 (Var m1)) (src2 (Lit 1))))
+       (Call (fn fib) (results (sub2_res)) (args ((Var m2))))
+       (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
+       (Return (Var res)))))
+    =================================
+    (%root (args (arg))
+     (instrs
+      ((Branch
+        (Cond (cond (Var arg))
+         (if_true ((block ((id_hum check1_) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1)))))))))
+    (check1_ (args ())
+     (instrs
+      ((Sub ((dest m1%0) (src1 (Var arg)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Var m1%0))
+         (if_true ((block ((id_hum rec) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1%0)))))))))
+    (ret_1 (args (m1%0)) (instrs ((Return (Lit 1)))))
+    (rec (args ())
+     (instrs
+      ((Call (fn fib) (results (sub1_res)) (args ((Var m1%0))))
+       (Sub ((dest m2) (src1 (Var m1%0)) (src2 (Lit 1))))
+       (Call (fn fib) (results (sub2_res)) (args ((Var m2))))
+       (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
+       (Return (Var res)))))
+    ******************************
+    (%root (args (arg))
+     (instrs
+      ((Branch
+        (Cond (cond (Var arg))
+         (if_true ((block ((id_hum check1_) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1)))))))))
+    (check1_ (args ())
+     (instrs
+      ((Sub ((dest m1%0) (src1 (Var arg)) (src2 (Lit 1))))
+       (Branch
+        (Cond (cond (Var m1%0))
+         (if_true ((block ((id_hum rec) (args ()))) (args ())))
+         (if_false ((block ((id_hum ret_1) (args (m1%0)))) (args (m1%0)))))))))
+    (ret_1 (args (m1%0)) (instrs ((Return (Lit 1)))))
+    (rec (args ())
+     (instrs
+      ((Call (fn fib) (results (sub1_res)) (args ((Var m1%0))))
+       (Sub ((dest m2) (src1 (Var m1%0)) (src2 (Lit 1))))
+       (Call (fn fib) (results (sub2_res)) (args ((Var m2))))
+       (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
+       (Return (Var res)))))
+    |}]
+
 let%expect_test "phi pruning" =
   test Examples.Textual.e;
   print_endline "";
