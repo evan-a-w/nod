@@ -97,7 +97,7 @@ type 'block t =
       ; results : Reg.t list
       ; args : operand list
       }
-  | PUSH of Reg.t
+  | PUSH of operand
   | POP of Reg.t
   | LABEL of string
   | CMP of operand * operand
@@ -124,8 +124,8 @@ let fold_operands ins ~f ~init =
   | CALL { results; args; _ } ->
     let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
     List.fold args ~init ~f:(fun acc op -> f acc op)
-  | PUSH reg ->
-    let init = fold_operand (Reg reg) ~f ~init in
+  | PUSH op ->
+    let init = fold_operand op ~f ~init in
     fold_operand (Reg Reg.RSP) ~f ~init
   | POP reg ->
     let init = fold_operand (Reg reg) ~f ~init in
@@ -172,10 +172,7 @@ let rec map_var_operands ins ~f =
       ; results = List.map results ~f:map_result
       ; args = List.map args ~f:(fun op -> map_var_operand op ~f)
       }
-  | PUSH reg ->
-    (match map_var_operand (Reg reg) ~f with
-     | Reg reg' -> PUSH reg'
-     | _ -> failwith "expected reg operand in PUSH")
+  | PUSH op -> PUSH (map_var_operand op ~f)
   | POP reg ->
     (match map_var_operand (Reg reg) ~f with
      | Reg reg' -> POP reg'
@@ -261,7 +258,7 @@ let rec reg_uses ins : Reg.Set.t =
     Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET op -> regs_of_operand op
-  | PUSH reg -> Reg.Set.of_list [ Reg.RSP; reg ]
+  | PUSH op -> Set.union (Reg.Set.singleton Reg.RSP) (regs_of_operand op)
   | POP _ -> Reg.Set.of_list [ Reg.RSP ]
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
@@ -317,7 +314,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | IDIV x -> IDIV x
   | MOD x -> MOD x
   | CALL call -> CALL call
-  | PUSH reg -> PUSH reg
+  | PUSH op -> PUSH op
   | POP reg -> POP reg
   | CMP (x, y) -> CMP (x, y)
   | JE (lbl, next) ->
@@ -397,7 +394,7 @@ let rec map_uses t ~f =
   | RET op -> RET (map_op op)
   | CALL { fn; results; args } ->
     CALL { fn; results; args = List.map args ~f:map_op }
-  | PUSH reg -> PUSH (map_use_reg reg ~f)
+  | PUSH op -> PUSH (map_op op)
   | POP reg -> POP reg
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JNE (lbl, next) ->
@@ -428,10 +425,7 @@ let rec map_operands t ~f =
     in
     CALL
       { fn; results = List.map results ~f:map_result; args = List.map args ~f }
-  | PUSH reg ->
-    (match f (Reg reg) with
-     | Reg reg' -> PUSH reg'
-     | _ -> failwith "expected reg operand when mapping PUSH")
+  | PUSH op -> PUSH (f op)
   | POP reg ->
     (match f (Reg reg) with
      | Reg reg' -> POP reg'

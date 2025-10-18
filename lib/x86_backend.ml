@@ -81,7 +81,7 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
         (Sequence.of_list X86_ir.Reg.integer_arguments)
       |> Sequence.filter_map ~f:(function
         | `Right _ -> None
-        | `Left x -> push (operand_of_lit_or_var x)
+        | `Left x -> Some (push (operand_of_lit_or_var x))
         | `Both (arg, reg) ->
           let force_physical =
             Reg.allocated (new_name var_names "arg_reg") (Some reg)
