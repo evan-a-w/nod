@@ -283,6 +283,27 @@ fib_exit:
 |}
   ;;
 
+  let fib_recursive =
+    {|
+fib(%arg) {
+    branch %arg, check1_, ret_1
+check1_:
+    sub %m1, %arg, 1
+    branch %m1, rec, ret_1
+ret_1:
+      ret 1
+rec:
+    call fib(%m1) -> %sub1_res
+
+    sub %m2, %m1, 1
+    call fib(%m2) -> %sub2_res
+
+    add %res, %sub1_res, %sub2_res
+    ret %res
+}
+|}
+  ;;
+
   let sum_100 =
     {|
 start:

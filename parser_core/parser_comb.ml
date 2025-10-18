@@ -155,4 +155,15 @@ module Make (Token : Token_intf.S) = struct
        | Ok _ as r -> r
        | Error e' -> Error (`Choices [ e; e' ]))
   ;;
+
+  let maybe_surrounded ~before ~after p =
+    let a =
+      let%bind _ = before in
+      let%bind res = p in
+      let%map _ = after in
+      res
+    in
+    let b = p in
+    a <|> b
+  ;;
 end

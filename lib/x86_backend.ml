@@ -90,6 +90,18 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
           Some instr)
       |> Sequence.to_list
     in
+    let post_moves =
+      Sequence.zip_full
+        (Sequence.of_list results)
+        (Sequence.of_list X86_ir.Reg.integer_results)
+      |> Sequence.filter_map ~f:(function
+        | `Right _ -> None
+        | `Left x -> Some (pop (Reg.unallocated x))
+        | `Both (res, reg) ->
+          let instr = mov (Reg (Reg.unallocated res)) (Reg reg) in
+          Some instr)
+      |> Sequence.to_list
+    in
     pre_moves
     @ [ CALL
           { fn
@@ -97,6 +109,7 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
           ; args = List.map args ~f:operand_of_lit_or_var
           }
       ]
+    @ post_moves
   | Alloca { dest; size } ->
     [ mov (reg dest) (Reg Reg.RSP)
     ; sub (Reg Reg.RSP) (operand_of_lit_or_var size)
