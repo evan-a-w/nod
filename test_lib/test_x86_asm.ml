@@ -5,7 +5,7 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Eir.compile ~opt_flags program with
   | Error e -> Parser.error_to_string e |> print_endline
   | Ok functions ->
-    let asm = functions |> X86_backend.compile |> X86_backend.lower in
+    let asm = X86_backend.compile_to_asm functions in
     print_endline asm
 ;;
 
@@ -13,6 +13,7 @@ let%expect_test "super triv lowers to assembly" =
   compile_and_lower Examples.Textual.super_triv;
   [%expect
     {|
+    .intel_syntax noprefix
     .text
     .globl root
     root:
@@ -41,6 +42,7 @@ let%expect_test "branches lower with labels" =
   compile_and_lower Examples.Textual.a;
   [%expect
     {|
+    .intel_syntax noprefix
     .text
     .globl root
     root:

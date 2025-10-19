@@ -1487,6 +1487,7 @@ let lower (functions : Function.t String.Map.t) =
   | [] -> ""
   | _ ->
     let buffer = Buffer.create 1024 in
+    add_line buffer ".intel_syntax noprefix";
     add_line buffer ".text";
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
       if fn_index > 0 then Buffer.add_char buffer '\n';
@@ -1646,4 +1647,8 @@ let lower (functions : Function.t String.Map.t) =
         | Ir0.X86 x -> process_instruction x
         | _ -> ()));
     Buffer.contents buffer
+;;
+
+let compile_to_asm ?dump_crap functions =
+  compile ?dump_crap functions |> lower
 ;;
