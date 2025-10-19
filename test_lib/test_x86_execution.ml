@@ -1,21 +1,28 @@
 open! Core
 open! Nod
-
 module Std = Stdlib
 
-let harness_source =
-  {|
+let make_harness_source
+  ?(fn_name = "root")
+  ?(fn_arg_type = "void")
+  ?(fn_arg = "")
+  ()
+  =
+  [%string
+    {|
 #include <stdint.h>
 #include <stdio.h>
 
-extern int64_t root(void);
+extern int64_t %{fn_name}(%{fn_arg_type});
 
 int main(void) {
-  printf("%lld\n", (long long) root());
+  printf("%lld\n", (long long) %{fn_name}(%{fn_arg}));
   return 0;
 }
-|}
+|}]
 ;;
+
+let harness_source = make_harness_source ()
 
 let quote_command prog args =
   String.concat ~sep:" " (Filename.quote prog :: List.map args ~f:Filename.quote)
@@ -42,8 +49,13 @@ let run_shell_exn ?cwd command =
   match Std.Sys.command command with
   | 0 -> ()
   | code -> failwith (sprintf "command failed (%d): %s" code command)
+;;
 
-let compile_and_execute ?(opt_flags = Eir.Opt_flags.no_opt) program =
+let compile_and_execute
+  ?(harness = harness_source)
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  =
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Parser.error_to_string err) |> Or_error.ok_exn
@@ -55,7 +67,7 @@ let compile_and_execute ?(opt_flags = Eir.Opt_flags.no_opt) program =
         let asm_path = Filename.concat temp_dir "program.s" in
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
-        Out_channel.write_all harness_path ~data:harness_source;
+        Out_channel.write_all harness_path ~data:harness;
         run_command_exn
           ~cwd:temp_dir
           "gcc"
@@ -76,8 +88,7 @@ let compile_and_execute ?(opt_flags = Eir.Opt_flags.no_opt) program =
 
 let%expect_test "simple execution" =
   let output =
-    compile_and_execute
-      {|
+    compile_and_execute {|
 mov %a, 5
 mov %b, 7
 add %res, %a, %b
@@ -107,4 +118,19 @@ zero:
   in
   print_endline output;
   [%expect {|42|}]
+;;
+
+let%expect_test "recursive fib" =
+  let output =
+    compile_and_execute
+      ~harness:
+        (make_harness_source
+           ~fn_name:"fib"
+           ~fn_arg_type:"int64_t"
+           ~fn_arg:"6"
+           ())
+      Examples.Textual.fib_recursive
+  in
+  print_endline output;
+  [%expect {| 13 |}]
 ;;

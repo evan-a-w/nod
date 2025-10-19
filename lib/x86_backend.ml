@@ -267,8 +267,8 @@ module Out_of_ssa = struct
          ~f:Ir.x86
          (reg_arg_moves
           @ stack_arg_moves
-          @ [ mov (Reg RBP) (Reg RSP) ]
-            (* clobber saves will be added here later. Also subtracting stack for spills and alloca *)
+          @ [ tag_def noop (Reg RBP) ]
+            (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
          )
        |> Vec.of_list;
     block
@@ -1150,17 +1150,32 @@ module Clobbers = struct
       let epilogue = Option.value_exn fn.epilogue in
       let to_restore = Set.to_list to_restore in
       let () =
+        let header_bytes_excl_clobber_saves =
+          fn.bytes_alloca'd + fn.bytes_for_spills
+        in
+        let new_prologue : Ir.t Vec.t = Vec.create () in
         (* change prologue *)
-        if fn.bytes_alloca'd + fn.bytes_for_spills > 0
+        if header_bytes_excl_clobber_saves > 0
         then
           Vec.push
-            prologue.instructions
+            new_prologue
             (X86
                (sub
                   (Reg RSP)
-                  (Imm (fn.bytes_alloca'd + fn.bytes_for_spills |> Int64.of_int))));
+                  (Imm (Int64.of_int header_bytes_excl_clobber_saves))));
         List.iter to_restore ~f:(fun reg ->
-          Vec.push prologue.instructions (X86 (push (Reg reg))))
+          Vec.push new_prologue (X86 (push (Reg reg))));
+        Vec.push new_prologue (X86 (mov (Reg RBP) (Reg RSP)));
+        if Function.stack_header_bytes fn > 0
+        then
+          Vec.push
+            new_prologue
+            (X86
+               (add
+                  (Reg RBP)
+                  (Imm (Function.stack_header_bytes fn |> Int64.of_int))));
+        Vec.append new_prologue prologue.instructions;
+        prologue.instructions <- new_prologue
       in
       let () =
         (* change epilogue *)
@@ -1207,7 +1222,7 @@ module Save_call_clobbers = struct
 
   let should_save reg =
     match reg with
-    | Reg.RSP | Reg.RBP -> false
+    | Reg.RSP -> false
     | _ -> is_physical_reg reg
   ;;
 
@@ -1489,10 +1504,10 @@ let lower (functions : Function.t String.Map.t) =
     let buffer = Buffer.create 1024 in
     add_line buffer ".intel_syntax noprefix";
     add_line buffer ".text";
+    let used_labels = String.Hash_set.create () in
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
       if fn_index > 0 then Buffer.add_char buffer '\n';
       let fn_label_base = sanitize_identifier name in
-      let used_labels = String.Hash_set.create () in
       let ensure_unique label =
         let rec loop attempt =
           let candidate =
@@ -1649,6 +1664,4 @@ let lower (functions : Function.t String.Map.t) =
     Buffer.contents buffer
 ;;
 
-let compile_to_asm ?dump_crap functions =
-  compile ?dump_crap functions |> lower
-;;
+let compile_to_asm ?dump_crap functions = compile ?dump_crap functions |> lower
