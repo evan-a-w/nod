@@ -31,7 +31,8 @@ let%expect_test "trivi" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
@@ -43,9 +44,10 @@ let%expect_test "trivi" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
     |}]
 ;;
 
@@ -84,7 +86,8 @@ let%expect_test "a" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
@@ -116,7 +119,8 @@ let%expect_test "a" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))
         (intermediate_b_to_end (args (z%2))
          (instrs
           ((X86 (MOV (Reg R15) (Reg R13)))
@@ -140,7 +144,7 @@ let%expect_test "a" =
           ((X86 (MOV (Reg R15) (Reg R14)))
            (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -181,7 +185,8 @@ let%expect_test "e2" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
@@ -223,7 +228,8 @@ let%expect_test "e2" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))
         (intermediate_ifTrue_to_end (args (x%4))
          (instrs
           ((X86 (MOV (Reg R15) (Reg R14)))
@@ -249,7 +255,7 @@ let%expect_test "e2" =
           ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -271,7 +277,8 @@ let%expect_test "c2" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum entry) (args ()))) (args ())))))))
         (entry (args ())
          (instrs
@@ -285,9 +292,10 @@ let%expect_test "c2" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
     |}]
 ;;
 
@@ -312,7 +320,9 @@ ret %dyn
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (SUB (Reg RSP) (Imm 16)))
+           (X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg RSP))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
@@ -324,9 +334,11 @@ ret %dyn
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 48))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RSP)) (X86 (POP RBP)) (X86 (ADD (Reg RSP) (Imm 16)))
            (X86 (RET ((Reg RAX)))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 16)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -431,7 +443,8 @@ let%expect_test "f" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
@@ -586,7 +599,8 @@ let%expect_test "f" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R13))
+           (X86 (POP R12)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))
         (intermediate_innerBody_to_skipEven (args ())
          (instrs ((X86 (JMP ((block ((id_hum skipEven) (args ()))) (args ())))))))
         (skipEven (args ())
@@ -638,7 +652,7 @@ let%expect_test "f" =
             (JMP
              ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -676,7 +690,8 @@ let%expect_test "fib_rec" =
        ((fib__prologue (args (arg1))
          (instrs
           ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R14) (Reg RDI)))
+           (X86 (MOV (Reg R14) (Reg RDI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum %root) (args (arg)))) (args ())))))))
         (%root (args (arg))
          (instrs
@@ -717,7 +732,8 @@ let%expect_test "fib_rec" =
         (fib__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))
         (intermediate_check1__to_ret_1 (args (m1%0))
          (instrs
           ((X86 (MOV (Reg R15) (Reg R15))) (X86 (MOV (Reg R15) (Reg R15)))
@@ -732,7 +748,7 @@ let%expect_test "fib_rec" =
           ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))))
       (args (arg)) (name fib) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -775,7 +791,9 @@ let%expect_test "fib" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
@@ -821,9 +839,11 @@ let%expect_test "fib" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 40))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP R12)) (X86 (POP RBP))
            (X86 (RET ((Reg RAX)))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 40)))
     |}]
 ;;
 
@@ -867,7 +887,8 @@ let%expect_test "sum 100" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP)))
+          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
@@ -921,7 +942,8 @@ let%expect_test "sum 100" =
         (root__epilogue (args (res__0))
          (instrs
           ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
-           (X86 (RET ((Reg RAX)))))))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))
         (intermediate_check_to_exit (args (sum%1 i%1))
          (instrs
           ((X86 (MOV (Reg R14) (Reg R15))) (X86 (MOV (Reg R14) (Reg R15)))
@@ -931,6 +953,6 @@ let%expect_test "sum 100" =
           ((X86 (MOV (Reg R14) (Reg R13))) (X86 (MOV (Reg R14) (Reg R13)))
            (X86 (JMP ((block ((id_hum exit) (args (sum%0 i%0)))) (args ())))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
