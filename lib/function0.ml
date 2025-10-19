@@ -13,6 +13,21 @@ type 'block t' =
   }
 [@@deriving sexp, compare, equal, hash, fields]
 
+let stack_header_bytes
+  { name = _
+  ; root = _
+  ; call_conv = _
+  ; args = _
+  ; prologue = _
+  ; epilogue = _
+  ; bytes_alloca'd
+  ; bytes_for_clobber_saves
+  ; bytes_for_spills
+  }
+  =
+  bytes_alloca'd + bytes_for_clobber_saves + bytes_for_spills
+;;
+
 let create ~name ~args ~root =
   { name
   ; call_conv = Default

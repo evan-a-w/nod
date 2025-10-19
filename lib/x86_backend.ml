@@ -303,9 +303,7 @@ module Out_of_ssa = struct
     block.instructions
     <- List.map
          ~f:Ir.x86
-         ((* clobbers restores will be added here later *)
-          reg_res_moves
-          @ [ mov (Reg RSP) (Reg RBP) ])
+         reg_res_moves (* clobbers restores will be added here later *)
        |> Vec.of_list;
     block
   ;;
@@ -1065,7 +1063,7 @@ module Regalloc = struct
   ;;
 end
 
-module Call_conv = struct
+module Clobbers = struct
   type fn_state =
     { to_restore : Reg.Set.t
     ; clobbers : Reg.Set.t
@@ -1145,11 +1143,61 @@ module Call_conv = struct
   (* CR ewilliams: Save/restore before and after calls, all live regs that are clobbered
 
      For first version, can just do all used regs that are clobbered. *)
+
+  let process (functions : Function.t String.Map.t) =
+    let state = init_state functions in
+    (* Insert the clobber stuff and stack management in prologue and epilogue *)
+    Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
+      let fn = Map.find_exn functions name in
+      fn.bytes_for_clobber_saves <- Set.length to_restore * 8;
+      let prologue = Option.value_exn fn.prologue in
+      let epilogue = Option.value_exn fn.epilogue in
+      let to_restore = Set.to_list to_restore in
+      let () =
+        (* change prologue *)
+        if fn.bytes_alloca'd + fn.bytes_for_spills > 0
+        then
+          Vec.push
+            prologue.instructions
+            (X86
+               (sub
+                  (Reg RSP)
+                  (Imm (fn.bytes_alloca'd + fn.bytes_for_spills |> Int64.of_int))));
+        List.iter to_restore ~f:(fun reg ->
+          Vec.push prologue.instructions (X86 (push (Reg reg))))
+      in
+      let () =
+        (* change epilogue *)
+        if List.is_empty to_restore
+        then Vec.push epilogue.instructions (X86 (mov (Reg RSP) (Reg RBP)))
+        else
+          List.map
+            ~f:Ir.x86
+            ([ mov (Reg RSP) (Reg RBP)
+             ; sub
+                 (Reg RSP)
+                 (Imm (Function.stack_header_bytes fn |> Int64.of_int))
+             ]
+             @ List.map (List.rev to_restore) ~f:pop
+             @
+             if fn.bytes_alloca'd + fn.bytes_for_spills > 0
+             then
+               [ add
+                   (Reg RSP)
+                   (Imm (fn.bytes_alloca'd + fn.bytes_for_spills |> Int64.of_int))
+               ]
+             else [])
+          |> List.iter ~f:(Vec.push epilogue.instructions)
+      in
+      ());
+    functions
+  ;;
 end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
   Map.map functions ~f:(fun fn ->
     Out_of_ssa.process fn |> Regalloc.run ?dump_crap)
+  |> Clobbers.process
 ;;
 
 (* |> Call_conv.process *)
