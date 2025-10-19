@@ -15,6 +15,34 @@ let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
         (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
 ;;
 
+let test_program ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) fragments =
+  let result =
+    List.fold fragments ~init:(Ok String.Map.empty) ~f:(fun acc fragment ->
+      match acc with
+      | Error _ as e -> e
+      | Ok functions ->
+        (match Eir.compile ~opt_flags fragment with
+         | Error _ as e -> e
+         | Ok new_functions ->
+           let merged =
+             Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
+               Map.set acc ~key ~data)
+           in
+           Ok merged))
+  in
+  match result with
+  | Error e -> Parser.error_to_string e |> print_endline
+  | Ok functions ->
+    print_s
+      [%sexp
+        (Map.data functions |> List.map ~f:Function.to_sexp_verbose
+         : Sexp.t list)];
+    let x86 = X86_backend.compile ?dump_crap functions in
+    print_s
+      [%sexp
+        (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
+;;
+
 let%expect_test "trivi" =
   test Examples.Textual.super_triv;
   [%expect
@@ -718,13 +746,13 @@ let%expect_test "fib_rec" =
          (instrs ((X86 (JMP ((block ((id_hum rec) (args ()))) (args ())))))))
         (rec (args ())
          (instrs
-          ((X86 Save_clobbers) (X86 (MOV (Reg RDI) (Reg R15)))
+          ((X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R15)))
            (X86 (CALL (fn fib) (results (R14)) (args ((Reg R15)))))
-           (X86 (MOV (Reg R14) (Reg RAX))) (X86 Restore_clobbers)
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX))
            (X86 (MOV (Reg R13) (Reg R15))) (X86 (SUB (Reg R13) (Imm 1)))
-           (X86 Save_clobbers) (X86 (MOV (Reg RDI) (Reg R13)))
+           (X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R13)))
            (X86 (CALL (fn fib) (results (R13)) (args ((Reg R13)))))
-           (X86 (MOV (Reg R13) (Reg RAX))) (X86 Restore_clobbers)
+           (X86 (MOV (Reg R13) (Reg RAX))) (X86 (POP RAX))
            (X86 (MOV (Reg R14) (Reg R14))) (X86 (ADD (Reg R14) (Reg R13)))
            (X86 (MOV (Reg RAX) (Reg R14)))
            (X86_terminal
@@ -749,6 +777,213 @@ let%expect_test "fib_rec" =
            (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))))
       (args (arg)) (name fib) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
       (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
+    |}]
+;;
+
+let%expect_test "call_chains" =
+  test_program Examples.Textual.call_chains;
+  [%expect
+    {|
+    (((call_conv Default)
+      (root
+       ((%root (args (x))
+         (instrs
+          ((Add ((dest one) (src1 (Var x)) (src2 (Lit 1))))
+           (Call (fn fourth) (results (fourth)) (args ((Var one) (Var x))))
+           (Return (Var fourth)))))))
+      (args (x)) (name first) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (p q))
+         (instrs
+          ((Add ((dest mix) (src1 (Var p)) (src2 (Var q)))) (Return (Var mix)))))))
+      (args (p q)) (name fourth) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (h))
+         (instrs
+          ((Add ((dest res) (src1 (Var h)) (src2 (Lit 3)))) (Return (Var res)))))))
+      (args (h)) (name helper) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (init))
+         (instrs
+          ((Call (fn first) (results (first)) (args ((Var init))))
+           (Call (fn second) (results (second)) (args ((Var first))))
+           (Call (fn third) (results (third)) (args ((Var second) (Var first))))
+           (Return (Var third)))))))
+      (args (init)) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (y))
+         (instrs
+          ((Call (fn third) (results (tmp)) (args ((Var y) (Var y))))
+           (Add ((dest res) (src1 (Var tmp)) (src2 (Lit 2)))) (Return (Var res)))))))
+      (args (y)) (name second) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (u v))
+         (instrs
+          ((Add ((dest sum) (src1 (Var u)) (src2 (Var v))))
+           (Call (fn helper) (results (helped)) (args ((Var sum))))
+           (Return (Var helped)))))))
+      (args (u v)) (name third) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+    (((call_conv Default)
+      (root
+       ((first__prologue (args (x2))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (x)))) (args ())))))))
+        (%root (args (x))
+         (instrs
+          ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Imm 1)))
+           (X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R14)))
+           (X86 (MOV (Reg RSI) (Reg R15)))
+           (X86 (CALL (fn fourth) (results (R14)) (args ((Reg R14) (Reg R15)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum first__epilogue) (args (res__0)))) (args ()))))))))
+        (first__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (x)) (name first) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+     ((call_conv Default)
+      (root
+       ((fourth__prologue (args (p0 q0))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (MOV (Reg R15) (Reg RDI)))
+           (X86 (MOV (Reg R15) (Reg RSI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (p q)))) (args ())))))))
+        (%root (args (p q))
+         (instrs
+          ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Reg R15)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP
+              ((block ((id_hum fourth__epilogue) (args (res__0)))) (args ()))))))))
+        (fourth__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (p q)) (name fourth) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+     ((call_conv Default)
+      (root
+       ((helper__prologue (args (h0))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (h)))) (args ())))))))
+        (%root (args (h))
+         (instrs
+          ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Imm 3)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP
+              ((block ((id_hum helper__epilogue) (args (res__0)))) (args ()))))))))
+        (helper__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (h)) (name helper) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+     ((call_conv Default)
+      (root
+       ((root__prologue (args (init1))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (init)))) (args ())))))))
+        (%root (args (init))
+         (instrs
+          ((X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R15)))
+           (X86 (CALL (fn first) (results (R14)) (args ((Reg R15)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX)) (X86 (PUSH (Reg RAX)))
+           (X86 (MOV (Reg RDI) (Reg R14)))
+           (X86 (CALL (fn second) (results (R13)) (args ((Reg R14)))))
+           (X86 (MOV (Reg R13) (Reg RAX))) (X86 (POP RAX)) (X86 (PUSH (Reg RAX)))
+           (X86 (MOV (Reg RDI) (Reg R13))) (X86 (MOV (Reg RSI) (Reg R14)))
+           (X86 (CALL (fn third) (results (R14)) (args ((Reg R13) (Reg R14)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 32))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP R13)) (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (init)) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 32))
+     ((call_conv Default)
+      (root
+       ((second__prologue (args (y2))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (y)))) (args ())))))))
+        (%root (args (y))
+         (instrs
+          ((X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R15)))
+           (X86 (MOV (Reg RSI) (Reg R15)))
+           (X86 (CALL (fn third) (results (R14)) (args ((Reg R15) (Reg R15)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX))
+           (X86 (MOV (Reg R14) (Reg R14))) (X86 (ADD (Reg R14) (Imm 2)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP
+              ((block ((id_hum second__epilogue) (args (res__0)))) (args ()))))))))
+        (second__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (y)) (name second) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+     ((call_conv Default)
+      (root
+       ((third__prologue (args (u0 v0))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (MOV (Reg R15) (Reg RDI)))
+           (X86 (MOV (Reg R15) (Reg RSI))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (JMP ((block ((id_hum %root) (args (u v)))) (args ())))))))
+        (%root (args (u v))
+         (instrs
+          ((X86 (MOV (Reg R14) (Reg R15))) (X86 (ADD (Reg R14) (Reg R15)))
+           (X86 (PUSH (Reg RAX))) (X86 (MOV (Reg RDI) (Reg R14)))
+           (X86 (CALL (fn helper) (results (R14)) (args ((Reg R14)))))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (POP RAX))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum third__epilogue) (args (res__0)))) (args ()))))))))
+        (third__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (SUB (Reg RSP) (Imm 24))) (X86 (POP R15)) (X86 (POP R14))
+           (X86 (POP RBP)) (X86 (RET ((Reg RAX)))))))))
+      (args (u v)) (name third) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
     |}]
 ;;
 
