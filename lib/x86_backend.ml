@@ -86,6 +86,9 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
+    let num_stack_args =
+      Int.max 0 (List.length args - List.length Reg.integer_arguments)
+    in
     let pre_moves =
       Sequence.zip_full
         (Sequence.of_list args)
@@ -101,19 +104,27 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
           Some instr)
       |> Sequence.to_list
     in
+    (* CR-soon ewilliams: compound results via arg to pointer *)
+    assert (List.length results <= 2);
     let post_moves =
       Sequence.zip_full
         (Sequence.of_list results)
         (Sequence.of_list X86_ir.Reg.integer_results)
       |> Sequence.filter_map ~f:(function
         | `Right _ -> None
-        | `Left x -> Some (pop (Reg.unallocated x))
+        | `Left _ -> failwith "impossible"
         | `Both (res, reg) ->
           let instr = mov (Reg (Reg.unallocated res)) (Reg reg) in
           Some instr)
       |> Sequence.to_list
     in
-    pre_moves
+    let post_pop =
+      if num_stack_args = 0
+      then []
+      else [ sub (Reg RSP) (Imm (Int64.of_int (num_stack_args * 8))) ]
+    in
+    [ save_clobbers ]
+    @ pre_moves
     @ [ CALL
           { fn
           ; results = List.map results ~f:Reg.unallocated
@@ -121,6 +132,8 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
           }
       ]
     @ post_moves
+    @ post_pop
+    @ [ restore_clobbers ]
   | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
   | Alloca { dest; size = Var v } ->
     [ mov (reg dest) (Reg Reg.RSP)
@@ -248,16 +261,53 @@ module Out_of_ssa = struct
     (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
     block.dfs_id <- Some 0;
-    block.args <- Vec.create ();
+    block.args <- Vec.of_list args;
     block.instructions
     <- List.map
          ~f:Ir.x86
          (reg_arg_moves
           @ stack_arg_moves
           @ [ mov (Reg RBP) (Reg RSP) ]
-            (* clobbers moves will be added here later *))
+            (* clobber saves will be added here later. Also subtracting stack for spills and alloca *)
+         )
        |> Vec.of_list;
-    { Call_block.block; args = [] }
+    block
+  ;;
+
+  let make_epilogue t ~ret_shape =
+    let id_hum = t.fn.name ^ "__epilogue" |> new_name t.block_names in
+    (* As we go in, stack is like
+       arg_n, arg_n+1, ..., return addr
+    *)
+    let args =
+      List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
+        new_name t.var_names ("res__" ^ Int.to_string i))
+    in
+    let reg_res_moves =
+      List.zip_with_remainder args Reg.integer_results
+      |> fst
+      |> List.map ~f:(fun (arg, reg) ->
+        mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+    in
+    let args' =
+      List.zip_with_remainder args Reg.integer_results
+      |> fst
+      |> List.map ~f:(fun (arg, reg) -> Reg (Reg.allocated arg (Some reg)))
+    in
+    let block = Block.create ~id_hum ~terminal:(X86 (RET args')) in
+    assert (Call_conv.(equal t.fn.call_conv default));
+    (* I can't be bothered to make this not confusing, but we want to set this
+       so it gets updated in [Block.iter_and_update_bookkeeping]*)
+    block.dfs_id <- Some 0;
+    block.args <- Vec.of_list args;
+    block.instructions
+    <- List.map
+         ~f:Ir.x86
+         ((* Adding to stack for spills and alloca first and then clobbers restores will be added here later *)
+          reg_res_moves
+          @ [ mov (Reg RSP) (Reg RBP) ])
+       |> Vec.of_list;
+    block
   ;;
 
   let split_blocks_and_add_prologue_and_epilogue t =
@@ -275,11 +325,15 @@ module Out_of_ssa = struct
         | Some _, Some _ -> failwith "diff ret shape"
         | None, Some _ -> r := this
       in
-      Block.iter_instructions t.fn.root ~f:(on_x86_irs ~f:update)
+      Block.iter_instructions t.fn.root ~f:(on_x86_irs ~f:update);
+      !r
     in
     let prologue = make_prologue t in
     let epilogue = make_epilogue t ~ret_shape in
-    Block.iter_and_update_bookkeeping t.root ~f:(fun block ->
+    t.fn.prologue <- Some prologue;
+    t.fn.epilogue <- Some epilogue;
+    t.fn.root <- prologue;
+    Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
       (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
       match true_terminal block with
@@ -293,7 +347,24 @@ module Out_of_ssa = struct
                (mint_intermediate t ~from_block:block ~to_call_block:a)
                (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
         in
+        let epilogue_jmp operands_to_ret =
+          let args =
+            List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
+            |> List.map ~f:(fun (operand, arg) ->
+              match operand with
+              | Reg (Allocated (v, _) | Unallocated v) -> v
+              | other ->
+                let v = new_name t.var_names arg in
+                Vec.push
+                  block.instructions
+                  (X86 (mov (Reg (Reg.unallocated v)) other));
+                v)
+          in
+          jmp { Call_block.block = epilogue; args }
+        in
         (match true_terminal with
+         | RET l when not (phys_equal block epilogue) ->
+           replace_true_terminal block (epilogue_jmp l)
          | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
          | JE (a, Some b) -> rep X86_ir.je a b
          | JNE (a, Some b) ->
@@ -307,7 +378,7 @@ module Out_of_ssa = struct
          | SUB (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
          | CMP (_, _)
-         | CALL _ | PUSH _ | POP _ -> ()));
+         | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ -> ()));
     t
   ;;
 
@@ -356,7 +427,7 @@ module Out_of_ssa = struct
   ;;
 
   let insert_par_moves t =
-    Block.iter t.root ~f:(fun block ->
+    Block.iter t.fn.root ~f:(fun block ->
       if not block.insert_phi_moves
       then ()
       else (
@@ -378,7 +449,7 @@ module Out_of_ssa = struct
            | AND (_, _)
            | OR (_, _)
            | MOV (_, _)
-           | ALLOCA _
+           | Save_clobbers | Restore_clobbers | ALLOCA _
            | ADD (_, _)
            | SUB (_, _)
            | IMUL _ | IDIV _ | MOD _ | LABEL _
@@ -388,7 +459,7 @@ module Out_of_ssa = struct
   ;;
 
   let remove_call_block_args t =
-    Block.iter t.root ~f:(fun block ->
+    Block.iter t.fn.root ~f:(fun block ->
       block.terminal <- Ir.remove_block_args block.terminal);
     t
   ;;
@@ -961,17 +1032,17 @@ module Regalloc = struct
       | Some a, Some b -> Int.max a b
       | Some a, None | None, Some a -> a
     in
-    ~root, ~spill_slots_used
+    spill_slots_used
   ;;
 
-  let run ?(dump_crap = false) root =
-    let reg_numbering = Reg_numbering.create root in
-    let liveness_state = Liveness_state.create ~reg_numbering root in
+  let run ?(dump_crap = false) (fn : Function.t) =
+    let reg_numbering = Reg_numbering.create fn.root in
+    let liveness_state = Liveness_state.create ~reg_numbering fn.root in
     let interference_graph =
-      Interference_graph.create ~reg_numbering ~liveness_state root
+      Interference_graph.create ~reg_numbering ~liveness_state fn.root
     in
     if dump_crap then Interference_graph.print interference_graph ~reg_numbering;
-    let ~assignments, ~don't_spill = initialize_assignments root in
+    let ~assignments, ~don't_spill = initialize_assignments fn.root in
     let () =
       run_sat
         ~dump_crap
@@ -982,7 +1053,7 @@ module Regalloc = struct
     in
     if dump_crap
     then print_s [%sexp (assignments : Assignment.t String.Table.t)];
-    replace_regs ~root ~assignments ~liveness_state ~reg_numbering
+    replace_regs ~root:fn.root ~assignments ~liveness_state ~reg_numbering
   ;;
 end
 
@@ -1096,13 +1167,10 @@ end
 let compile ?dump_crap (functions : Function.t String.Map.t) =
   let functions =
     Map.map functions ~f:(fun fn ->
-      let ~root, ~spill_slots_used =
-        Out_of_ssa.process ~this_call_conv:fn.call_conv fn.root
-        |> Regalloc.run ?dump_crap
-      in
-      ~function_:{ fn with root }, ~spill_slots_used)
+      let spill_slots_used = Out_of_ssa.process fn |> Regalloc.run ?dump_crap in
+      ~fn, ~spill_slots_used)
   in
-  Map.map functions ~f:(fun (~function_, ~spill_slots_used:_) -> function_)
+  Map.map functions ~f:(fun (~fn, ~spill_slots_used:_) -> fn)
 ;;
 
 (* |> Call_conv.process *)

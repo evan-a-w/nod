@@ -25,15 +25,25 @@ let%expect_test "trivi" =
          (instrs
           ((Move x (Lit 10)) (Move y (Lit 20))
            (Sub ((dest z) (src1 (Var y)) (src2 (Var x)))) (Return (Var z)))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((a (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
+        (a (args ())
          (instrs
           ((X86 (MOV (Reg R15) (Imm 10))) (X86 (MOV (Reg R14) (Imm 20)))
            (X86 (MOV (Reg R14) (Reg R14))) (X86 (SUB (Reg R14) (Reg R15)))
-           (X86_terminal ((RET (Reg R14)))))))))
-      (args ()) (name root)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -66,10 +76,14 @@ let%expect_test "a" =
             (Cond (cond (Lit 1))
              (if_true ((block ((id_hum end) (args (z%0)))) (args (z%1))))
              (if_false ((block ((id_hum end) (args (z%0)))) (args (z%1)))))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((a (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
+        (a (args ())
          (instrs
           ((X86 (MOV (Reg R15) (Imm 10))) (X86 (MOV (Reg R14) (Imm 20)))
            (X86 (MOV (Reg R14) (Reg R14))) (X86 (SUB (Reg R14) (Reg R15)))
@@ -81,7 +95,7 @@ let%expect_test "a" =
          (instrs ((X86 (JMP ((block ((id_hum b) (args ()))) (args ())))))))
         (b (args ())
          (instrs
-          ((X86 (MOV (Reg R15) (Reg R14))) (X86 (ADD (Reg R15) (Imm 5)))
+          ((X86 (MOV (Reg R13) (Reg R14))) (X86 (ADD (Reg R13) (Imm 5)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -89,18 +103,26 @@ let%expect_test "a" =
               (((block ((id_hum intermediate_b_to_end) (args (z%2)))) (args ())))))))))
         (intermediate_b_to_end0 (args (z%2))
          (instrs
-          ((X86 (MOV (Reg R14) (Reg R15)))
+          ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
-        (end (args (z%0)) (instrs ((X86_terminal ((RET (Reg R14)))))))
+        (end (args (z%0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg R15)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))
         (intermediate_b_to_end (args (z%2))
          (instrs
-          ((X86 (MOV (Reg R14) (Reg R15)))
+          ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
         (intermediate_a_to_c (args ())
          (instrs ((X86 (JMP ((block ((id_hum c) (args ()))) (args ())))))))
         (c (args ())
          (instrs
-          ((X86 (MOV (Reg R15) (Imm 0)))
+          ((X86 (MOV (Reg R14) (Imm 0)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -108,13 +130,13 @@ let%expect_test "a" =
               (((block ((id_hum intermediate_c_to_end) (args (z%1)))) (args ())))))))))
         (intermediate_c_to_end0 (args (z%1))
          (instrs
-          ((X86 (MOV (Reg R14) (Reg R15)))
+          ((X86 (MOV (Reg R15) (Reg R14)))
            (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))
         (intermediate_c_to_end (args (z%1))
          (instrs
-          ((X86 (MOV (Reg R14) (Reg R15)))
+          ((X86 (MOV (Reg R15) (Reg R14)))
            (X86 (JMP ((block ((id_hum end) (args (z%0)))) (args ())))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -149,10 +171,14 @@ let%expect_test "e2" =
             (Cond (cond (Lit 1))
              (if_true ((block ((id_hum end) (args (x%2)))) (args (x%3))))
              (if_false ((block ((id_hum end) (args (x%2)))) (args (x%3)))))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((start (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
+        (start (args ())
          (instrs
           ((X86 (MOV (Reg R14) (Imm 7))) (X86 (MOV (Reg R15) (Imm 2)))
            (X86 (MOV (Reg RAX) (Reg R14)))
@@ -184,7 +210,15 @@ let%expect_test "e2" =
          (instrs
           ((X86 (MOV (Reg R15) (Reg R14)))
            (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))
-        (end (args (x%2)) (instrs ((X86_terminal ((RET (Reg R15)))))))
+        (end (args (x%2))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg R15)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))
         (intermediate_ifTrue_to_end (args (x%4))
          (instrs
           ((X86 (MOV (Reg R15) (Reg R14)))
@@ -209,7 +243,7 @@ let%expect_test "e2" =
          (instrs
           ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum end) (args (x%2)))) (args ())))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -225,17 +259,27 @@ let%expect_test "c2" =
            (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
            (Add ((dest res%0) (src1 (Var res)) (src2 (Lit 1))))
            (Return (Var res%0)))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((entry (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum entry) (args ()))) (args ())))))))
+        (entry (args ())
          (instrs
           ((X86 (MOV (Reg R14) (Imm 100))) (X86 (MOV (Reg R15) (Imm 6)))
            (X86 (MOV (Reg RAX) (Reg R14)))
            (X86 (Tag_def (Tag_use (MOD (Reg R15)) (Reg RAX)) (Reg RDX)))
            (X86 (MOV (Reg R15) (Reg RDX))) (X86 (MOV (Reg R15) (Reg R15)))
-           (X86 (ADD (Reg R15) (Imm 1))) (X86_terminal ((RET (Reg R15)))))))))
-      (args ()) (name root)))
+           (X86 (ADD (Reg R15) (Imm 1))) (X86 (MOV (Reg RAX) (Reg R15)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -254,15 +298,25 @@ ret %dyn
          (instrs
           ((Move n (Lit 24)) (Alloca ((dest ptr) (size (Lit 16))))
            (Alloca ((dest dyn) (size (Var n)))) (Return (Var dyn)))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((%root (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
+        (%root (args ())
          (instrs
           ((X86 (MOV (Reg R15) (Imm 24))) (X86 (ALLOCA (Reg R14) 16))
            (X86 (MOV (Reg R14) (Reg RSP))) (X86 (SUB (Reg RSP) (Reg R15)))
-           (X86_terminal ((RET (Reg R14)))))))))
-      (args ()) (name root)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -361,13 +415,17 @@ let%expect_test "f" =
              (if_false
               ((block ((id_hum innerExit) (args (partial%2 j%2))))
                (args (partial%0 j%4)))))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((start (args ())
+       ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg R12) (Imm 7))) (X86 (MOV (Reg R12) (Imm 0)))
-           (X86 (MOV (Reg R12) (Imm 0)))
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
+        (start (args ())
+         (instrs
+          ((X86 (MOV (Reg R15) (Imm 7))) (X86 (MOV (Reg R15) (Imm 0)))
+           (X86 (MOV (Reg R15) (Imm 0)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -379,14 +437,14 @@ let%expect_test "f" =
                 (args ())))))))))
         (intermediate_start_to_outerCheck (args (partial j i))
          (instrs
-          ((X86 (MOV (Reg R11) (Reg R12))) (X86 (MOV (Reg R14) (Reg R15)))
-           (X86 (MOV (Reg R13) (Reg R15)))
+          ((X86 (MOV (Reg R11) (Reg R15))) (X86 (MOV (Reg R13) (Reg R14)))
+           (X86 (MOV (Reg R12) (Reg R14)))
            (X86
             (JMP
              ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0)))) (args ())))))))
         (outerCheck (args (partial%0 j%0 i%0))
          (instrs
-          ((X86 (MOV (Reg R10) (Reg R11))) (X86 (SUB (Reg R10) (Reg R12)))
+          ((X86 (MOV (Reg R10) (Reg R11))) (X86 (SUB (Reg R10) (Reg R15)))
            (X86_terminal
             ((CMP (Reg R10) (Imm 0))
              (JNE
@@ -401,7 +459,7 @@ let%expect_test "f" =
           ((X86 (JMP ((block ((id_hum outerBody) (args ()))) (args ())))))))
         (outerBody (args ())
          (instrs
-          ((X86 (MOV (Reg R14) (Imm 0))) (X86 (MOV (Reg R13) (Imm 0)))
+          ((X86 (MOV (Reg R13) (Imm 0))) (X86 (MOV (Reg R12) (Imm 0)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -414,13 +472,13 @@ let%expect_test "f" =
                 (args ())))))))))
         (intermediate_outerBody_to_innerCheck (args (partial%0 j%0))
          (instrs
-          ((X86 (MOV (Reg R9) (Reg R14))) (X86 (MOV (Reg R9) (Reg R13)))
+          ((X86 (MOV (Reg R9) (Reg R13))) (X86 (MOV (Reg R9) (Reg R12)))
            (X86
             (JMP
              ((block ((id_hum innerCheck) (args (partial%1 j%1)))) (args ())))))))
         (innerCheck (args (partial%1 j%1))
          (instrs
-          ((X86 (MOV (Reg R10) (Reg R14))) (X86 (SUB (Reg R10) (Imm 3)))
+          ((X86 (MOV (Reg R10) (Reg R13))) (X86 (SUB (Reg R10) (Imm 3)))
            (X86_terminal
             ((CMP (Reg R10) (Imm 0))
              (JNE
@@ -435,7 +493,7 @@ let%expect_test "f" =
           ((X86 (JMP ((block ((id_hum innerBody) (args ()))) (args ())))))))
         (innerBody (args ())
          (instrs
-          ((X86 (MOV (Reg R10) (Reg R14))) (X86 (AND (Reg R10) (Imm 1)))
+          ((X86 (MOV (Reg R10) (Reg R13))) (X86 (AND (Reg R10) (Imm 1)))
            (X86 (MOV (Reg R10) (Reg R10))) (X86 (SUB (Reg R10) (Imm 0)))
            (X86_terminal
             ((CMP (Reg R10) (Imm 0))
@@ -449,9 +507,9 @@ let%expect_test "f" =
         (doWork (args ())
          (instrs
           ((X86 (MOV (Reg RAX) (Reg R11)))
-           (X86 (Tag_def (Tag_use (IMUL (Reg R14)) (Reg RAX)) (Reg RAX)))
-           (X86 (MOV (Reg R9) (Reg RAX))) (X86 (MOV (Reg R10) (Reg R13)))
-           (X86 (ADD (Reg R10) (Reg R9))) (X86 (MOV (Reg R10) (Reg R14)))
+           (X86 (Tag_def (Tag_use (IMUL (Reg R13)) (Reg RAX)) (Reg RAX)))
+           (X86 (MOV (Reg R9) (Reg RAX))) (X86 (MOV (Reg R10) (Reg R12)))
+           (X86 (ADD (Reg R10) (Reg R9))) (X86 (MOV (Reg R10) (Reg R13)))
            (X86 (ADD (Reg R10) (Imm 1)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
@@ -477,7 +535,7 @@ let%expect_test "f" =
             (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
         (innerExit (args (partial%2 j%2))
          (instrs
-          ((X86 (MOV (Reg R10) (Reg R12))) (X86 (ADD (Reg R10) (Reg R13)))
+          ((X86 (MOV (Reg R10) (Reg R15))) (X86 (ADD (Reg R10) (Reg R12)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -495,27 +553,34 @@ let%expect_test "f" =
         (outerInc (args (total%1))
          (instrs
           ((X86 (MOV (Reg R11) (Reg R11))) (X86 (ADD (Reg R11) (Imm 1)))
-           (X86 (MOV (Reg R11) (Reg R11))) (X86 (MOV (Reg R14) (Reg R14)))
-           (X86 (MOV (Reg R14) (Reg R14))) (X86 (MOV (Reg R13) (Reg R13)))
-           (X86 (MOV (Reg R13) (Reg R13)))
+           (X86 (MOV (Reg R11) (Reg R11))) (X86 (MOV (Reg R13) (Reg R13)))
+           (X86 (MOV (Reg R13) (Reg R13))) (X86 (MOV (Reg R12) (Reg R12)))
+           (X86 (MOV (Reg R12) (Reg R12)))
            (X86_terminal
             ((JMP
               ((block ((id_hum outerCheck) (args (partial%0 j%0 i%0))))
                (args ()))))))))
         (intermediate_innerExit_to_exit (args (total%0 partial%0 j%0))
          (instrs
-          ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R13)))
+          ((X86 (MOV (Reg R11) (Reg R13))) (X86 (MOV (Reg R11) (Reg R12)))
            (X86 (MOV (Reg R11) (Reg R10)))
            (X86
             (JMP
              ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))
         (exit (args (total%2 partial%4 j%5))
-         (instrs ((X86_terminal ((RET (Reg R12)))))))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg R15)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))
         (intermediate_innerBody_to_skipEven (args ())
          (instrs ((X86 (JMP ((block ((id_hum skipEven) (args ()))) (args ())))))))
         (skipEven (args ())
          (instrs
-          ((X86 (MOV (Reg R10) (Reg R14))) (X86 (ADD (Reg R10) (Imm 1)))
+          ((X86 (MOV (Reg R10) (Reg R13))) (X86 (ADD (Reg R10) (Imm 1)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -529,39 +594,39 @@ let%expect_test "f" =
                 (args ())))))))))
         (intermediate_skipEven_to_innerCheck (args (partial%0 j%4))
          (instrs
-          ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R13)))
+          ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R12)))
            (X86
             (JMP
              ((block ((id_hum innerCheck) (args (partial%1 j%1)))) (args ())))))))
         (intermediate_skipEven_to_innerExit (args (partial%0 j%4))
          (instrs
-          ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R13)))
+          ((X86 (MOV (Reg R9) (Reg R10))) (X86 (MOV (Reg R9) (Reg R12)))
            (X86
             (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
         (intermediate_innerCheck_to_innerExit (args (partial%0 j%0))
          (instrs
-          ((X86 (MOV (Reg R9) (Reg R14))) (X86 (MOV (Reg R9) (Reg R13)))
+          ((X86 (MOV (Reg R9) (Reg R13))) (X86 (MOV (Reg R9) (Reg R12)))
            (X86
             (JMP ((block ((id_hum innerExit) (args (partial%2 j%2)))) (args ())))))))
         (intermediate_outerBody_to_outerInc (args (total))
          (instrs
-          ((X86 (MOV (Reg R9) (Reg R12)))
+          ((X86 (MOV (Reg R9) (Reg R15)))
            (X86 (JMP ((block ((id_hum outerInc) (args (total%1)))) (args ())))))))
         (intermediate_outerCheck_to_exit (args (total partial j))
          (instrs
-          ((X86 (MOV (Reg R11) (Reg R15))) (X86 (MOV (Reg R11) (Reg R15)))
-           (X86 (MOV (Reg R11) (Reg R12)))
+          ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R14)))
+           (X86 (MOV (Reg R11) (Reg R15)))
            (X86
             (JMP
              ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))
         (intermediate_start_to_exit (args (total partial j))
          (instrs
-          ((X86 (MOV (Reg R11) (Reg R15))) (X86 (MOV (Reg R11) (Reg R15)))
-           (X86 (MOV (Reg R11) (Reg R12)))
+          ((X86 (MOV (Reg R11) (Reg R14))) (X86 (MOV (Reg R11) (Reg R14)))
+           (X86 (MOV (Reg R11) (Reg R15)))
            (X86
             (JMP
              ((block ((id_hum exit) (args (total%2 partial%4 j%5)))) (args ())))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -592,10 +657,15 @@ let%expect_test "fib_rec" =
            (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
            (Return (Var res)))))
         (ret_1 (args (m1%0)) (instrs ((Return (Lit 1)))))))
-      (args (arg)) (name fib)))
+      (args (arg)) (name fib) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((%root (args (arg))
+       ((fib__prologue (args (arg1))
+         (instrs
+          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (MOV (Reg R14) (Reg RDI)))
+           (X86 (JMP ((block ((id_hum %root) (args (arg)))) (args ())))))))
+        (%root (args (arg))
          (instrs
           ((X86_terminal
             ((CMP (Reg R14) (Imm 0))
@@ -620,23 +690,35 @@ let%expect_test "fib_rec" =
          (instrs ((X86 (JMP ((block ((id_hum rec) (args ()))) (args ())))))))
         (rec (args ())
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg R15)))
+          ((X86 Save_clobbers) (X86 (MOV (Reg RDI) (Reg R15)))
            (X86 (CALL (fn fib) (results (R14)) (args ((Reg R15)))))
-           (X86 (MOV (Reg R14) (Reg RAX))) (X86 (MOV (Reg R13) (Reg R15)))
-           (X86 (SUB (Reg R13) (Imm 1))) (X86 (MOV (Reg RDI) (Reg R13)))
+           (X86 (MOV (Reg R14) (Reg RAX))) (X86 Restore_clobbers)
+           (X86 (MOV (Reg R13) (Reg R15))) (X86 (SUB (Reg R13) (Imm 1)))
+           (X86 Save_clobbers) (X86 (MOV (Reg RDI) (Reg R13)))
            (X86 (CALL (fn fib) (results (R13)) (args ((Reg R13)))))
-           (X86 (MOV (Reg R13) (Reg RAX))) (X86 (MOV (Reg R14) (Reg R14)))
-           (X86 (ADD (Reg R14) (Reg R13))) (X86_terminal ((RET (Reg R14)))))))
+           (X86 (MOV (Reg R13) (Reg RAX))) (X86 Restore_clobbers)
+           (X86 (MOV (Reg R14) (Reg R14))) (X86 (ADD (Reg R14) (Reg R13)))
+           (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum fib__epilogue) (args (res__0)))) (args ()))))))))
+        (fib__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))
         (intermediate_check1__to_ret_1 (args (m1%0))
          (instrs
           ((X86 (MOV (Reg R15) (Reg R15))) (X86 (MOV (Reg R15) (Reg R15)))
            (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))
-        (ret_1 (args (m1%0)) (instrs ((X86_terminal ((RET (Imm 1)))))))
+        (ret_1 (args (m1%0))
+         (instrs
+          ((X86 (MOV (Reg R14) (Imm 1))) (X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum fib__epilogue) (args (res__0)))) (args ()))))))))
         (intermediate_%root_to_ret_1 (args (m1))
          (instrs
-          ((X86 (MOV (Reg R15) (Reg R14)))
+          ((X86 (MOV (Reg R15) (Reg R13)))
            (X86 (JMP ((block ((id_hum ret_1) (args (m1%0)))) (args ())))))))))
-      (args (arg)) (name fib)))
+      (args (arg)) (name fib) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -673,10 +755,14 @@ let%expect_test "fib" =
              ((block ((id_hum fib_check) (args (a%0 count%0 b%0))))
               (args (a%1 count%1 b%1))))))))
         (fib_exit (args ()) (instrs ((Return (Var a%0)))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((%root (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
+        (%root (args ())
          (instrs
           ((X86 (MOV (Reg R14) (Imm 10)))
            (X86_terminal
@@ -712,8 +798,16 @@ let%expect_test "fib" =
               ((block ((id_hum fib_check) (args (a%0 count%0 b%0)))) (args ()))))))))
         (intermediate_fib_check_to_fib_exit (args ())
          (instrs ((X86 (JMP ((block ((id_hum fib_exit) (args ()))) (args ())))))))
-        (fib_exit (args ()) (instrs ((X86_terminal ((RET (Reg R15)))))))))
-      (args ()) (name root)))
+        (fib_exit (args ())
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg R15)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
 
@@ -751,10 +845,14 @@ let%expect_test "sum 100" =
              (if_false
               ((block ((id_hum exit) (args (sum%0 i%0)))) (args (sum%2 i%2)))))))))
         (exit (args (sum%0 i%0)) (instrs ((Return (Var sum%0)))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     (((call_conv Default)
       (root
-       ((start (args ())
+       ((root__prologue (args ())
+         (instrs
+          ((X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
+        (start (args ())
          (instrs
           ((X86 (MOV (Reg R13) (Imm 1))) (X86 (MOV (Reg R13) (Imm 0)))
            (X86_terminal
@@ -798,7 +896,15 @@ let%expect_test "sum 100" =
          (instrs
           ((X86 (MOV (Reg R14) (Reg R13))) (X86 (MOV (Reg R14) (Reg R13)))
            (X86 (JMP ((block ((id_hum exit) (args (sum%0 i%0)))) (args ())))))))
-        (exit (args (sum%0 i%0)) (instrs ((X86_terminal ((RET (Reg R14)))))))
+        (exit (args (sum%0 i%0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg R14)))
+           (X86_terminal
+            ((JMP ((block ((id_hum root__epilogue) (args (res__0)))) (args ()))))))))
+        (root__epilogue (args (res__0))
+         (instrs
+          ((X86 (MOV (Reg RAX) (Reg RAX))) (X86 (MOV (Reg RSP) (Reg RBP)))
+           (X86 (RET ((Reg RAX)))))))
         (intermediate_check_to_exit (args (sum%1 i%1))
          (instrs
           ((X86 (MOV (Reg R14) (Reg R15))) (X86 (MOV (Reg R14) (Reg R15)))
@@ -807,6 +913,6 @@ let%expect_test "sum 100" =
          (instrs
           ((X86 (MOV (Reg R14) (Reg R13))) (X86 (MOV (Reg R14) (Reg R13)))
            (X86 (JMP ((block ((id_hum exit) (args (sum%0 i%0)))) (args ())))))))))
-      (args ()) (name root)))
+      (args ()) (name root) (prologue ()) (epilogue ())))
     |}]
 ;;
