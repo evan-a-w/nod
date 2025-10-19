@@ -105,7 +105,7 @@ type 'block t =
   | JE of 'block Call_block.t * 'block Call_block.t option
   | JNE of 'block Call_block.t * 'block Call_block.t option
   | JMP of 'block Call_block.t
-  | RET of operand
+  | RET of operand list
   | ALLOCA of operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
 
@@ -122,7 +122,8 @@ let fold_operands ins ~f ~init =
   | CMP (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
-  | IMUL op | IDIV op | MOD op | RET op -> fold_operand op ~f ~init
+  | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
+  | RET ops -> List.fold ops ~init ~f:(fun acc -> fold_operand ~f ~init:acc)
   | CALL { results; args; _ } ->
     let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
     List.fold args ~init ~f:(fun acc op -> f acc op)
@@ -181,7 +182,7 @@ let rec map_var_operands ins ~f =
      | Reg reg' -> POP reg'
      | _ -> failwith "expected reg operand in POP")
   | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
-  | RET op -> RET (map_var_operand op ~f)
+  | RET ops -> RET (List.map ~f:(map_var_operand ~f) ops)
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
 ;;
 
@@ -260,7 +261,7 @@ let rec reg_uses ins : Reg.Set.t =
   | ADD (dst, src) | SUB (dst, src) | AND (dst, src) | OR (dst, src) ->
     Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
-  | RET op -> regs_of_operand op
+  | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
   | PUSH op -> Set.union (Reg.Set.singleton Reg.RSP) (regs_of_operand op)
   | POP _ -> Reg.Set.of_list [ Reg.RSP ]
   | CALL { args; _ } ->
@@ -399,7 +400,7 @@ let rec map_uses t ~f =
   | IDIV op -> IDIV (map_op op)
   | MOD op -> MOD (map_op op)
   | CMP (a, b) -> CMP (map_op a, map_op b)
-  | RET op -> RET (map_op op)
+  | RET ops -> RET (List.map ~f:map_op ops)
   | CALL { fn; results; args } ->
     CALL { fn; results; args = List.map args ~f:map_op }
   | PUSH op -> PUSH (map_op op)
@@ -425,7 +426,7 @@ let rec map_operands t ~f =
   | IDIV op -> IDIV (f op)
   | MOD op -> MOD (f op)
   | CMP (a, b) -> CMP (f a, f b)
-  | RET op -> RET (f op)
+  | RET ops -> RET (List.map ~f ops)
   | CALL { fn; results; args } ->
     let map_result r =
       match f (Reg r) with
