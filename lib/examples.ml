@@ -304,6 +304,51 @@ rec:
 |}
   ;;
 
+  let call_chains =
+    [ {|
+root(%init) {
+    call first(%init) -> %first
+    call second(%first) -> %second
+    call third(%second, %first) -> %third
+    ret %third
+}
+|}
+    ; {|
+first(%x) {
+    add %one, %x, 1
+    call fourth(%one, %x) -> %fourth
+    ret %fourth
+}
+|}
+    ; {|
+second(%y) {
+    call third(%y, %y) -> %tmp
+    add %res, %tmp, 2
+    ret %res
+}
+|}
+    ; {|
+third(%u, %v) {
+    add %sum, %u, %v
+    call helper(%sum) -> %helped
+    ret %helped
+}
+|}
+    ; {|
+fourth(%p, %q) {
+    add %mix, %p, %q
+    ret %mix
+}
+|}
+    ; {|
+helper(%h) {
+    add %res, %h, 3
+    ret %res
+}
+|}
+    ]
+  ;;
+
   let sum_100 =
     {|
 start:
