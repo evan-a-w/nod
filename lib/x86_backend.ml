@@ -303,7 +303,7 @@ module Out_of_ssa = struct
     block.instructions
     <- List.map
          ~f:Ir.x86
-         ((* Adding to stack for spills and alloca first and then clobbers restores will be added here later *)
+         ((* clobbers restores will be added here later *)
           reg_res_moves
           @ [ mov (Reg RSP) (Reg RBP) ])
        |> Vec.of_list;
@@ -330,10 +330,17 @@ module Out_of_ssa = struct
     in
     let prologue = make_prologue t in
     let epilogue = make_epilogue t ~ret_shape in
+    (* CR-soon ewilliams: Omit prologue and epilogue if unneeded (eg. leaf fn) *)
     t.fn.prologue <- Some prologue;
     t.fn.epilogue <- Some epilogue;
     t.fn.root <- prologue;
     Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
+      Vec.map_inplace block.instructions ~f:(function
+        | X86 (ALLOCA (dest, i)) ->
+          let ir = mov dest (Mem (RBP, t.fn.bytes_alloca'd)) in
+          t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
+          X86 ir
+        | ir -> ir);
       (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
       match true_terminal block with
@@ -471,13 +478,6 @@ module Out_of_ssa = struct
     |> split_blocks_and_add_prologue_and_epilogue
     |> insert_par_moves
     |> remove_call_block_args
-    (* CR ewilliams:
-       Prologue and epilogue (but keep them, we need to add more later)
-       1. do stuff to get args into vars (read from stack / regs)
-          Stack management, incl all the allocas (prob just lower them here?)
-       2. epilogue that does actual ret, make all rets jump to that
-       3. Later on, don't do this for leaf functions?
-    *)
     (* CR-soon ewilliams: Some peephole opts to make things less absurd
        omit pointless instructions (eg. moves to constants, moves to same reg, etc.)
     *)
@@ -952,7 +952,8 @@ module Regalloc = struct
     Sat.run ()
   ;;
 
-  let replace_regs ~root ~assignments ~liveness_state ~reg_numbering =
+  let replace_regs ~fn ~assignments ~liveness_state ~reg_numbering =
+    let root = fn.Function.root in
     let spill_slot_by_var = String.Table.create () in
     let free_spill_slots = ref Int.Set.empty in
     let used_spill_slots = ref Int.Set.empty in
@@ -990,7 +991,10 @@ module Regalloc = struct
 
                 Stack looks like args then ret pointer then spills then actual state
              *)
-             Mem (RBP, Hashtbl.find_exn spill_slot_by_var v * 8)
+             Mem
+               ( RBP
+               , fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
+               )
            | Reg r -> Reg r)
         | Allocated (v, _) ->
           Reg
@@ -1053,22 +1057,21 @@ module Regalloc = struct
     in
     if dump_crap
     then print_s [%sexp (assignments : Assignment.t String.Table.t)];
-    replace_regs ~root:fn.root ~assignments ~liveness_state ~reg_numbering
+    let spill_slots_used =
+      replace_regs ~fn ~assignments ~liveness_state ~reg_numbering
+    in
+    fn.bytes_for_spills <- spill_slots_used * 8;
+    fn
   ;;
 end
 
 module Call_conv = struct
   type fn_state =
-    { block_names : String.Hash_set.t
-    ; to_restore : Reg.Set.t
+    { to_restore : Reg.Set.t
     ; clobbers : Reg.Set.t
-    ; spill_slots_used : int
-    ; bytes_alloca'd : int64
     }
 
-  let calc_edges
-    (functions : (function_:Function.t * spill_slots_used:int) String.Map.t)
-    =
+  let calc_edges (functions : Function.t String.Map.t) =
     let edges = String.Table.create () in
     let defs = String.Table.create () in
     let uses_fn fn1 fn2 =
@@ -1077,9 +1080,7 @@ module Call_conv = struct
       in
       Hash_set.add edges fn2
     in
-    let block_names = String.Table.create () in
-    let bytes_alloca'd = String.Table.create () in
-    Map.iter functions ~f:(fun (~function_, ~spill_slots_used:_) ->
+    Map.iter functions ~f:(fun function_ ->
       let this_defs = ref Reg.Set.empty in
       Hashtbl.add_exn
         edges
@@ -1090,19 +1091,9 @@ module Call_conv = struct
         on_x86_irs ir ~f:(fun x86_ir ->
           match x86_ir with
           | CALL { fn; results = _; args = _ } -> uses_fn function_.name fn
-          | ALLOCA (_, bytes) ->
-            Hashtbl.update bytes_alloca'd function_.name ~f:(function
-              | None -> bytes
-              | Some x -> Int64.(x + bytes))
           | _ -> ()));
-      let block_names_for_this =
-        Block.to_list function_.root
-        |> List.map ~f:Block.id_hum
-        |> String.Hash_set.of_list
-      in
-      Hashtbl.add_exn block_names ~key:function_.name ~data:block_names_for_this;
       Hashtbl.add_exn defs ~key:function_.name ~data:!this_defs);
-    ~edges, ~defs, ~block_names, ~bytes_alloca'd
+    ~edges, ~defs
   ;;
 
   let callee_saved ~call_conv =
@@ -1110,18 +1101,15 @@ module Call_conv = struct
     | Default -> Reg.integer_callee_saved |> Reg.Set.of_list
   ;;
 
-  let init_state
-    (functions : (function_:Function.t * spill_slots_used:int) String.Map.t)
-    : fn_state String.Map.t
-    =
+  let init_state (functions : Function.t String.Map.t) : fn_state String.Map.t =
     (* dumb algo to work out clobbers, I think doing scc to sort out cycles first would make it O(n) instead *)
-    let ~edges, ~defs, ~block_names, ~bytes_alloca'd = calc_edges functions in
+    let ~edges, ~defs = calc_edges functions in
     let worklist = Queue.create () in
     let clobbers = String.Table.create () in
     let to_restore = String.Table.create () in
     Map.iter functions ~f:(Queue.enqueue worklist);
     while not (Queue.is_empty worklist) do
-      let ~function_:fn, ~spill_slots_used:_ = Queue.dequeue_exn worklist in
+      let fn = Queue.dequeue_exn worklist in
       let old_clobbers =
         Hashtbl.find_or_add clobbers fn.name ~default:(fun () -> Reg.Set.empty)
       in
@@ -1148,14 +1136,9 @@ module Call_conv = struct
       if not (Reg.Set.equal new_clobbers old_clobbers)
       then Map.iter functions ~f:(Queue.enqueue worklist)
     done;
-    Map.map functions ~f:(fun (~function_:fn, ~spill_slots_used) ->
+    Map.map functions ~f:(fun fn ->
       { clobbers = Hashtbl.find_exn clobbers fn.name
       ; to_restore = Hashtbl.find_exn to_restore fn.name
-      ; block_names = Hashtbl.find_exn block_names fn.name
-      ; spill_slots_used
-      ; bytes_alloca'd =
-          Hashtbl.find bytes_alloca'd fn.name
-          |> Option.value ~default:Int64.zero
       })
   ;;
 
@@ -1165,12 +1148,8 @@ module Call_conv = struct
 end
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
-  let functions =
-    Map.map functions ~f:(fun fn ->
-      let spill_slots_used = Out_of_ssa.process fn |> Regalloc.run ?dump_crap in
-      ~fn, ~spill_slots_used)
-  in
-  Map.map functions ~f:(fun (~fn, ~spill_slots_used:_) -> fn)
+  Map.map functions ~f:(fun fn ->
+    Out_of_ssa.process fn |> Regalloc.run ?dump_crap)
 ;;
 
 (* |> Call_conv.process *)

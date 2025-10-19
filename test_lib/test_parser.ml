@@ -32,7 +32,8 @@ add %a, %a, 4
            (a ((Add ((dest a) (src1 (Lit 1)) (src2 (Lit 2))))))
            (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4))))))))
          (~labels (%root a b))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     |}]
 ;;
 
@@ -68,7 +69,8 @@ end:
            (b ((Add ((dest a) (src1 (Var a)) (src2 (Lit 4))))))
            (end (Unreachable))))
          (~labels (%root a b end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     |}]
 ;;
 
@@ -89,7 +91,8 @@ ret %ptr
             ((Move len (Lit 8)) (Alloca ((dest ptr) (size (Lit 16))))
              (Alloca ((dest dyn) (size (Var len)))) (Return (Var ptr))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     |}]
 ;;
 
@@ -110,7 +113,8 @@ ret %r0
              (Call (fn bar) (results (r0 r1)) (args ((Var a) (Lit 7))))
              (Return (Var r0))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     |}]
 ;;
 
@@ -168,7 +172,8 @@ let%expect_test "all examples" =
                (if_false ((block end) (args ())))))))
            (end ((Return (Var z))))))
          (~labels (a b c end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -208,7 +213,8 @@ let%expect_test "all examples" =
                (if_false ((block end) (args ())))))))
            (end (Unreachable))))
          (~labels (%root divide end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -238,7 +244,8 @@ let%expect_test "all examples" =
              (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
              (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable))))
          (~labels (entry))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -286,7 +293,8 @@ let%expect_test "all examples" =
               (Cond (cond (Var cond)) (if_true ((block loop) (args ())))
                (if_false ((block end) (args ())))))))))
          (~labels (%root loop end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -343,7 +351,8 @@ let%expect_test "all examples" =
               (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
                (if_false ((block ifFalse) (args ())))))))))
          (~labels (start ifTrue ifFalse end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -374,7 +383,8 @@ let%expect_test "all examples" =
              (Add ((dest res) (src1 (Var res)) (src2 (Lit 1))))
              (Return (Var res))))))
          (~labels (entry))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     ---------------------------------
 
@@ -431,7 +441,8 @@ let%expect_test "all examples" =
               (Cond (cond (Var cond)) (if_true ((block ifTrue) (args ())))
                (if_false ((block ifFalse) (args ())))))))))
          (~labels (start ifTrue ifFalse end))))
-       (args ()) (name root) (prologue ()) (epilogue ()))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
     ---------------------------------
     |}]
 ;;
