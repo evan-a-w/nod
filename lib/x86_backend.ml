@@ -1140,8 +1140,6 @@ module Clobbers = struct
       })
   ;;
 
-  (* CR ewilliams: Save/restore before and after calls, all live regs that are clobbered *)
-
   let process (functions : Function.t String.Map.t) =
     let state = init_state functions in
     (* Insert the clobber stuff and stack management in prologue and epilogue *)
