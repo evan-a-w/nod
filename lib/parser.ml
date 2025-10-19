@@ -241,7 +241,13 @@ let function_parser () =
   let%bind (_ : Pos.t) = expect Token.L_brace in
   let%bind instrs_by_label, labels = instructions_parser () in
   let%map (_ : Pos.t) = expect Token.R_brace in
-  { Function.name; args; call_conv = Default; root = ~instrs_by_label, ~labels }
+  { Function.name
+  ; args
+  ; call_conv = Default
+  ; root = ~instrs_by_label, ~labels
+  ; prologue = None
+  ; epilogue = None
+  }
 ;;
 
 let assume_root () =
@@ -253,6 +259,8 @@ let assume_root () =
       ; call_conv = Default
       ; root = ~instrs_by_label, ~labels
       ; args = []
+      ; prologue = None
+      ; epilogue = None
       }
     ]
 ;;

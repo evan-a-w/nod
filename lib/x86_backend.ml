@@ -156,14 +156,16 @@ module Out_of_ssa = struct
   type t =
     { block_names : int String.Table.t
     ; var_names : int String.Table.t
-    ; root : Block.t
+    ; fn : Function.t
     }
   [@@deriving fields]
 
-  let create root =
+  let get_fn = fn
+
+  let create fn =
     { block_names = String.Table.create ()
     ; var_names = String.Table.create ()
-    ; root
+    ; fn
     }
   ;;
 
@@ -199,7 +201,7 @@ module Out_of_ssa = struct
         List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
       res
     in
-    Block.iter t.root ~f:(fun block ->
+    Block.iter t.fn.root ~f:(fun block ->
       add_count t.block_names block.id_hum;
       block.instructions
       <- Vec.concat_map block.instructions ~f:(fun ir ->
@@ -208,7 +210,50 @@ module Out_of_ssa = struct
     t
   ;;
 
-  let split_blocks t =
+  let make_prologue t =
+    let id_hum = t.fn.name ^ "__prologue" |> new_name t.block_names in
+    (* As we go in, stack is like
+       arg_n, arg_n+1, ..., return addr
+    *)
+    let args = List.map t.fn.args ~f:(new_name t.var_names) in
+    let reg_args, args_on_stack =
+      List.split_n args (List.length Reg.integer_arguments)
+    in
+    let reg_arg_moves =
+      List.zip_with_remainder reg_args Reg.integer_arguments
+      |> fst
+      |> List.map ~f:(fun (arg, reg) ->
+        mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+    in
+    let stack_arg_moves =
+      List.rev args_on_stack
+      |> List.mapi ~f:(fun i arg ->
+        let stack_offset =
+          (* go to front of this reg, and we also need to skip the ret addr *)
+          -((i + 2) * 8)
+        in
+        mov (Reg (Reg.unallocated arg)) (Mem (RSP, stack_offset)))
+    in
+    let block =
+      Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))
+    in
+    (* I can't be bothered to make this not confusing, but we want to set this
+       so it gets updated in [Block.iter_and_update_bookkeeping]*)
+    assert (Call_conv.(equal t.fn.call_conv default));
+    block.dfs_id <- Some 0;
+    block.args <- Vec.create ();
+    block.instructions
+    <- List.map
+         ~f:Ir.x86
+         (reg_arg_moves
+          @ stack_arg_moves
+          @ [ mov (Reg RBP) (Reg RSP) ]
+            (* clobbers moves will be added here later *))
+       |> Vec.of_list;
+    { Call_block.block; args = [] }
+  ;;
+
+  let split_blocks_and_add_prologue_and_epilogue t =
     Block.iter_and_update_bookkeeping t.root ~f:(fun block ->
       (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
@@ -323,11 +368,11 @@ module Out_of_ssa = struct
     t
   ;;
 
-  let process ~this_call_conv block =
-    block
+  let process (fn : Function.t) =
+    fn
     |> create
-    |> simple_translation_to_x86_ir ~this_call_conv
-    |> split_blocks
+    |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
+    |> split_blocks_and_add_prologue_and_epilogue
     |> insert_par_moves
     |> remove_call_block_args
     (* CR ewilliams:
@@ -340,7 +385,7 @@ module Out_of_ssa = struct
     (* CR-soon ewilliams: Some peephole opts to make things less absurd
        omit pointless instructions (eg. moves to constants, moves to same reg, etc.)
     *)
-    |> root
+    |> get_fn
   ;;
 end
 
