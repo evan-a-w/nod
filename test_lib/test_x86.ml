@@ -59,8 +59,9 @@ let%expect_test "trivi" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
@@ -114,8 +115,9 @@ let%expect_test "a" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
@@ -213,8 +215,9 @@ let%expect_test "e2" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
@@ -305,8 +308,9 @@ let%expect_test "c2" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum entry) (args ()))) (args ())))))))
         (entry (args ())
          (instrs
@@ -348,9 +352,10 @@ ret %dyn
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (SUB (Reg RSP) (Imm 16)))
-           (X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg RSP))) (X86 (PUSH (Reg R14)))
-           (X86 (PUSH (Reg R15)))
+          ((X86 (SUB (Reg RSP) (Imm 16))) (X86 (PUSH (Reg RBP)))
+           (X86 (PUSH (Reg RSP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 48)))
+           (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
@@ -471,8 +476,9 @@ let%expect_test "f" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
@@ -717,9 +723,10 @@ let%expect_test "fib_rec" =
       (root
        ((fib__prologue (args (arg1))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R14) (Reg RDI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (MOV (Reg RDI) (Reg RDI)))
+           (X86 (Tag_def NOOP (Reg RBP))) (X86 (MOV (Reg R14) (Reg RDI)))
            (X86 (JMP ((block ((id_hum %root) (args (arg)))) (args ())))))))
         (%root (args (arg))
          (instrs
@@ -838,9 +845,10 @@ let%expect_test "call_chains" =
       (root
        ((first__prologue (args (x2))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (MOV (Reg RDI) (Reg RDI))) (X86 (Tag_def NOOP (Reg RBP)))
+           (X86 (MOV (Reg R15) (Reg RDI)))
            (X86 (JMP ((block ((id_hum %root) (args (x)))) (args ())))))))
         (%root (args (x))
          (instrs
@@ -863,10 +871,11 @@ let%expect_test "call_chains" =
       (root
        ((fourth__prologue (args (p0 q0))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
-           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (MOV (Reg R15) (Reg RDI)))
-           (X86 (MOV (Reg R15) (Reg RSI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
+           (X86 (Tag_def NOOP (Reg RBP))) (X86 (MOV (Reg R15) (Reg RDI)))
+           (X86 (MOV (Reg R15) (Reg RSI)))
            (X86 (JMP ((block ((id_hum %root) (args (p q)))) (args ())))))))
         (%root (args (p q))
          (instrs
@@ -886,9 +895,10 @@ let%expect_test "call_chains" =
       (root
        ((helper__prologue (args (h0))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (MOV (Reg RDI) (Reg RDI))) (X86 (Tag_def NOOP (Reg RBP)))
+           (X86 (MOV (Reg R15) (Reg RDI)))
            (X86 (JMP ((block ((id_hum %root) (args (h)))) (args ())))))))
         (%root (args (h))
          (instrs
@@ -908,9 +918,10 @@ let%expect_test "call_chains" =
       (root
        ((root__prologue (args (init1))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (MOV (Reg RDI) (Reg RDI)))
+           (X86 (Tag_def NOOP (Reg RBP))) (X86 (MOV (Reg R15) (Reg RDI)))
            (X86 (JMP ((block ((id_hum %root) (args (init)))) (args ())))))))
         (%root (args (init))
          (instrs
@@ -937,9 +948,10 @@ let%expect_test "call_chains" =
       (root
        ((second__prologue (args (y2))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RBP) (Reg RSP)))
-           (X86 (MOV (Reg R15) (Reg RDI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (MOV (Reg RDI) (Reg RDI))) (X86 (Tag_def NOOP (Reg RBP)))
+           (X86 (MOV (Reg R15) (Reg RDI)))
            (X86 (JMP ((block ((id_hum %root) (args (y)))) (args ())))))))
         (%root (args (y))
          (instrs
@@ -963,10 +975,11 @@ let%expect_test "call_chains" =
       (root
        ((third__prologue (args (u0 v0))
          (instrs
-          ((X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
-           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (MOV (Reg R15) (Reg RDI)))
-           (X86 (MOV (Reg R15) (Reg RSI))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 24)))
+           (X86 (MOV (Reg RDI) (Reg RDI))) (X86 (MOV (Reg RSI) (Reg RSI)))
+           (X86 (Tag_def NOOP (Reg RBP))) (X86 (MOV (Reg R15) (Reg RDI)))
+           (X86 (MOV (Reg R15) (Reg RSI)))
            (X86 (JMP ((block ((id_hum %root) (args (u v)))) (args ())))))))
         (%root (args (u v))
          (instrs
@@ -1026,9 +1039,10 @@ let%expect_test "fib" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
-           (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R12))) (X86 (PUSH (Reg R13)))
+           (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+           (X86 (MOV (Reg RBP) (Reg RSP))) (X86 (ADD (Reg RBP) (Imm 40)))
+           (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
@@ -1122,8 +1136,9 @@ let%expect_test "sum 100" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (MOV (Reg RBP) (Reg RSP))) (X86 (PUSH (Reg RBP)))
-           (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14))) (X86 (PUSH (Reg R15)))
+          ((X86 (PUSH (Reg RBP))) (X86 (PUSH (Reg R13))) (X86 (PUSH (Reg R14)))
+           (X86 (PUSH (Reg R15))) (X86 (MOV (Reg RBP) (Reg RSP)))
+           (X86 (ADD (Reg RBP) (Imm 32))) (X86 (Tag_def NOOP (Reg RBP)))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs

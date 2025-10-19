@@ -3,4 +3,4 @@
  (preprocess
   (pps ppx_jane))
  (name main)
- (libraries nod nod_test core core_unix async async_unix pror_rs))
+ (libraries nod core))
