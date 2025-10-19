@@ -13,6 +13,13 @@ let new_name map v =
   v'
 ;;
 
+let on_x86_irs (ir : Ir.t) ~f =
+  match ir with
+  | X86 x86 -> f x86
+  | X86_terminal x86s -> List.iter x86s ~f
+  | _ -> ()
+;;
+
 (* CR-soon ewilliams: This should lookup smth *)
 let call_conv ~fn:_ = Call_conv.Default
 
@@ -56,7 +63,7 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
   | Sub arith -> make_arith sub arith
-  | Return lit_or_var -> [ RET (operand_of_lit_or_var lit_or_var) ]
+  | Return lit_or_var -> [ RET [ operand_of_lit_or_var lit_or_var ] ]
   | Move (v, lit_or_var) -> [ mov (reg v) (operand_of_lit_or_var lit_or_var) ]
   | Load (v, mem) ->
     let force_physical =
@@ -237,9 +244,9 @@ module Out_of_ssa = struct
     let block =
       Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))
     in
+    assert (Call_conv.(equal t.fn.call_conv default));
     (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
-    assert (Call_conv.(equal t.fn.call_conv default));
     block.dfs_id <- Some 0;
     block.args <- Vec.create ();
     block.instructions
@@ -254,6 +261,24 @@ module Out_of_ssa = struct
   ;;
 
   let split_blocks_and_add_prologue_and_epilogue t =
+    let ret_shape =
+      let r = ref None in
+      let update x86_ir =
+        let this =
+          match x86_ir with
+          | RET l -> Some (List.length l)
+          | _ -> None
+        in
+        match !r, this with
+        | Some a, Some b when a = b -> ()
+        | Some _, None | None, None -> ()
+        | Some _, Some _ -> failwith "diff ret shape"
+        | None, Some _ -> r := this
+      in
+      Block.iter_instructions t.fn.root ~f:(on_x86_irs ~f:update)
+    in
+    let prologue = make_prologue t in
+    let epilogue = make_epilogue t ~ret_shape in
     Block.iter_and_update_bookkeeping t.root ~f:(fun block ->
       (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
@@ -984,12 +1009,6 @@ module Call_conv = struct
     let block_names = String.Table.create () in
     let bytes_alloca'd = String.Table.create () in
     Map.iter functions ~f:(fun (~function_, ~spill_slots_used:_) ->
-      let on_x86_irs (ir : Ir.t) ~f =
-        match ir with
-        | X86 x86 -> f x86
-        | X86_terminal x86s -> List.iter x86s ~f
-        | _ -> ()
-      in
       let this_defs = ref Reg.Set.empty in
       Hashtbl.add_exn
         edges
