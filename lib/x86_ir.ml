@@ -93,6 +93,8 @@ type 'block t =
   | IMUL of operand (* multiply RAX by operand  result RDX:RAX *)
   | IDIV of operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
   | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
+  | Save_clobbers
+  | Restore_clobbers
   | CALL of
       { fn : string
       ; results : Reg.t list
@@ -113,6 +115,7 @@ let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
   match ins with
+  | Save_clobbers | Restore_clobbers -> init
   | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
   | MOV (dst, src)
   | AND (dst, src)
@@ -154,6 +157,8 @@ let map_var_operand op ~f =
 
 let rec map_var_operands ins ~f =
   match ins with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | ALLOCA (a, b) -> ALLOCA (map_var_operand a ~f, b)
   | Tag_def (ins, r) -> Tag_def (map_var_operands ins ~f, map_var_operand r ~f)
   | Tag_use (ins, r) -> Tag_use (map_var_operands ins ~f, map_var_operand r ~f)
@@ -238,6 +243,7 @@ let map_use_operand op ~f =
 
 let rec reg_defs ins : Reg.Set.t =
   match ins with
+  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
   | MOV (dst, _) -> regs_of_operand dst
@@ -252,6 +258,7 @@ let rec reg_defs ins : Reg.Set.t =
 
 let rec reg_uses ins : Reg.Set.t =
   match ins with
+  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
   | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
   | Tag_def (ins, _) -> reg_uses ins
   | IDIV op | MOD op ->
@@ -283,6 +290,7 @@ let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
+  | Save_clobbers | Restore_clobbers -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> blocks ins
   | NOOP
   | MOV _
@@ -307,6 +315,8 @@ let rec blocks instr =
 
 let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | ALLOCA (a, b) -> ALLOCA (a, b)
   | Tag_def (ins, r) -> Tag_def (map_blocks ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_blocks ins ~f, r)
@@ -338,6 +348,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
 
 let rec filter_map_call_blocks t ~f =
   match t with
+  | Save_clobbers | Restore_clobbers -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | NOOP
   | MOV _
@@ -365,6 +376,8 @@ let unreachable = NOOP
 let rec map_defs t ~f =
   let map_dst op = map_def_operand op ~f in
   match t with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | ALLOCA (a, b) -> ALLOCA (map_dst a, b)
   | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
   | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
@@ -388,6 +401,8 @@ let rec map_uses t ~f =
   let map_op op = map_use_operand op ~f in
   let map_call_block cb = Call_block.map_uses cb ~f in
   match t with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | ALLOCA (a, b) -> ALLOCA (map_op a, b)
   | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
@@ -414,6 +429,8 @@ let rec map_uses t ~f =
 
 let rec map_operands t ~f =
   match t with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | ALLOCA (a, b) -> ALLOCA (f a, b)
   | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
   | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
@@ -445,6 +462,8 @@ let rec map_operands t ~f =
 
 let rec map_call_blocks t ~f =
   match t with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
   | Tag_def (ins, r) -> Tag_def (map_call_blocks ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_call_blocks ins ~f, r)
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
@@ -463,6 +482,7 @@ let rec map_call_blocks t ~f =
 
 let rec iter_call_blocks t ~f =
   match t with
+  | Save_clobbers | Restore_clobbers -> ()
   | Tag_def (ins, _) | Tag_use (ins, _) -> iter_call_blocks ins ~f
   | JE (lbl, next) ->
     f lbl;
@@ -483,6 +503,7 @@ let rec iter_call_blocks t ~f =
 ;;
 
 let rec call_blocks = function
+  | Save_clobbers | Restore_clobbers -> []
   | Tag_def (ins, _) | Tag_use (ins, _) -> call_blocks ins
   | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
   | JMP lbl -> [ lbl ]
@@ -500,6 +521,7 @@ let rec call_blocks = function
 let map_lit_or_vars t ~f:_ = t
 
 let rec is_terminal = function
+  | Save_clobbers | Restore_clobbers -> false
   | Tag_def (ins, _) | Tag_use (ins, _) -> is_terminal ins
   | JNE _ | JE _ | RET _ | JMP _ -> true
   | NOOP
