@@ -1,8 +1,8 @@
 (library
- (name nod)
+ (name nod_x86_backend)
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix nod_frontend nod_core vec pror_rs nod_x86_backend)
+ (libraries core core_unix nod_common nod_core)
  (flags (:standard -extension-universe beta))
- )
+)
