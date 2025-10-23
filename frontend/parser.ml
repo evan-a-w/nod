@@ -1,5 +1,5 @@
 open! Core
-open Parser_core
+open! Import
 module Parser_comb = Parser_comb.Make (Token)
 open Parser_comb
 
