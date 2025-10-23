@@ -1,5 +1,5 @@
 (library
- (name parser_core)
+ (name nod_common)
  (preprocess
   (pps ppx_jane))
  (inline_tests)
