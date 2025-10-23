@@ -1,9 +1,9 @@
 open! Core
-open! Nod
+open! Import
 
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
     print_s
       [%sexp
@@ -31,7 +31,7 @@ let test_program ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) fragments =
            Ok merged))
   in
   match result with
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
     print_s
       [%sexp

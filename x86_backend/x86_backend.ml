@@ -1,4 +1,5 @@
 open! Core
+open! Import
 open X86_ir
 
 let new_name map v =
