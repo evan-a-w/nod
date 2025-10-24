@@ -31,6 +31,50 @@ let var_state t var =
 let var_id t var = (var_state t var).id
 let id_var t id = Hashtbl.find_exn t.id_to_var id
 
+let reg_id t (reg : Reg.t) =
+  match reg with
+  | RBP -> 0
+  | RSP -> 1
+  | RAX -> 2
+  | RBX -> 3
+  | RCX -> 4
+  | RDX -> 5
+  | RSI -> 6
+  | RDI -> 7
+  | R8 -> 8
+  | R9 -> 9
+  | R10 -> 10
+  | R11 -> 11
+  | R12 -> 12
+  | R13 -> 13
+  | R14 -> 14
+  | R15 -> 15
+  | Unallocated var | Allocated (var, _) -> 16 + var_id t var
+;;
+
+let id_reg t id : Reg.t =
+  match id with
+  | 0 -> RBP
+  | 1 -> RSP
+  | 2 -> RAX
+  | 3 -> RBX
+  | 4 -> RCX
+  | 5 -> RDX
+  | 6 -> RSI
+  | 7 -> RDI
+  | 8 -> R8
+  | 9 -> R9
+  | 10 -> R10
+  | 11 -> R11
+  | 12 -> R12
+  | 13 -> R13
+  | 14 -> R14
+  | 15 -> R15
+  | other ->
+    let id = other - 16 in
+    Unallocated (id_var t id)
+;;
+
 let create (root : Block.t) =
   let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
   let add_use v =

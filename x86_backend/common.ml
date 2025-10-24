@@ -52,3 +52,5 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Move (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> ()
 ;;
+
+let ( >> ) f g = Fn.compose g f
