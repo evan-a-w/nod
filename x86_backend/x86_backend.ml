@@ -154,17 +154,6 @@ module Save_call_clobbers = struct
     let empty = { live_in = Reg.Set.empty; live_out = Reg.Set.empty }
   end
 
-  let is_physical_reg = function
-    | Reg.Unallocated _ | Allocated _ -> false
-    | _ -> true
-  ;;
-
-  let should_save reg =
-    match reg with
-    | Reg.RSP -> false
-    | _ -> is_physical_reg reg
-  ;;
-
   module Phys_liveness = struct
     type block_liveness =
       { mutable instructions : Liveness.t Vec.t
@@ -177,7 +166,7 @@ module Save_call_clobbers = struct
     type t = { blocks : block_liveness Block.Table.t }
 
     let block_liveness t block = Hashtbl.find_exn t.blocks block
-    let filter_physical set = Set.filter set ~f:is_physical_reg
+    let filter_physical set = Set.filter set ~f:Reg.is_physical
     let reg_union_list sets = Reg.Set.union_list sets
 
     let reg_defs_of_ir = function
@@ -289,7 +278,7 @@ module Save_call_clobbers = struct
   let default_clobbers =
     let callee_saved = Clobbers.callee_saved ~call_conv:Call_conv.Default in
     Array.fold Reg.all_physical ~init:Reg.Set.empty ~f:(fun acc reg ->
-      if should_save reg then Set.add acc reg else acc)
+      if Reg.should_save reg then Set.add acc reg else acc)
     |> fun all_physical -> Set.diff all_physical callee_saved
   ;;
 
@@ -300,7 +289,7 @@ module Save_call_clobbers = struct
       | None -> default_clobbers
     in
     Set.inter callee_clobbers live_out
-    |> Set.filter ~f:should_save
+    |> Set.filter ~f:Reg.should_save
     |> Set.to_list
   ;;
 

@@ -211,3 +211,30 @@ let var ~reg_numbering =
     end) : S
     with type Arg.t = Var.t)
 ;;
+
+let phys ~reg_numbering =
+  (module Make (struct
+      type t = Reg.t
+
+      let filter_physical set = Set.filter set ~f:Reg.is_physical |> Set.to_list
+
+      let defs_of_ir = function
+        | Ir0.X86 x -> filter_physical (X86_ir.reg_defs x)
+        | Ir0.X86_terminal xs ->
+          Reg.Set.union_list (List.map xs ~f:X86_ir.reg_defs) |> filter_physical
+        | _ -> []
+      ;;
+
+      let uses_of_ir = function
+        | Ir0.X86 x -> filter_physical (X86_ir.reg_uses x)
+        | Ir0.X86_terminal xs ->
+          Reg.Set.union_list (List.map xs ~f:X86_ir.reg_uses) |> filter_physical
+        | _ -> []
+      ;;
+
+      let t_of_var = Fn.const None
+      let id_of_t = Reg_numbering.reg_id reg_numbering
+      let t_of_id = Reg_numbering.id_reg reg_numbering
+    end) : S
+    with type Arg.t = Reg.t)
+;;
