@@ -12,7 +12,46 @@ module type Arg = sig
   val id_of_t : t -> int
 end
 
+module type S = sig
+  module Arg : Arg
+
+  module Liveness : sig
+    type t =
+      { live_in : Int.Set.t
+      ; live_out : Int.Set.t
+      }
+    [@@deriving fields, equal, compare, sexp]
+
+    val live_in' : t -> Arg.t list
+    val live_out' : t -> Arg.t list
+    val empty : t
+  end
+
+  module Liveness_state : sig
+    type block_liveness =
+      { mutable instructions : Liveness.t Vec.t
+      ; mutable terminal : Liveness.t
+      ; mutable overall : Liveness.t
+      ; defs : Int.Set.t
+      ; uses : Int.Set.t
+      }
+    [@@deriving fields, sexp]
+
+    type t [@@deriving sexp]
+
+    val block_liveness : t -> Block.t -> block_liveness
+    val create : root:Block.t -> t
+
+    val block_instructions_with_liveness
+      :  t
+      -> block:Block.t
+      -> instructions:(Ir.t * Liveness.t) list * terminal:(Ir.t * Liveness.t)
+  end
+end
+
 module Make (Arg : Arg) = struct
+  module Arg = Arg
+
   module Liveness = struct
     type t =
       { live_in : Int.Set.t
@@ -139,7 +178,7 @@ module Make (Arg : Arg) = struct
       done
     ;;
 
-    let create root =
+    let create ~root =
       let t = { blocks = Block.Table.create () } in
       Block.iter root ~f:(initialize_block_liveness t);
       calculate_block_liveness t root;
@@ -159,3 +198,16 @@ module Make (Arg : Arg) = struct
     ;;
   end
 end
+
+let var ~reg_numbering =
+  (module Make (struct
+      type t = Var.t
+
+      let uses_of_ir = Ir.uses
+      let defs_of_ir = Ir.defs
+      let t_of_var = Option.return
+      let t_of_id = Reg_numbering.id_var reg_numbering
+      let id_of_t = Reg_numbering.var_id reg_numbering
+    end) : S
+    with type Arg.t = Var.t)
+;;
