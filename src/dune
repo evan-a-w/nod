@@ -10,7 +10,7 @@
    (run mv %{project_root}/../../target/release/libpror_rs.a libpror_rs.a))))
 
 (library
- (name pror_rs)
+ (name pror)
  (foreign_archives pror_rs)
  (c_library_flags
   (-lpthread -lc -lm)))
