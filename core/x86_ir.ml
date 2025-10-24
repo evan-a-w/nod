@@ -51,6 +51,17 @@ module Reg = struct
     |]
   ;;
 
+  let is_physical = function
+    | Unallocated _ | Allocated _ -> false
+    | _ -> true
+  ;;
+
+  let should_save reg =
+    match reg with
+    | RSP -> false
+    | _ -> is_physical reg
+  ;;
+
   include functor Comparable.Make
   include functor Hashable.Make
 end
