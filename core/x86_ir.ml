@@ -64,6 +64,11 @@ module Reg = struct
 
   include functor Comparable.Make
   include functor Hashable.Make
+
+  let callee_saved ~call_conv =
+    match (call_conv : Call_conv.t) with
+    | Default -> Set.of_list integer_callee_saved
+  ;;
 end
 
 module Symbol =
