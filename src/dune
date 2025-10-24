@@ -17,4 +17,6 @@
  (libraries core)
  (foreign_archives pror_rs)
  (c_library_flags
-  (-lpthread -lc -lm)))
+  (-lpthread -lc -lm))
+ (flags (:standard -extension-universe beta))
+)
