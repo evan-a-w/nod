@@ -57,140 +57,211 @@ pub fn add_clause(mut t: ocaml::Pointer<T>, clause: Vec<isize>) {
 pub struct Bitset(pror::fixed_bitset::BitSet);
 
 
+ocaml::custom!(Bitset);
 
-// pub trait BitSetT {
-//     fn create() -> Self;
-//     /// Ensure capacity for at least `bits` bits. Does not shrink.
-//     fn grow(&mut self, bits: usize);
-//     /// Total number of bits currently supported.
-//     fn capacity(&self) -> usize;
-//     /// Clear all bits to zero.
-//     fn clear_all(&mut self);
-//     /// Set a bit to 1, resizing if necessary.
-//     fn set(&mut self, bit: usize);
+#[ocaml::func]
+#[ocaml::sig("unit -> bitset")]
+pub fn bitset_create() -> ocaml::Pointer<Bitset> {
+    Bitset(pror::fixed_bitset::BitSet::new(0)).into()
+}
 
-//     fn set_between(&mut self, start_bit_incl: usize, end_bit_excl: usize);
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> unit")]
+pub fn bitset_grow(mut bitset: ocaml::Pointer<Bitset>, bits: usize) {
+    bitset.as_mut().0.grow(bits)
+}
 
-//     /// Clear a bit to 0.
-//     fn clear(&mut self, bit: usize);
-//     /// Test if a bit is set.
-//     fn contains(&self, bit: usize) -> bool;
+#[ocaml::func]
+#[ocaml::sig("bitset -> int")]
+pub fn bitset_capacity(bitset: ocaml::Pointer<Bitset>) -> usize {
+    bitset.as_ref().0.capacity()
+}
 
-//     /// Find the first set bit, or `None`.
-//     fn first_set(&self) -> Option<usize>;
-//     /// Find the first unset bit, or `None`.
-//     fn first_unset(&self) -> Option<usize>;
-//     /// Find the first set bit ≥ `bit`.
-//     fn first_set_ge(&self, bit: usize) -> Option<usize>;
-//     /// Find the first unset bit ≥ `bit`.
-//     fn first_unset_ge(&self, bit: usize) -> Option<usize>;
+#[ocaml::func]
+#[ocaml::sig("bitset -> unit")]
+pub fn bitset_clear_all(mut bitset: ocaml::Pointer<Bitset>) {
+    bitset.as_mut().0.clear_all()
+}
 
-//     /// In-place union: `self |= other`.
-//     fn union_with(&mut self, other: &Self);
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> unit")]
+pub fn bitset_set(mut bitset: ocaml::Pointer<Bitset>, bit: usize) {
+    bitset.as_mut().0.set(bit)
+}
 
-//     /// In-place intersection: `self &= other`.
-//     fn intersect_with(&mut self, other: &Self);
-//     /// In-place difference: `self &= !other`.
-//     fn difference_with(&mut self, other: &Self);
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> int -> unit")]
+pub fn bitset_set_between(
+    mut bitset: ocaml::Pointer<Bitset>,
+    start_bit_incl: usize,
+    end_bit_excl: usize,
+) {
+    bitset
+        .as_mut()
+        .0
+        .set_between(start_bit_incl, end_bit_excl)
+}
 
-//     fn pop_first_set(&mut self) -> Option<usize> {
-//         let res = self.first_set()?;
-//         self.clear(res);
-//         Some(res)
-//     }
-//     fn intersect(&mut self, a: &Self, b: &Self);
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> unit")]
+pub fn bitset_clear(mut bitset: ocaml::Pointer<Bitset>, bit: usize) {
+    bitset.as_mut().0.clear(bit)
+}
 
-//     fn nth(&self, n: usize) -> Option<usize>;
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> bool")]
+pub fn bitset_contains(bitset: ocaml::Pointer<Bitset>, bit: usize) -> bool {
+    bitset.as_ref().0.contains(bit)
+}
 
-//     fn count(&self) -> usize;
+#[ocaml::func]
+#[ocaml::sig("bitset -> int option")]
+pub fn bitset_first_set(bitset: ocaml::Pointer<Bitset>) -> Option<usize> {
+    bitset.as_ref().0.first_set()
+}
 
-//     fn iter(&self) -> impl Iterator<Item = usize> + '_ {
-//         let mut after = 0;
-//         iter::from_fn(move || {
-//             let res = self.first_set_ge(after);
-//             if let Some(res) = res {
-//                 after = res + 1;
-//                 Some(res)
-//             } else {
-//                 None
-//             }
-//         })
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> int option")]
+pub fn bitset_first_unset(bitset: ocaml::Pointer<Bitset>) -> Option<usize> {
+    bitset.as_ref().0.first_unset()
+}
 
-//     fn intersect_first_set_ge(&self, other: &Self, ge: usize) -> Option<usize> {
-//         match (self.first_set_ge(ge), other.first_set_ge(ge)) {
-//             (Some(a), Some(b)) if a == b => Some(a),
-//             (Some(a), Some(b)) if a < b => self.intersect_first_set_ge(other, b),
-//             (Some(a), Some(_)) => self.intersect_first_set_ge(other, a),
-//             (Some(_), None) | (None, Some(_)) | (None, None) => None,
-//         }
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> int option")]
+pub fn bitset_first_set_ge(bitset: ocaml::Pointer<Bitset>, bit: usize) -> Option<usize> {
+    bitset.as_ref().0.first_set_ge(bit)
+}
 
-//     fn intersect_first_set(&self, other: &Self) -> Option<usize> {
-//         self.intersect_first_set_ge(other, 0)
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> int option")]
+pub fn bitset_first_unset_ge(bitset: ocaml::Pointer<Bitset>, bit: usize) -> Option<usize> {
+    bitset.as_ref().0.first_unset_ge(bit)
+}
 
-//     fn is_empty(&self) -> bool {
-//         self.first_set().is_none()
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> unit")]
+pub fn bitset_union_with(
+    mut bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) {
+    bitset.as_mut().0.union_with(&other.as_ref().0)
+}
 
-//     fn iter_union<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = usize> + 'a {
-//         let mut next_idx = 0;
-//         iter::from_fn(move || {
-//             loop {
-//                 // find next candidate in either set
-//                 let a = self.first_set_ge(next_idx);
-//                 let b = other.first_set_ge(next_idx);
-//                 let bit = match (a, b) {
-//                     (Some(x), Some(y)) => Some(x.min(y)),
-//                     (Some(x), None) => Some(x),
-//                     (None, Some(y)) => Some(y),
-//                     (None, None) => None,
-//                 };
-//                 match bit {
-//                     Some(i) => {
-//                         next_idx = i + 1;
-//                         return Some(i);
-//                     }
-//                     None => return None,
-//                 }
-//             }
-//         })
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> unit")]
+pub fn bitset_intersect_with(
+    mut bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) {
+    bitset.as_mut().0.intersect_with(&other.as_ref().0)
+}
 
-//     fn iter_intersection<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = usize> + 'a {
-//         let mut next_idx = 0;
-//         iter::from_fn(move || {
-//             loop {
-//                 // scan self for next set bit...
-//                 if let Some(i) = self.first_set_ge(next_idx) {
-//                     next_idx = i + 1;
-//                     if other.contains(i) {
-//                         return Some(i);
-//                     } else {
-//                         continue;
-//                     }
-//                 }
-//                 return None;
-//             }
-//         })
-//     }
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> unit")]
+pub fn bitset_difference_with(
+    mut bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) {
+    bitset.as_mut().0.difference_with(&other.as_ref().0)
+}
 
-//     fn iter_difference<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = usize> + 'a {
-//         let mut next_idx = 0;
-//         iter::from_fn(move || {
-//             loop {
-//                 // scan self for next set bit not in other...
-//                 if let Some(i) = self.first_set_ge(next_idx) {
-//                     next_idx = i + 1;
-//                     if !other.contains(i) {
-//                         return Some(i);
-//                     } else {
-//                         continue;
-//                     }
-//                 }
-//                 return None;
-//             }
-//         })
-//     }
-// }
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> bitset -> unit")]
+pub fn bitset_intersect(
+    mut dest: ocaml::Pointer<Bitset>,
+    a: ocaml::Pointer<Bitset>,
+    b: ocaml::Pointer<Bitset>,
+) {
+    dest.as_mut().0.intersect(&a.as_ref().0, &b.as_ref().0)
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> int option")]
+pub fn bitset_pop_first_set(mut bitset: ocaml::Pointer<Bitset>) -> Option<usize> {
+    let res = bitset.as_ref().0.first_set();
+    if let Some(bit) = res {
+        bitset.as_mut().0.clear(bit);
+    }
+    res
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> int -> int option")]
+pub fn bitset_nth(bitset: ocaml::Pointer<Bitset>, n: usize) -> Option<usize> {
+    bitset.as_ref().0.nth(n)
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> int")]
+pub fn bitset_count(bitset: ocaml::Pointer<Bitset>) -> usize {
+    bitset.as_ref().0.count()
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> int array")]
+pub fn bitset_iter(bitset: ocaml::Pointer<Bitset>) -> Vec<usize> {
+    bitset.as_ref().0.iter().collect()
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> int array")]
+pub fn bitset_iter_union(
+    bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) -> Vec<usize> {
+    bitset.as_ref().0.iter_union(&other.as_ref().0).collect()
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> int array")]
+pub fn bitset_iter_intersection(
+    bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) -> Vec<usize> {
+    bitset
+        .as_ref()
+        .0
+        .iter_intersection(&other.as_ref().0)
+        .collect()
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> int array")]
+pub fn bitset_iter_difference(
+    bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) -> Vec<usize> {
+    bitset
+        .as_ref()
+        .0
+        .iter_difference(&other.as_ref().0)
+        .collect()
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> int option")]
+pub fn bitset_intersect_first_set(
+    bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+) -> Option<usize> {
+    bitset.as_ref().0.intersect_first_set(&other.as_ref().0)
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bitset -> int -> int option")]
+pub fn bitset_intersect_first_set_ge(
+    bitset: ocaml::Pointer<Bitset>,
+    other: ocaml::Pointer<Bitset>,
+    ge: usize,
+) -> Option<usize> {
+    bitset
+        .as_ref()
+        .0
+        .intersect_first_set_ge(&other.as_ref().0, ge)
+}
+
+#[ocaml::func]
+#[ocaml::sig("bitset -> bool")]
+pub fn bitset_is_empty(bitset: ocaml::Pointer<Bitset>) -> bool {
+    bitset.as_ref().0.first_set().is_none()
+}
