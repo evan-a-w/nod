@@ -154,127 +154,6 @@ module Save_call_clobbers = struct
     let empty = { live_in = Reg.Set.empty; live_out = Reg.Set.empty }
   end
 
-  module Phys_liveness = struct
-    type block_liveness =
-      { mutable instructions : Liveness.t Vec.t
-      ; mutable terminal : Liveness.t
-      ; mutable overall : Liveness.t
-      ; defs : Reg.Set.t
-      ; uses : Reg.Set.t
-      }
-
-    type t = { blocks : block_liveness Block.Table.t }
-
-    let block_liveness t block = Hashtbl.find_exn t.blocks block
-    let filter_physical set = Set.filter set ~f:Reg.is_physical
-    let reg_union_list sets = Reg.Set.union_list sets
-
-    let reg_defs_of_ir = function
-      | Ir0.X86 x -> filter_physical (X86_ir.reg_defs x)
-      | Ir0.X86_terminal xs ->
-        reg_union_list (List.map xs ~f:X86_ir.reg_defs) |> filter_physical
-      | _ -> Reg.Set.empty
-    ;;
-
-    let reg_uses_of_ir = function
-      | Ir0.X86 x -> filter_physical (X86_ir.reg_uses x)
-      | Ir0.X86_terminal xs ->
-        reg_union_list (List.map xs ~f:X86_ir.reg_uses) |> filter_physical
-      | _ -> Reg.Set.empty
-    ;;
-
-    let defs_and_uses (block : Block.t) =
-      let defs = ref Reg.Set.empty in
-      let uses = ref Reg.Set.empty in
-      let update ir =
-        let defs_ir = reg_defs_of_ir ir in
-        let uses_ir = reg_uses_of_ir ir in
-        uses := Set.union !uses (Set.diff uses_ir !defs);
-        defs := Set.union !defs defs_ir
-      in
-      Vec.iter block.instructions ~f:update;
-      update block.terminal;
-      !defs, !uses
-    ;;
-
-    let create root =
-      let blocks = Block.Table.create () in
-      Block.iter root ~f:(fun block ->
-        let defs, uses = defs_and_uses block in
-        Hashtbl.add_exn
-          blocks
-          ~key:block
-          ~data:
-            { instructions = Vec.create ()
-            ; terminal = Liveness.empty
-            ; overall = Liveness.empty
-            ; defs
-            ; uses
-            });
-      { blocks }
-    ;;
-
-    let calculate_block_liveness t root =
-      let queue = Queue.create () in
-      Block.iter root ~f:(Queue.enqueue queue);
-      while not (Queue.is_empty queue) do
-        let block = Queue.dequeue_exn queue in
-        let block_state = block_liveness t block in
-        let succs =
-          Ir0.call_blocks block.terminal |> List.map ~f:Call_block.block
-        in
-        let live_out =
-          List.fold succs ~init:Reg.Set.empty ~f:(fun acc succ ->
-            let succ_state = block_liveness t succ in
-            Set.union acc succ_state.overall.live_in)
-        in
-        let live_in =
-          Set.union block_state.uses (Set.diff live_out block_state.defs)
-        in
-        if not
-             (Set.equal live_out block_state.overall.live_out
-              && Set.equal live_in block_state.overall.live_in)
-        then (
-          block_state.overall <- { Liveness.live_in; live_out };
-          Vec.iter block.parents ~f:(Queue.enqueue queue))
-      done
-    ;;
-
-    let calculate_intra_block_liveness t root =
-      let update_from_after
-        ({ Liveness.live_in = next_live_in; _ } : Liveness.t)
-        ir
-        =
-        let live_out = next_live_in in
-        let live_in =
-          Set.union (reg_uses_of_ir ir) (Set.diff live_out (reg_defs_of_ir ir))
-        in
-        { Liveness.live_in; live_out }
-      in
-      Block.iter root ~f:(fun block ->
-        let block_state = block_liveness t block in
-        let terminal_live_out = block_state.overall.live_out in
-        let terminal_live_in =
-          Set.union
-            (reg_uses_of_ir block.terminal)
-            (Set.diff terminal_live_out (reg_defs_of_ir block.terminal))
-        in
-        block_state.terminal
-        <- { Liveness.live_in = terminal_live_in; live_out = terminal_live_out };
-        Vec.clear block_state.instructions;
-        let (_ : Liveness.t) =
-          Vec.foldr
-            block.instructions
-            ~init:block_state.terminal
-            ~f:(fun after ir ->
-              let liveness = update_from_after after ir in
-              Vec.push block_state.instructions liveness;
-              liveness)
-        in
-        Vec.reverse_inplace block_state.instructions)
-    ;;
-  end
-
   let default_clobbers =
     let callee_saved = Clobbers.callee_saved ~call_conv:Call_conv.Default in
     Array.fold Reg.all_physical ~init:Reg.Set.empty ~f:(fun acc reg ->
@@ -302,8 +181,17 @@ module Save_call_clobbers = struct
       | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
   ;;
 
-  let process_block ~state ~liveness block =
-    let block_state = Phys_liveness.block_liveness liveness block in
+  let process_block
+    (type a)
+    (module Calc_liveness : Calc_liveness.S
+      with type Liveness_state.t = a
+       and type Arg.t = Reg.t)
+    ~state
+    ~(liveness_state : a)
+    (block : Block.t)
+    =
+    let open Calc_liveness in
+    let block_state = Liveness_state.block_liveness liveness_state block in
     let instructions = block.instructions in
     let len = Vec.length instructions in
     let new_instructions = Vec.create () in
@@ -325,7 +213,8 @@ module Save_call_clobbers = struct
              regs_to_save
                ~state
                ~call_fn
-               ~live_out:liveness_at_instr.Liveness.live_out
+               ~live_out:
+                 (Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
            in
            Stack.push pending regs;
            List.iter regs ~f:(fun reg ->
@@ -354,10 +243,12 @@ module Save_call_clobbers = struct
   let process (functions : Function.t String.Map.t) =
     let state = Clobbers.init_state functions in
     Map.iter functions ~f:(fun fn ->
-      let liveness = Phys_liveness.create fn.root in
-      Phys_liveness.calculate_block_liveness liveness fn.root;
-      Phys_liveness.calculate_intra_block_liveness liveness fn.root;
-      Block.iter fn.root ~f:(process_block ~state ~liveness));
+      let reg_numbering = Reg_numbering.create fn.root in
+      let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
+      let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
+      Block.iter
+        fn.root
+        ~f:(process_block (module Calc_liveness) ~state ~liveness_state));
     functions
   ;;
 end
