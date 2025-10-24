@@ -52,27 +52,12 @@ module Liveness_state = struct
   ;;
 
   let calculate_intra_block_liveness t root =
-    (* print_s [%sexp (t.reg_numbering : Reg_numbering.t)]; *)
     Block.iter root ~f:(fun block ->
       let block_liveness = block_liveness t block in
       let f ({ live_in; _ } : Liveness.t) ir =
         let new_live_in =
           Set.union (ir_uses t ir) (Set.diff live_in (ir_defs t ir))
         in
-        (* let () = *)
-        (*   let live_out = *)
-        (*     String.Set.map live_in ~f:(Reg_numbering.id_var t.reg_numbering) *)
-        (*   in *)
-        (*   let live_in = *)
-        (*     String.Set.map new_live_in ~f:(Reg_numbering.id_var t.reg_numbering) *)
-        (*   in *)
-        (*   print_s *)
-        (*     [%message *)
-        (*       (ir : Ir.t) *)
-        (*         ~_: *)
-        (*           ([%sexp { live_in : String.Set.t; live_out : String.Set.t }] *)
-        (*            : Sexp.t)] *)
-        (* in *)
         { Liveness.live_in = new_live_in; live_out = live_in }
       in
       block_liveness.terminal <- f block_liveness.overall block.terminal;
