@@ -11,6 +11,10 @@
 
 (library
  (name pror)
+ (preprocess
+  (pps ppx_jane))
+ (inline_tests)
+ (libraries core)
  (foreign_archives pror_rs)
  (c_library_flags
   (-lpthread -lc -lm)))
