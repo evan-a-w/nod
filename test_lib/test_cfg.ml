@@ -28,68 +28,94 @@ let%expect_test "f" =
     {|
     (start
      (instrs
-      ((Move n (Lit 7)) (Move i (Lit 0)) (Move total (Lit 0))
+      ((Move ((name n) (type_ I64)) (Lit 7))
+       (Move ((name i) (type_ I64)) (Lit 0))
+       (Move ((name total) (type_ I64)) (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum outerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
     (outerCheck
      (instrs
-      ((Sub ((dest condOuter) (src1 (Var i)) (src2 (Var n))))
+      ((Sub
+        ((dest ((name condOuter) (type_ I64)))
+         (src1 (Var ((name i) (type_ I64)))) (src2 (Var ((name n) (type_ I64))))))
        (Branch
-        (Cond (cond (Var condOuter))
+        (Cond (cond (Var ((name condOuter) (type_ I64))))
          (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
          (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
     (outerBody
      (instrs
-      ((Move j (Lit 0)) (Move partial (Lit 0))
+      ((Move ((name j) (type_ I64)) (Lit 0))
+       (Move ((name partial) (type_ I64)) (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum outerInc) (args ()))) (args ()))))))))
     (innerCheck
      (instrs
-      ((Sub ((dest condInner) (src1 (Var j)) (src2 (Lit 3))))
+      ((Sub
+        ((dest ((name condInner) (type_ I64)))
+         (src1 (Var ((name j) (type_ I64)))) (src2 (Lit 3))))
        (Branch
-        (Cond (cond (Var condInner))
+        (Cond (cond (Var ((name condInner) (type_ I64))))
          (if_true ((block ((id_hum innerBody) (args ()))) (args ())))
          (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
     (innerBody
      (instrs
-      ((And ((dest isEven) (src1 (Var j)) (src2 (Lit 1))))
-       (Sub ((dest condSkip) (src1 (Var isEven)) (src2 (Lit 0))))
+      ((And
+        ((dest ((name isEven) (type_ I64))) (src1 (Var ((name j) (type_ I64))))
+         (src2 (Lit 1))))
+       (Sub
+        ((dest ((name condSkip) (type_ I64)))
+         (src1 (Var ((name isEven) (type_ I64)))) (src2 (Lit 0))))
        (Branch
-        (Cond (cond (Var condSkip))
+        (Cond (cond (Var ((name condSkip) (type_ I64))))
          (if_true ((block ((id_hum doWork) (args ()))) (args ())))
          (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
     (skipEven
      (instrs
-      ((Add ((dest j) (src1 (Var j)) (src2 (Lit 1))))
+      ((Add
+        ((dest ((name j) (type_ I64))) (src1 (Var ((name j) (type_ I64))))
+         (src2 (Lit 1))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
     (doWork
      (instrs
-      ((Mul ((dest tmp) (src1 (Var i)) (src2 (Var j))))
-       (Add ((dest partial) (src1 (Var partial)) (src2 (Var tmp))))
-       (Add ((dest j) (src1 (Var j)) (src2 (Lit 1))))
+      ((Mul
+        ((dest ((name tmp) (type_ I64))) (src1 (Var ((name i) (type_ I64))))
+         (src2 (Var ((name j) (type_ I64))))))
+       (Add
+        ((dest ((name partial) (type_ I64)))
+         (src1 (Var ((name partial) (type_ I64))))
+         (src2 (Var ((name tmp) (type_ I64))))))
+       (Add
+        ((dest ((name j) (type_ I64))) (src1 (Var ((name j) (type_ I64))))
+         (src2 (Lit 1))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
     (innerExit
      (instrs
-      ((Add ((dest total) (src1 (Var total)) (src2 (Var partial))))
+      ((Add
+        ((dest ((name total) (type_ I64)))
+         (src1 (Var ((name total) (type_ I64))))
+         (src2 (Var ((name partial) (type_ I64))))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum outerInc) (args ()))) (args ())))
          (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
     (outerInc
      (instrs
-      ((Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
+      ((Add
+        ((dest ((name i) (type_ I64))) (src1 (Var ((name i) (type_ I64))))
+         (src2 (Lit 1))))
        (Branch (Uncond ((block ((id_hum outerCheck) (args ()))) (args ())))))))
-    (exit (instrs ((Return (Var total))))) |}]
+    (exit (instrs ((Return (Var ((name total) (type_ I64)))))))
+    |}]
 ;;
 
 let%expect_test "all examples" =
@@ -126,26 +152,31 @@ let%expect_test "all examples" =
     =================================
     (a
      (instrs
-      ((Move x (Lit 10)) (Move y (Lit 20))
-       (Sub ((dest z) (src1 (Var y)) (src2 (Var x))))
+      ((Move ((name x) (type_ I64)) (Lit 10))
+       (Move ((name y) (type_ I64)) (Lit 20))
+       (Sub
+        ((dest ((name z) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
+         (src2 (Var ((name x) (type_ I64))))))
        (Branch
         (Cond (cond (Lit 1)) (if_true ((block ((id_hum b) (args ()))) (args ())))
          (if_false ((block ((id_hum c) (args ()))) (args ()))))))))
     (b
      (instrs
-      ((Add ((dest z) (src1 (Var z)) (src2 (Lit 5))))
+      ((Add
+        ((dest ((name z) (type_ I64))) (src1 (Var ((name z) (type_ I64))))
+         (src2 (Lit 5))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (c
      (instrs
-      ((Move z (Lit 0))
+      ((Move ((name z) (type_ I64)) (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs ((Return (Var z)))))
+    (end (instrs ((Return (Var ((name z) (type_ I64)))))))
     ---------------------------------
     ---------------------------------
 
@@ -170,15 +201,20 @@ let%expect_test "all examples" =
     =================================
     (%root
      (instrs
-      ((Move a (Lit 4)) (Move b (Lit 5))
-       (Mul ((dest c) (src1 (Var a)) (src2 (Var b))))
+      ((Move ((name a) (type_ I64)) (Lit 4))
+       (Move ((name b) (type_ I64)) (Lit 5))
+       (Mul
+        ((dest ((name c) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+         (src2 (Var ((name b) (type_ I64))))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum divide) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (divide
      (instrs
-      ((Div ((dest c) (src1 (Var c)) (src2 (Lit 2))))
+      ((Div
+        ((dest ((name c) (type_ I64))) (src1 (Var ((name c) (type_ I64))))
+         (src2 (Lit 2))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
@@ -206,9 +242,15 @@ let%expect_test "all examples" =
     =================================
     (entry
      (instrs
-      ((Move a (Lit 100)) (Move b (Lit 6))
-       (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-       (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) Unreachable)))
+      ((Move ((name a) (type_ I64)) (Lit 100))
+       (Move ((name b) (type_ I64)) (Lit 6))
+       (Mod
+        ((dest ((name res) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+         (src2 (Var ((name b) (type_ I64))))))
+       (Add
+        ((dest ((name res) (type_ I64))) (src1 (Var ((name res) (type_ I64))))
+         (src2 (Lit 1))))
+       Unreachable)))
     ---------------------------------
     ---------------------------------
 
@@ -240,18 +282,25 @@ let%expect_test "all examples" =
     =================================
     (%root
      (instrs
-      ((Move i (Lit 0)) (Move sum (Lit 0))
+      ((Move ((name i) (type_ I64)) (Lit 0))
+       (Move ((name sum) (type_ I64)) (Lit 0))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum loop) (args ()))) (args ())))
          (if_false ((block ((id_hum loop) (args ()))) (args ()))))))))
     (loop
      (instrs
-      ((Add ((dest sum) (src1 (Var sum)) (src2 (Var i))))
-       (Add ((dest i) (src1 (Var i)) (src2 (Lit 1))))
-       (Sub ((dest cond) (src1 (Lit 10)) (src2 (Var i))))
+      ((Add
+        ((dest ((name sum) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+         (src2 (Var ((name i) (type_ I64))))))
+       (Add
+        ((dest ((name i) (type_ I64))) (src1 (Var ((name i) (type_ I64))))
+         (src2 (Lit 1))))
+       (Sub
+        ((dest ((name cond) (type_ I64))) (src1 (Lit 10))
+         (src2 (Var ((name i) (type_ I64))))))
        (Branch
-        (Cond (cond (Var cond))
+        (Cond (cond (Var ((name cond) (type_ I64))))
          (if_true ((block ((id_hum loop) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (end (instrs (Unreachable)))
@@ -289,24 +338,33 @@ let%expect_test "all examples" =
     =================================
     (start
      (instrs
-      ((Move x (Lit 7)) (Move y (Lit 2))
-       (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
-       (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
-       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+      ((Move ((name x) (type_ I64)) (Lit 7))
+       (Move ((name y) (type_ I64)) (Lit 2))
+       (Mul
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Lit 3))))
+       (Div
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Var ((name y) (type_ I64))))))
+       (Sub
+        ((dest ((name cond) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
+         (src2 (Lit 2))))
        (Branch
-        (Cond (cond (Var cond))
+        (Cond (cond (Var ((name cond) (type_ I64))))
          (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
          (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
     (ifTrue
      (instrs
-      ((Move x (Lit 999))
+      ((Move ((name x) (type_ I64)) (Lit 999))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (ifFalse
      (instrs
-      ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+      ((Add
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Lit 10))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
@@ -334,9 +392,15 @@ let%expect_test "all examples" =
     =================================
     (entry
      (instrs
-      ((Move a (Lit 100)) (Move b (Lit 6))
-       (Mod ((dest res) (src1 (Var a)) (src2 (Var b))))
-       (Add ((dest res) (src1 (Var res)) (src2 (Lit 1)))) (Return (Var res)))))
+      ((Move ((name a) (type_ I64)) (Lit 100))
+       (Move ((name b) (type_ I64)) (Lit 6))
+       (Mod
+        ((dest ((name res) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+         (src2 (Var ((name b) (type_ I64))))))
+       (Add
+        ((dest ((name res) (type_ I64))) (src1 (Var ((name res) (type_ I64))))
+         (src2 (Lit 1))))
+       (Return (Var ((name res) (type_ I64)))))))
     ---------------------------------
     ---------------------------------
 
@@ -371,29 +435,38 @@ let%expect_test "all examples" =
     =================================
     (start
      (instrs
-      ((Move x (Lit 7)) (Move y (Lit 2))
-       (Mul ((dest x) (src1 (Var x)) (src2 (Lit 3))))
-       (Div ((dest x) (src1 (Var x)) (src2 (Var y))))
-       (Sub ((dest cond) (src1 (Var y)) (src2 (Lit 2))))
+      ((Move ((name x) (type_ I64)) (Lit 7))
+       (Move ((name y) (type_ I64)) (Lit 2))
+       (Mul
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Lit 3))))
+       (Div
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Var ((name y) (type_ I64))))))
+       (Sub
+        ((dest ((name cond) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
+         (src2 (Lit 2))))
        (Branch
-        (Cond (cond (Var cond))
+        (Cond (cond (Var ((name cond) (type_ I64))))
          (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
          (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))
     (ifTrue
      (instrs
-      ((Move x (Lit 999))
+      ((Move ((name x) (type_ I64)) (Lit 999))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
     (ifFalse
      (instrs
-      ((Add ((dest x) (src1 (Var x)) (src2 (Lit 10))))
+      ((Add
+        ((dest ((name x) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+         (src2 (Lit 10))))
        (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum end) (args ()))) (args ())))
          (if_false ((block ((id_hum end) (args ()))) (args ()))))))))
-    (end (instrs ((Return (Var x)))))
+    (end (instrs ((Return (Var ((name x) (type_ I64)))))))
     ---------------------------------
     |}]
 ;;
