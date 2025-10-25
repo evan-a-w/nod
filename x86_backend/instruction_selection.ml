@@ -38,7 +38,7 @@ let type_of_class = function
   | Class.F64 -> Type.F64
 ;;
 
-let fresh_var ?(type_=Type.I64) t base =
+let fresh_var ?(type_ = Type.I64) t base =
   Var.create ~name:(new_name t.var_names base) ~type_
 ;;
 
@@ -67,16 +67,10 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
     require_class t dest Class.I64;
     let tmp_rax =
-      Reg.allocated
-        ~class_:Class.I64
-        (fresh_var t "tmp_rax")
-        (Some Reg.rax)
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_rax") (Some Reg.rax)
     in
     let tmp_dst =
-      Reg.allocated
-        ~class_:Class.I64
-        (fresh_var t "tmp_dst")
-        (Some take_reg)
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_dst") (Some take_reg)
     in
     [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
     ; tag_def
@@ -95,28 +89,28 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
   | Sub arith -> make_arith sub arith
+  (* TODO: Implement proper SSE float instructions *)
+  | Fadd _ | Fsub _ | Fmul _ | Fdiv _ ->
+    failwith "Float instructions not yet supported in x86 backend"
   | Return lit_or_var ->
     [ RET [ operand_of_lit_or_var t ~class_:Class.I64 lit_or_var ] ]
   | Move (v, lit_or_var) ->
     require_class t v Class.I64;
     [ mov (reg v) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
+  | Movq _ ->
+    (* TODO: Implement proper movq instruction for bitcast between i64 and f64 *)
+    failwith "Movq instruction not yet supported in x86 backend"
   | Load (v, mem) ->
     require_class t v Class.I64;
     let force_physical =
-      Reg.allocated
-        ~class_:Class.I64
-        (fresh_var t "tmp_force_physical")
-        None
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
     in
     [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
     ; mov (reg v) (Reg force_physical)
     ]
   | Store (lit_or_var, mem) ->
     let force_physical =
-      Reg.allocated
-        ~class_:Class.I64
-        (fresh_var t "tmp_force_physical")
-        None
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
     in
     [ mov
         (Reg force_physical)
@@ -141,10 +135,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         | `Left x -> Some (push (operand_of_lit_or_var t ~class_:Class.I64 x))
         | `Both (arg, reg) ->
           let force_physical =
-            Reg.allocated
-              ~class_:Class.I64
-              (fresh_var t "arg_reg")
-              (Some reg)
+            Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
           in
           let instr =
             mov
@@ -154,7 +145,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           Some instr)
       |> Sequence.to_list
     in
-    (* CR-soon ewilliams: compound results via arg to pointer *)
+    (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results Class.I64 in
     let post_moves =
@@ -235,9 +226,7 @@ let make_prologue t =
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
-  let args =
-    List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg)
-  in
+  let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
   let gp_arg_regs = Reg.arguments Class.I64 in
   let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
@@ -330,7 +319,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   in
   let prologue = make_prologue t in
   let epilogue = make_epilogue t ~ret_shape in
-  (* CR-soon ewilliams: Omit prologue and epilogue if unneeded (eg. leaf fn) *)
+  (* CR-soon: Omit prologue and epilogue if unneeded (eg. leaf fn) *)
   t.fn.prologue <- Some prologue;
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
@@ -482,7 +471,8 @@ let simple_translation_to_x86_ir ~this_call_conv t =
   let lower_ir ir =
     let res = ir_to_x86_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
-      List.iter (X86_ir.vars ir) ~f:(fun var -> add_count t.var_names (Var.name var)));
+      List.iter (X86_ir.vars ir) ~f:(fun var ->
+        add_count t.var_names (Var.name var)));
     res
   in
   Block.iter t.fn.root ~f:(fun block ->
@@ -501,7 +491,7 @@ let run (fn : Function.t) =
   |> split_blocks_and_add_prologue_and_epilogue
   |> insert_par_moves
   |> remove_call_block_args
-  (* CR-soon ewilliams: Some peephole opts to make things less absurd
+  (* CR-soon: Some peephole opts to make things less absurd
        omit pointless instructions (eg. moves to constants, moves to same reg, etc.)
   *)
   |> get_fn

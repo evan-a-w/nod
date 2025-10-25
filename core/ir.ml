@@ -15,12 +15,17 @@ let add_block_args =
     | Or _
     | Mul _
     | Div _
+    | Fadd _
+    | Fsub _
+    | Fmul _
+    | Fdiv _
     | Alloca _
     | Load _
     | Store _
     | Mod _
     | Sub _
     | Move _
+    | Movq _
     | Call _
     | Unreachable
     | Noop
@@ -48,12 +53,17 @@ let remove_block_args =
     | Or _
     | Mul _
     | Div _
+    | Fadd _
+    | Fsub _
+    | Fmul _
+    | Fdiv _
     | Alloca _
     | Load _
     | Store _
     | Mod _
     | Sub _
     | Move _
+    | Movq _
     | Call _
     | Unreachable
     | Noop
@@ -86,7 +96,7 @@ module Type_check = struct
     Printf.ksprintf (fun msg -> Error (`Type_mismatch msg)) fmt
   ;;
 
-  let literal_allowed type_ = Type.is_integer type_ || Type.equal type_ Type.Ptr
+  let literal_allowed type_ = Type.is_numeric type_ || Type.equal type_ Type.Ptr
 
   let ensure_operand_matches operand ~expected_type ~op ~position =
     match operand with
@@ -153,12 +163,55 @@ module Type_check = struct
   ;;
 
   let check_arith ~op { dest; src1; src2 } =
-    let%bind () = ensure_integer_var dest ~op ~position:"destination" in
     let dest_type = Var.type_ dest in
-    let%bind () =
-      ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
-    in
-    ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs"
+    match dest_type with
+    | Type.Ptr ->
+      (* Pointer arithmetic: ptr ± i64 = ptr *)
+      let check_ptr_arith src1 src2 =
+        let is_ptr = function
+          | Lit_or_var.Lit _ -> false
+          | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.Ptr
+        in
+        let is_i64 = function
+          | Lit_or_var.Lit _ -> true
+          | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.I64
+        in
+        if (is_ptr src1 && is_i64 src2) || (is_i64 src1 && is_ptr src2)
+        then Ok ()
+        else
+          type_error
+            "%s with pointer destination requires one pointer and one i64 operand"
+            op
+      in
+      check_ptr_arith src1 src2
+    | _ when Type.is_integer dest_type ->
+      (* Integer arithmetic: all operands must match *)
+      let%bind () =
+        ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
+      in
+      ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs"
+    | _ ->
+      type_error
+        "%s destination %s:%s must be integer or pointer"
+        op
+        (Var.name dest)
+        (Type.to_string dest_type)
+  ;;
+
+  let check_float_arith ~op { dest; src1; src2 } =
+    let dest_type = Var.type_ dest in
+    if not (Type.is_float dest_type)
+    then
+      type_error
+        "%s destination %s:%s must be float (f32 or f64)"
+        op
+        (Var.name dest)
+        (Type.to_string dest_type)
+    else (
+      let%bind () =
+        ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
+      in
+      ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs")
   ;;
 
   let check_alloca { dest; size } =
@@ -194,6 +247,31 @@ module Type_check = struct
           (Type.to_string (Var.type_ dest))
           (Var.name src_var)
           (Type.to_string (Var.type_ src_var))
+  ;;
+
+  let check_movq (dest, src) =
+    let dest_type = Var.type_ dest in
+    match src with
+    | Lit_or_var.Lit _ ->
+      type_error
+        "movq cannot accept literals, got literal for %s:%s"
+        (Var.name dest)
+        (Type.to_string dest_type)
+    | Var src_var ->
+      let src_type = Var.type_ src_var in
+      let valid_pair =
+        (Type.equal src_type Type.I64 && Type.equal dest_type Type.F64)
+        || (Type.equal src_type Type.F64 && Type.equal dest_type Type.I64)
+      in
+      if valid_pair
+      then Ok ()
+      else
+        type_error
+          "movq requires i64<->f64 conversion, got %s:%s to %s:%s"
+          (Var.name src_var)
+          (Type.to_string src_type)
+          (Var.name dest)
+          (Type.to_string dest_type)
   ;;
 
   let check_branch_cond cond =
@@ -250,8 +328,13 @@ module Type_check = struct
     | Mod arith -> check_arith ~op:"mod" arith
     | And arith -> check_arith ~op:"and" arith
     | Or arith -> check_arith ~op:"or" arith
+    | Fadd arith -> check_float_arith ~op:"fadd" arith
+    | Fsub arith -> check_float_arith ~op:"fsub" arith
+    | Fmul arith -> check_float_arith ~op:"fmul" arith
+    | Fdiv arith -> check_float_arith ~op:"fdiv" arith
     | Alloca alloca -> check_alloca alloca
     | Move (dst, src) -> check_move (dst, src)
+    | Movq (dst, src) -> check_movq (dst, src)
     | Load (dst, src) -> check_load (dst, src)
     | Store (dst, src) -> check_store (dst, src)
     | Return _ -> Ok ()

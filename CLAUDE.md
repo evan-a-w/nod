@@ -102,6 +102,7 @@ lib/nod.ml (public interface)
 
 ## Testing Guidelines
 
+- Test all added functionality to the point we can be confident it's correct
 - Tests use inline `%expect_test` annotations (ppx_jane)
 - Test files in `test_lib/`: `test_parser.ml`, `test_cfg.ml`, `test_ssa.ml`, `test_x86.ml`, `test_x86_asm.ml`, `test_x86_execution.ml`
 - Expect test pattern:

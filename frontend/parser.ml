@@ -196,6 +196,18 @@ let instr' = function
   | "mod" ->
     let%map a = arith () in
     Ir.mod_ a
+  | "fadd" ->
+    let%map a = arith () in
+    Ir.fadd a
+  | "fsub" ->
+    let%map a = arith () in
+    Ir.fsub a
+  | "fmul" ->
+    let%map a = arith () in
+    Ir.fmul a
+  | "fdiv" ->
+    let%map a = arith () in
+    Ir.fdiv a
   | "alloca" ->
     let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
@@ -224,6 +236,11 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%map src = lit_or_var () in
     Ir.move dest src
+  | "movq" ->
+    let%bind dest = var_decl () in
+    let%bind (_ : Pos.t) = comma () in
+    let%map src = lit_or_var () in
+    Ir.movq dest src
   | "b" | "branch" -> branch ()
   | "return" | "ret" ->
     let%map res = lit_or_var () in
