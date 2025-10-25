@@ -121,5 +121,7 @@ type t =
   }
 [@@deriving sexp, equal, compare, hash]
 
+let rsp = { reg = RSP; class_ = I64 }
+
 include functor Comparable.Make
 include functor Hashable.Make
