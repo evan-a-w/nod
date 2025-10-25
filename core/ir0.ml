@@ -526,7 +526,7 @@ let map_x86_operands t ~f =
 
 let uses_ex_args t =
   Set.diff
-    (uses t |> String.Set.of_list)
+    (uses t |> Var.Set.of_list)
     (List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
-     |> String.Set.of_list)
+     |> Var.Set.of_list)
 ;;

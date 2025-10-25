@@ -15,6 +15,7 @@ module State = struct
     ; labels : string Vec.t
     ; current_block : string
     ; current_instrs : string Ir0.t Vec.t
+    ; var_types : Type.t String.Table.t
     }
 
   let create () =
@@ -22,6 +23,7 @@ module State = struct
     ; labels = Vec.create ()
     ; current_block = "%root"
     ; current_instrs = Vec.create ()
+    ; var_types = String.Table.create ()
     }
   ;;
 end
@@ -32,9 +34,59 @@ let ident () =
   | tok, pos -> fail (`Unexpected_token (tok, pos))
 ;;
 
-let var () =
+let record_var_type name type_ =
+  let%bind state = get_state () in
+  (match Hashtbl.find state.State.var_types name with
+   | None ->
+     Hashtbl.set state.var_types ~key:name ~data:type_;
+     return ()
+   | Some existing when Type.equal existing type_ -> return ()
+   | Some existing ->
+     fail
+       (`Type_mismatch
+          (sprintf
+             "variable %s previously annotated as %s but got %s"
+             name
+             (Type.to_string existing)
+             (Type.to_string type_))))
+;;
+
+let ensure_var_type name =
+  let%bind state = get_state () in
+  match Hashtbl.find state.State.var_types name with
+  | Some type_ -> return type_
+  | None -> fail (`Unknown_variable name)
+;;
+
+let parse_type_annotation () =
+  let%bind (_ : Pos.t) = expect Token.Colon in
+  match%bind next () with
+  | Token.Ident type_name, _ ->
+    (match Type.of_string type_name with
+     | Some type_ -> return type_
+     | None -> fail (`Unknown_type type_name))
+  | tok, pos -> fail (`Unexpected_token (tok, pos))
+;;
+
+let var_decl () =
   let%bind (_ : Pos.t) = expect Token.Percent in
-  ident ()
+  let%bind name = ident () in
+  let%bind type_ = parse_type_annotation () in
+  let%bind () = record_var_type name type_ in
+  return (Var.create ~name ~type_)
+;;
+
+let var_use () =
+  let%bind (_ : Pos.t) = expect Token.Percent in
+  let%bind name = ident () in
+  match%bind peek () with
+  | Some (Token.Colon, _) ->
+    let%bind type_ = parse_type_annotation () in
+    let%bind () = record_var_type name type_ in
+    return (Var.create ~name ~type_)
+  | _ ->
+    let%map type_ = ensure_var_type name in
+    Var.create ~name ~type_
 ;;
 
 let lit () =
@@ -44,22 +96,30 @@ let lit () =
 ;;
 
 let lit_or_var () =
-  match%bind next () with
-  | Token.Int i, _ -> return (Ir.Lit_or_var.Lit (Int64.of_int i))
-  | Token.Percent, _ ->
-    let%map s = ident () in
-    Ir.Lit_or_var.Var s
-  | tok, pos -> fail (`Unexpected_token (tok, pos))
+  match%bind peek () with
+  | Some (Token.Int _, _) ->
+    let%map i = lit () in
+    Ir.Lit_or_var.Lit (Int64.of_int i)
+  | Some (Token.Percent, _) ->
+    let%map v = var_use () in
+    Ir.Lit_or_var.Var v
+  | Some (tok, pos) -> fail (`Unexpected_token (tok, pos))
+  | None -> fail `Unexpected_end_of_input
 ;;
 
 let lit_or_var_or_ident () =
-  match%bind next () with
-  | Token.Int i, _ -> return (`Lit_or_var (Ir.Lit_or_var.Lit (Int64.of_int i)))
-  | Token.Percent, _ ->
+  match%bind peek () with
+  | Some (Token.Int _, _) ->
+    let%map i = lit () in
+    `Lit_or_var (Ir.Lit_or_var.Lit (Int64.of_int i))
+  | Some (Token.Percent, _) ->
+    let%map v = var_use () in
+    `Lit_or_var (Ir.Lit_or_var.Var v)
+  | Some (Token.Ident _, _) ->
     let%map s = ident () in
-    `Lit_or_var (Ir.Lit_or_var.Var s)
-  | Token.Ident s, _ -> return (`Ident s)
-  | tok, pos -> fail (`Unexpected_token (tok, pos))
+    `Ident s
+  | Some (tok, pos) -> fail (`Unexpected_token (tok, pos))
+  | None -> fail `Unexpected_end_of_input
 ;;
 
 let seen_label ~label =
@@ -89,7 +149,7 @@ let seen_label ~label =
 let comma () = expect Token.Comma
 
 let arith () =
-  let%bind dest = var () in
+  let%bind dest = var_decl () in
   let%bind (_ : Pos.t) = comma () in
   let%bind src1 = lit_or_var () in
   let%bind (_ : Pos.t) = comma () in
@@ -137,7 +197,7 @@ let instr' = function
     let%map a = arith () in
     Ir.mod_ a
   | "alloca" ->
-    let%bind dest = var () in
+    let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
     let%map size = lit_or_var () in
     Ir.alloca { dest; size }
@@ -155,12 +215,12 @@ let instr' = function
         maybe_surrounded
           ~before:(expect Token.L_paren)
           ~after:(expect Token.R_paren)
-          (delimited0 ~delimiter:(expect Token.Comma) (var ()))
+          (delimited0 ~delimiter:(expect Token.Comma) (var_decl ()))
       | _ -> return []
     in
     return (Ir.call ~fn ~results ~args)
   | "mov" | "move" ->
-    let%bind dest = var () in
+    let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
     let%map src = lit_or_var () in
     Ir.move dest src
@@ -200,7 +260,7 @@ let instructions_parser () =
 let function_parser () =
   let%bind name = ident () in
   let%bind (_ : Pos.t) = expect Token.L_paren in
-  let%bind args = delimited0 ~delimiter:(expect Token.Comma) (var ()) in
+  let%bind args = delimited0 ~delimiter:(expect Token.Comma) (var_decl ()) in
   let%bind (_ : Pos.t) = expect Token.R_paren in
   let%bind (_ : Pos.t) = expect Token.L_brace in
   let%bind instrs_by_label, labels = instructions_parser () in

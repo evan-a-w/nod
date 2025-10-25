@@ -3,7 +3,7 @@ open! Core
 type 'block t' =
   { call_conv : Call_conv.t
   ; mutable root : 'block [@hash.ignore]
-  ; args : string list
+  ; args : Var.t list
   ; name : string
   ; mutable prologue : 'block option [@hash.ignore]
   ; mutable epilogue : 'block option [@hash.ignore]

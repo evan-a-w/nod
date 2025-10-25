@@ -49,7 +49,7 @@ let run (functions : Function.t String.Map.t) =
     | Raw.XMM13 -> "xmm13"
     | Raw.XMM14 -> "xmm14"
     | Raw.XMM15 -> "xmm15"
-    | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier v
+    | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier (Var.name v)
     | Raw.Allocated (_, Some reg) -> string_of_raw reg
   in
   let string_of_reg reg = string_of_raw (Reg.raw reg) in
