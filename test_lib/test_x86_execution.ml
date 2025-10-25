@@ -134,3 +134,182 @@ let%expect_test "recursive fib" =
   print_endline output;
   [%expect {| 13 |}]
 ;;
+
+(* Pointer arithmetic tests *)
+
+let%expect_test "basic pointer arithmetic - adding offset" =
+  let output =
+    compile_and_execute
+      {|
+alloca %base:ptr, 64
+mov %offset:i64, 8
+add %ptr:ptr, %base, %offset
+sub %result:i64, %ptr, %base
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 8 |}]
+;;
+
+let%expect_test "pointer arithmetic - array indexing" =
+  let output =
+    compile_and_execute
+      {|
+alloca %array:ptr, 80
+mov %idx:i64, 3
+mul %byte_offset:i64, %idx, 8
+add %element_ptr:ptr, %array, %byte_offset
+sub %result:i64, %element_ptr, %array
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 24 |}]
+;;
+
+let%expect_test "pointer arithmetic - multiple operations" =
+  let output =
+    compile_and_execute
+      {|
+alloca %buf:ptr, 100
+add %p1:ptr, %buf, 10
+add %p2:ptr, %p1, 15
+add %p3:ptr, %p2, 5
+sub %total_offset:i64, %p3, %buf
+ret %total_offset
+|}
+  in
+  print_endline output;
+  [%expect {| 30 |}]
+;;
+
+let%expect_test "pointer arithmetic in loop" =
+  let output =
+    compile_and_execute
+      {|
+alloca %array:ptr, 80
+mov %i:i64, 0
+mov %sum:i64, 0
+
+loop:
+  mul %offset:i64, %i, 8
+  add %ptr:ptr, %array, %offset
+  add %sum:i64, %sum, %i
+  add %i:i64, %i, 1
+  sub %cond:i64, %i, 10
+  branch %cond, loop, done
+
+done:
+  ret %sum
+|}
+  in
+  print_endline output;
+  [%expect {| 45 |}]
+;;
+
+let%expect_test "pointer arithmetic - subtracting from pointer" =
+  let output =
+    compile_and_execute
+      {|
+alloca %buf:ptr, 100
+add %end:ptr, %buf, 50
+sub %middle:ptr, %end, 25
+sub %result:i64, %middle, %buf
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 25 |}]
+;;
+
+let%expect_test "pointer arithmetic - complex calculation" =
+  let output =
+    compile_and_execute
+      {|
+alloca %data:ptr, 200
+mov %base_idx:i64, 5
+mul %base_offset:i64, %base_idx, 8
+add %base_ptr:ptr, %data, %base_offset
+mov %extra:i64, 3
+mul %extra_offset:i64, %extra, 8
+add %final_ptr:ptr, %base_ptr, %extra_offset
+sub %total:i64, %final_ptr, %data
+ret %total
+|}
+  in
+  print_endline output;
+  [%expect {| 64 |}]
+;;
+
+let%expect_test "alloca with dynamic size" =
+  let output =
+    compile_and_execute
+      {|
+mov %size:i64, 32
+alloca %buf:ptr, %size
+add %end:ptr, %buf, %size
+sub %actual_size:i64, %end, %buf
+ret %actual_size
+|}
+  in
+  print_endline output;
+  [%expect {| 32 |}]
+;;
+
+let%expect_test "nested pointer arithmetic" =
+  let output =
+    compile_and_execute
+      {|
+alloca %outer:ptr, 128
+mov %outer_idx:i64, 2
+mul %outer_off:i64, %outer_idx, 16
+add %inner_base:ptr, %outer, %outer_off
+mov %inner_idx:i64, 3
+mul %inner_off:i64, %inner_idx, 8
+add %element:ptr, %inner_base, %inner_off
+sub %total_off:i64, %element, %outer
+ret %total_off
+|}
+  in
+  print_endline output;
+  [%expect {| 56 |}]
+;;
+
+let%expect_test "pointer arithmetic with mixed operations" =
+  let output =
+    compile_and_execute
+      {|
+alloca %arr:ptr, 100
+mov %a:i64, 10
+mov %b:i64, 20
+add %sum:i64, %a, %b
+add %ptr1:ptr, %arr, %sum
+sub %diff:i64, %b, %a
+sub %ptr2:ptr, %ptr1, %diff
+sub %result:i64, %ptr2, %arr
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 20 |}]
+;;
+
+let%expect_test "pointer arithmetic - boundary calculation" =
+  let output =
+    compile_and_execute
+      {|
+mov %size:i64, 64
+alloca %buffer:ptr, %size
+add %ptr:ptr, %buffer, 0
+sub %at_start:i64, %ptr, %buffer
+add %end:ptr, %buffer, %size
+sub %range:i64, %end, %buffer
+mul %result:i64, %at_start, 100
+add %result:i64, %result, %range
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 64 |}]
+;;

@@ -70,6 +70,16 @@ let%expect_test "pointer arithmetic with i64 variable" =
   [%expect {| OK |}]
 ;;
 
+let%expect_test "pointer subtraction gives i64" =
+  test {|
+    mov %ptr1:ptr, 1000
+    mov %ptr2:ptr, 1050
+    sub %diff:i64, %ptr2, %ptr1
+    return %diff
+  |};
+  [%expect {| OK |}]
+;;
+
 (* Pointer arithmetic error cases *)
 
 let%expect_test "pointer + pointer (should fail)" =

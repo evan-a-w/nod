@@ -164,32 +164,33 @@ module Type_check = struct
 
   let check_arith ~op { dest; src1; src2 } =
     let dest_type = Var.type_ dest in
+    let is_ptr = function
+      | Lit_or_var.Lit _ -> false
+      | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.Ptr
+    in
+    let is_i64 = function
+      | Lit_or_var.Lit _ -> true
+      | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.I64
+    in
     match dest_type with
     | Type.Ptr ->
       (* Pointer arithmetic: ptr ± i64 = ptr *)
-      let check_ptr_arith src1 src2 =
-        let is_ptr = function
-          | Lit_or_var.Lit _ -> false
-          | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.Ptr
-        in
-        let is_i64 = function
-          | Lit_or_var.Lit _ -> true
-          | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.I64
-        in
-        if (is_ptr src1 && is_i64 src2) || (is_i64 src1 && is_ptr src2)
-        then Ok ()
-        else
-          type_error
-            "%s with pointer destination requires one pointer and one i64 operand"
-            op
-      in
-      check_ptr_arith src1 src2
+      if (is_ptr src1 && is_i64 src2) || (is_i64 src1 && is_ptr src2)
+      then Ok ()
+      else
+        type_error
+          "%s with pointer destination requires one pointer and one i64 operand"
+          op
     | _ when Type.is_integer dest_type ->
-      (* Integer arithmetic: all operands must match *)
-      let%bind () =
-        ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
-      in
-      ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs"
+      (* Check for pointer subtraction: ptr - ptr = i64 *)
+      if is_ptr src1 && is_ptr src2 && String.equal op "sub"
+      then Ok ()
+      else (
+        (* Regular integer arithmetic: all operands must match *)
+        let%bind () =
+          ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
+        in
+        ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs")
     | _ ->
       type_error
         "%s destination %s:%s must be integer or pointer"
