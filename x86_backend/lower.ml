@@ -49,7 +49,8 @@ let run (functions : Function.t String.Map.t) =
     | Raw.XMM13 -> "xmm13"
     | Raw.XMM14 -> "xmm14"
     | Raw.XMM15 -> "xmm15"
-    | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier (Var.name v)
+    | Raw.Unallocated v | Raw.Allocated (v, None) ->
+      sanitize_identifier (Var.name v)
     | Raw.Allocated (_, Some reg) -> string_of_raw reg
   in
   let string_of_reg reg = string_of_raw (Reg.raw reg) in
@@ -139,6 +140,20 @@ let run (functions : Function.t String.Map.t) =
                    (string_of_operand dst)
                    (string_of_operand src)
                ])
+        | MOVSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "movsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | MOVQ (dst, src) ->
+          `Emit
+            [ sprintf
+                "movq %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
         | ADD (dst, src) ->
           `Emit
             [ sprintf
@@ -150,6 +165,34 @@ let run (functions : Function.t String.Map.t) =
           `Emit
             [ sprintf
                 "sub %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | ADDSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "addsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | SUBSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "subsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | MULSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "mulsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | DIVSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "divsd %s, %s"
                 (string_of_operand dst)
                 (string_of_operand src)
             ]
