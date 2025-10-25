@@ -36,6 +36,7 @@ let%expect_test "super triv lowers to assembly" =
       pop r14
       pop rbp
       ret
+    .section .note.GNU-stack,"",@progbits
     |}]
 ;;
 
@@ -93,6 +94,7 @@ let%expect_test "branches lower with labels" =
     root__intermediate_c_to_end:
       mov r15, r14
       jmp root__end
+    .section .note.GNU-stack,"",@progbits
     |}]
 ;;
 
@@ -159,5 +161,6 @@ let%expect_test "recursive fib" =
     fib__intermediate__root_to_ret_1:
       mov r15, r13
       jmp fib__ret_1
+    .section .note.GNU-stack,"",@progbits
     |}]
 ;;
