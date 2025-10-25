@@ -425,9 +425,9 @@ let%expect_test "c2" =
 
 let%expect_test "alloca lowers" =
   test {|
-mov %n, 24
-alloca %ptr, 16
-alloca %dyn, %n
+mov %n:i64, 24
+alloca %ptr:ptr, 16
+alloca %dyn:ptr, %n
 ret %dyn
 |};
   [%expect

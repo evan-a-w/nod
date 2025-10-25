@@ -19,7 +19,7 @@ let require_class t var class_ =
     then
       failwithf
         "register class mismatch for %s: saw %s and %s"
-        var
+        (Var.name var)
         (Sexp.to_string_hum (Class.sexp_of_t existing))
         (Sexp.to_string_hum (Class.sexp_of_t class_))
         ()
@@ -32,6 +32,19 @@ let class_of_var t var =
 ;;
 
 let reg_of_var t var = Reg.unallocated ~class_:(class_of_var t var) var
+
+let type_of_class = function
+  | Class.I64 -> Type.I64
+  | Class.F64 -> Type.F64
+;;
+
+let fresh_var ?(type_=Type.I64) t base =
+  Var.create ~name:(new_name t.var_names base) ~type_
+;;
+
+let fresh_like_var t var =
+  Var.create ~name:(new_name t.var_names (Var.name var)) ~type_:(Var.type_ var)
+;;
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
@@ -56,13 +69,13 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let tmp_rax =
       Reg.allocated
         ~class_:Class.I64
-        (new_name t.var_names "tmp_rax")
+        (fresh_var t "tmp_rax")
         (Some Reg.rax)
     in
     let tmp_dst =
       Reg.allocated
         ~class_:Class.I64
-        (new_name t.var_names "tmp_dst")
+        (fresh_var t "tmp_dst")
         (Some take_reg)
     in
     [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
@@ -92,7 +105,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let force_physical =
       Reg.allocated
         ~class_:Class.I64
-        (new_name t.var_names "tmp_force_physical")
+        (fresh_var t "tmp_force_physical")
         None
     in
     [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
@@ -102,7 +115,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let force_physical =
       Reg.allocated
         ~class_:Class.I64
-        (new_name t.var_names "tmp_force_physical")
+        (fresh_var t "tmp_force_physical")
         None
     in
     [ mov
@@ -130,7 +143,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           let force_physical =
             Reg.allocated
               ~class_:Class.I64
-              (new_name t.var_names "arg_reg")
+              (fresh_var t "arg_reg")
               (Some reg)
           in
           let instr =
@@ -222,7 +235,9 @@ let make_prologue t =
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
-  let args = List.map t.fn.args ~f:(new_name t.var_names) in
+  let args =
+    List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg)
+  in
   let gp_arg_regs = Reg.arguments Class.I64 in
   let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
@@ -267,7 +282,7 @@ let make_epilogue t ~ret_shape =
   *)
   let args =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
-      new_name t.var_names ("res__" ^ Int.to_string i))
+      fresh_var t ("res__" ^ Int.to_string i))
   in
   let gp_res_regs = Reg.results Class.I64 in
   let reg_res_moves =
@@ -348,13 +363,13 @@ let split_blocks_and_add_prologue_and_epilogue t =
               (match var_of_reg reg with
                | Some v -> v
                | None ->
-                 let v = new_name t.var_names arg in
+                 let v = fresh_like_var t arg in
                  Vec.push
                    block.instructions
                    (X86 (mov (Reg (Reg.unallocated v)) operand));
                  v)
             | other ->
-              let v = new_name t.var_names arg in
+              let v = fresh_like_var t arg in
               Vec.push
                 block.instructions
                 (X86 (mov (Reg (Reg.unallocated v)) other));
@@ -390,7 +405,9 @@ let par_moves t ~dst_to_src =
     |> Ref.create
   in
   let temp class_ =
-    Reg.unallocated ~class_ (new_name t.var_names "regalloc_scratch")
+    Reg.unallocated
+      ~class_
+      (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
   let emitted = Vec.create () in
   let emit dst src =
@@ -465,7 +482,7 @@ let simple_translation_to_x86_ir ~this_call_conv t =
   let lower_ir ir =
     let res = ir_to_x86_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
-      List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
+      List.iter (X86_ir.vars ir) ~f:(fun var -> add_count t.var_names (Var.name var)));
     res
   in
   Block.iter t.fn.root ~f:(fun block ->

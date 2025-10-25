@@ -89,9 +89,9 @@ let compile_and_execute
 let%expect_test "simple execution" =
   let output =
     compile_and_execute {|
-mov %a, 5
-mov %b, 7
-add %res, %a, %b
+mov %a:i64, 5
+mov %b:i64, 7
+add %res:i64, %a, %b
 ret %res
 |}
   in
@@ -103,16 +103,16 @@ let%expect_test "branch execution" =
   let output =
     compile_and_execute
       {|
-mov %cond, 3
-sub %cond, %cond, 3
+mov %cond:i64, 3
+sub %cond:i64, %cond, 3
 branch %cond, nonzero, zero
 
 nonzero:
-  mov %value, 111
+  mov %value:i64, 111
   ret %value
 
 zero:
-  mov %value, 42
+  mov %value:i64, 42
   ret %value
 |}
   in

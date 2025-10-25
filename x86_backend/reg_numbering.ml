@@ -9,7 +9,7 @@ let phys_reg_limit = Array.length Raw.all_physical
 type var_state =
   { mutable num_uses : int
   ; id : int
-  ; var : string
+  ; var : Var.t
   }
 [@@deriving fields, sexp]
 

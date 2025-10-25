@@ -18,7 +18,7 @@ let test ?don't_opt s =
           print_s
             [%message
               block.id_hum
-                ~args:(block.args : string Vec.t)
+                ~args:(block.args : Var.t Vec.t)
                 (instrs : Ir.t list)]))
     in
     go fns;
@@ -60,7 +60,7 @@ let%expect_test "eir compile with args" =
       print_s
         [%message
           block.Block.id_hum
-            ~args:(block.Block.args : string Vec.t)
+            ~args:(block.Block.args : Var.t Vec.t)
             (instrs : Ir.t list)]);
     [%expect
       {|

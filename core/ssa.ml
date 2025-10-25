@@ -118,9 +118,9 @@ end
 module Def_uses = struct
   type t =
     { dominator : Dominator.t
-    ; vars : String.Hash_set.t
-    ; uses : Block.Hash_set.t String.Table.t
-    ; defs : Block.Hash_set.t String.Table.t
+    ; vars : Var.Hash_set.t
+    ; uses : Block.Hash_set.t Var.Table.t
+    ; defs : Block.Hash_set.t Var.Table.t
     ; root : Block.t
     }
   [@@deriving fields]
@@ -156,9 +156,9 @@ module Def_uses = struct
   let create root =
     let t =
       { dominator = Dominator.create root
-      ; vars = String.Hash_set.create ()
-      ; uses = String.Table.create ()
-      ; defs = String.Table.create ()
+      ; vars = Var.Hash_set.create ()
+      ; uses = Var.Table.create ()
+      ; defs = Var.Table.create ()
       ; root
       }
     in
@@ -171,17 +171,22 @@ module Def_uses = struct
     |> List.map ~f:(fun i -> Vec.get t.dominator.blocks i)
   ;;
 
-  let rec uniq_name t name =
-    if not (Hash_set.mem t.vars name)
+  let rec uniq_name t var =
+    if not (Hash_set.mem t.vars var)
     then (
-      Hash_set.add t.vars name;
-      name)
+      Hash_set.add t.vars var;
+      var)
     else (
-      let no_number = String.rstrip name ~drop:(fun c -> Char.is_digit c) in
-      let number = String.chop_prefix_exn name ~prefix:no_number in
-      if String.equal number ""
-      then uniq_name t (name ^ "1")
-      else uniq_name t (no_number ^ Int.to_string (Int.of_string number + 1)))
+      let name = Var.name var in
+      let base = String.rstrip name ~drop:Char.is_digit in
+      let suffix = String.drop_prefix name (String.length base) in
+      let next_suffix =
+        if String.is_empty suffix
+        then "1"
+        else Int.to_string (Int.of_string suffix + 1)
+      in
+      let next_name = base ^ next_suffix in
+      uniq_name t (Var.create ~name:next_name ~type_:(Var.type_ var)))
   ;;
 end
 
@@ -240,15 +245,15 @@ let rec dominates t block1 block2 =
       res)
 ;;
 
-let new_name t v =
-  let v = String.split v ~on:'%' |> List.hd_exn in
-  match Hashtbl.find t.numbers v with
+let new_name t var =
+  let base = String.split (Var.name var) ~on:'%' |> List.hd_exn in
+  match Hashtbl.find t.numbers base with
   | None ->
-    Hashtbl.set t.numbers ~key:v ~data:0;
-    v
+    Hashtbl.set t.numbers ~key:base ~data:0;
+    Var.create ~name:base ~type_:(Var.type_ var)
   | Some n ->
-    Hashtbl.set t.numbers ~key:v ~data:(n + 1);
-    v ^ "%" ^ Int.to_string n
+    Hashtbl.set t.numbers ~key:base ~data:(n + 1);
+    Var.create ~name:(base ^ "%" ^ Int.to_string n) ~type_:(Var.type_ var)
 ;;
 
 let insert_args t =
@@ -260,7 +265,7 @@ let insert_args t =
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
-          if not (Vec.mem block.args var ~compare:String.compare)
+          if not (Vec.mem block.args var ~compare:Var.compare)
           then Vec.push block.args var;
           Hash_set.add defs block)));
   t
@@ -282,14 +287,11 @@ let add_args_to_calls t =
 let uses_in_block_ex_calls ~block =
   let f (defs, uses) instr =
     let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
-    let defs = Set.union defs (Ir.defs instr |> String.Set.of_list) in
+    let defs = Set.union defs (Ir.defs instr |> Var.Set.of_list) in
     defs, uses
   in
   let acc =
-    Vec.fold
-      block.Block.instructions
-      ~init:(String.Set.empty, String.Set.empty)
-      ~f
+    Vec.fold block.Block.instructions ~init:(Var.Set.empty, Var.Set.empty) ~f
   in
   let _defs, uses = f acc block.terminal in
   uses
@@ -305,7 +307,7 @@ let prune_args t =
         Hash_set.fold ~init ~f:(fun acc block' ->
           if phys_equal block' block then acc else go acc block'))
   in
-  let uses = go String.Set.empty t.def_uses.root in
+  let uses = go Var.Set.empty t.def_uses.root in
   let rec go' block =
     let pre_len = Vec.length block.Block.args in
     Vec.filter_inplace block.args ~f:(Set.mem uses);
@@ -324,23 +326,23 @@ let prune_args t =
 ;;
 
 let rename t =
-  let stacks = ref String.Map.empty in
-  let push_name v v' =
-    let stack = Map.find !stacks v |> Option.value ~default:[] in
-    stacks := Map.set !stacks ~key:v ~data:(v' :: stack)
+  let stacks = ref Var.Map.empty in
+  let push_name var renamed =
+    let stack = Map.find !stacks var |> Option.value ~default:[] in
+    stacks := Map.set !stacks ~key:var ~data:(renamed :: stack)
   in
-  let name v =
-    match Map.find !stacks v with
-    | None | Some [] -> v
+  let name var =
+    match Map.find !stacks var with
+    | None | Some [] -> var
     | Some (x :: _) -> x
   in
   let rec go block =
     let replace_use = name in
     let replace_uses instr = Ir.map_uses instr ~f:replace_use in
-    let replace_def v =
-      let v' = new_name t v in
-      push_name v v';
-      v'
+    let replace_def var =
+      let renamed = new_name t var in
+      push_name var renamed;
+      renamed
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
