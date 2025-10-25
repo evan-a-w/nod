@@ -1,6 +1,8 @@
 open! Core
 open! Import
 open! Common
+module Reg = X86_reg
+module Raw = X86_reg.Raw
 
 let run (functions : Function.t String.Map.t) =
   let sanitize_identifier s =
@@ -14,26 +16,43 @@ let run (functions : Function.t String.Map.t) =
     let sanitized = if String.is_empty sanitized then "_" else sanitized in
     if Char.is_digit sanitized.[0] then "_" ^ sanitized else sanitized
   in
-  let rec string_of_reg = function
-    | Reg.RAX -> "rax"
-    | Reg.RBX -> "rbx"
-    | Reg.RCX -> "rcx"
-    | Reg.RDX -> "rdx"
-    | Reg.RSI -> "rsi"
-    | Reg.RDI -> "rdi"
-    | Reg.RSP -> "rsp"
-    | Reg.RBP -> "rbp"
-    | Reg.R8 -> "r8"
-    | Reg.R9 -> "r9"
-    | Reg.R10 -> "r10"
-    | Reg.R11 -> "r11"
-    | Reg.R12 -> "r12"
-    | Reg.R13 -> "r13"
-    | Reg.R14 -> "r14"
-    | Reg.R15 -> "r15"
-    | Reg.Unallocated v | Reg.Allocated (v, None) -> sanitize_identifier v
-    | Reg.Allocated (_, Some reg) -> string_of_reg reg
+  let rec string_of_raw = function
+    | Raw.RAX -> "rax"
+    | Raw.RBX -> "rbx"
+    | Raw.RCX -> "rcx"
+    | Raw.RDX -> "rdx"
+    | Raw.RSI -> "rsi"
+    | Raw.RDI -> "rdi"
+    | Raw.RSP -> "rsp"
+    | Raw.RBP -> "rbp"
+    | Raw.R8 -> "r8"
+    | Raw.R9 -> "r9"
+    | Raw.R10 -> "r10"
+    | Raw.R11 -> "r11"
+    | Raw.R12 -> "r12"
+    | Raw.R13 -> "r13"
+    | Raw.R14 -> "r14"
+    | Raw.R15 -> "r15"
+    | Raw.XMM0 -> "xmm0"
+    | Raw.XMM1 -> "xmm1"
+    | Raw.XMM2 -> "xmm2"
+    | Raw.XMM3 -> "xmm3"
+    | Raw.XMM4 -> "xmm4"
+    | Raw.XMM5 -> "xmm5"
+    | Raw.XMM6 -> "xmm6"
+    | Raw.XMM7 -> "xmm7"
+    | Raw.XMM8 -> "xmm8"
+    | Raw.XMM9 -> "xmm9"
+    | Raw.XMM10 -> "xmm10"
+    | Raw.XMM11 -> "xmm11"
+    | Raw.XMM12 -> "xmm12"
+    | Raw.XMM13 -> "xmm13"
+    | Raw.XMM14 -> "xmm14"
+    | Raw.XMM15 -> "xmm15"
+    | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier v
+    | Raw.Allocated (_, Some reg) -> string_of_raw reg
   in
+  let string_of_reg reg = string_of_raw (Reg.raw reg) in
   let string_of_mem reg disp =
     let base = string_of_reg reg in
     match disp with

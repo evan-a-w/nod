@@ -24,7 +24,7 @@ module Lit_or_var = struct
   let to_x86_ir_operand t : X86_ir.operand =
     match t with
     | Lit l -> Imm l
-    | Var v -> Reg (Unallocated v)
+    | Var v -> Reg (X86_reg.unallocated v)
   ;;
 end
 
@@ -54,7 +54,7 @@ module Mem = struct
   let to_x86_ir_operand t : X86_ir.operand =
     match t with
     | Lit_or_var l -> Lit_or_var.to_x86_ir_operand l
-    | Stack_slot i -> Mem (RBP, i)
+    | Stack_slot i -> Mem (X86_reg.rbp, i)
   ;;
 end
 

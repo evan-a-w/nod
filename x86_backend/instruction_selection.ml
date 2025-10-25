@@ -2,36 +2,74 @@ open! Core
 open! Import
 open! Common
 
+module Class = X86_reg.Class
+
 type t =
   { block_names : int String.Table.t
   ; var_names : int String.Table.t
+  ; var_classes : Class.t Var.Table.t
   ; fn : Function.t
   }
 [@@deriving fields]
 
-let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
+let require_class t var class_ =
+  match Hashtbl.find t.var_classes var with
+  | None -> Hashtbl.set t.var_classes ~key:var ~data:class_
+  | Some existing ->
+    if not (Class.equal existing class_)
+    then
+      failwithf
+        "register class mismatch for %s: saw %s and %s"
+        var
+        (Sexp.to_string_hum (Class.sexp_of_t existing))
+        (Sexp.to_string_hum (Class.sexp_of_t class_))
+        ()
+;;
+
+let class_of_var t var =
+  match Hashtbl.find t.var_classes var with
+  | Some class_ -> class_
+  | None -> Class.I64
+;;
+
+let reg_of_var t var = Reg.unallocated ~class_:(class_of_var t var) var
+
+let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
+  match lit_or_var with
+  | Lit l -> Imm l
+  | Var v ->
+    require_class t v class_;
+    Reg (Reg.unallocated ~class_ v)
+;;
+
+let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
-  let operand_of_lit_or_var (lit_or_var : Ir.Lit_or_var.t) =
-    match lit_or_var with
-    | Lit l -> Imm l
-    | Var v -> Reg (Reg.unallocated v)
-  in
   let make_arith f ({ dest; src1; src2 } : Ir.arith) =
-    let dest = Reg (Reg.unallocated dest) in
-    [ mov dest (operand_of_lit_or_var src1)
-    ; f dest (operand_of_lit_or_var src2)
+    List.iter [ dest ] ~f:(fun var -> require_class t var Class.I64);
+    let dest_op = Reg (reg_of_var t dest) in
+    [ mov dest_op (operand_of_lit_or_var t ~class_:Class.I64 src1)
+    ; f dest_op (operand_of_lit_or_var t ~class_:Class.I64 src2)
     ]
   in
-  let reg v = Reg (Reg.unallocated v) in
+  let reg v = Reg (reg_of_var t v) in
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
-    let tmp_rax = Reg.allocated (new_name var_names "tmp_rax") (Some Reg.rax) in
-    let tmp_dst =
-      Reg.allocated (new_name var_names "tmp_dst") (Some take_reg)
+    require_class t dest Class.I64;
+    let tmp_rax =
+      Reg.allocated
+        ~class_:Class.I64
+        (new_name t.var_names "tmp_rax")
+        (Some Reg.rax)
     in
-    [ mov (Reg tmp_rax) (Ir.Lit_or_var.to_x86_ir_operand src1)
+    let tmp_dst =
+      Reg.allocated
+        ~class_:Class.I64
+        (new_name t.var_names "tmp_dst")
+        (Some take_reg)
+    in
+    [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
     ; tag_def
         (tag_use
-           (make_instr (Ir.Lit_or_var.to_x86_ir_operand src2))
+           (make_instr (operand_of_lit_or_var t ~class_:Class.I64 src2))
            (Reg tmp_rax))
         (Reg tmp_dst)
     ; mov (reg dest) (Reg tmp_dst)
@@ -45,53 +83,70 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
   | Sub arith -> make_arith sub arith
-  | Return lit_or_var -> [ RET [ operand_of_lit_or_var lit_or_var ] ]
-  | Move (v, lit_or_var) -> [ mov (reg v) (operand_of_lit_or_var lit_or_var) ]
+  | Return lit_or_var ->
+    [ RET [ operand_of_lit_or_var t ~class_:Class.I64 lit_or_var ] ]
+  | Move (v, lit_or_var) ->
+    require_class t v Class.I64;
+    [ mov (reg v) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
   | Load (v, mem) ->
+    require_class t v Class.I64;
     let force_physical =
-      Reg.allocated (new_name var_names "tmp_force_physical") None
+      Reg.allocated
+        ~class_:Class.I64
+        (new_name t.var_names "tmp_force_physical")
+        None
     in
     [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
     ; mov (reg v) (Reg force_physical)
     ]
   | Store (lit_or_var, mem) ->
     let force_physical =
-      Reg.allocated (new_name var_names "tmp_force_physical") None
+      Reg.allocated
+        ~class_:Class.I64
+        (new_name t.var_names "tmp_force_physical")
+        None
     in
-    [ mov (Reg force_physical) (operand_of_lit_or_var lit_or_var)
+    [ mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
     ; mov
         (Ir.Mem.to_x86_ir_operand mem)
-        (Ir0.Lit_or_var.to_x86_ir_operand lit_or_var)
+        (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
     ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    let num_stack_args =
-      Int.max 0 (List.length args - List.length Reg.integer_arguments)
-    in
+    let gp_arg_regs = Reg.arguments Class.I64 in
+    let num_stack_args = Int.max 0 (List.length args - List.length gp_arg_regs) in
     let pre_moves =
       Sequence.zip_full
         (Sequence.of_list args)
-        (Sequence.of_list X86_ir.Reg.integer_arguments)
+        (Sequence.of_list gp_arg_regs)
       |> Sequence.filter_map ~f:(function
         | `Right _ -> None
-        | `Left x -> Some (push (operand_of_lit_or_var x))
+        | `Left x -> Some (push (operand_of_lit_or_var t ~class_:Class.I64 x))
         | `Both (arg, reg) ->
           let force_physical =
-            Reg.allocated (new_name var_names "arg_reg") (Some reg)
+            Reg.allocated
+              ~class_:Class.I64
+              (new_name t.var_names "arg_reg")
+              (Some reg)
           in
-          let instr = mov (Reg force_physical) (operand_of_lit_or_var arg) in
+          let instr =
+            mov
+              (Reg force_physical)
+              (operand_of_lit_or_var t ~class_:Class.I64 arg)
+          in
           Some instr)
       |> Sequence.to_list
     in
     (* CR-soon ewilliams: compound results via arg to pointer *)
     assert (List.length results <= 2);
+    let gp_result_regs = Reg.results Class.I64 in
     let post_moves =
       Sequence.zip_full
         (Sequence.of_list results)
-        (Sequence.of_list X86_ir.Reg.integer_results)
+        (Sequence.of_list gp_result_regs)
       |> Sequence.filter_map ~f:(function
         | `Right _ -> None
         | `Left _ -> failwith "impossible"
@@ -103,14 +158,14 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
     let post_pop =
       if num_stack_args = 0
       then []
-      else [ sub (Reg RSP) (Imm (Int64.of_int (num_stack_args * 8))) ]
+      else [ sub (Reg Reg.rsp) (Imm (Int64.of_int (num_stack_args * 8))) ]
     in
     [ save_clobbers ]
     @ pre_moves
     @ [ CALL
           { fn
           ; results = List.map results ~f:Reg.unallocated
-          ; args = List.map args ~f:operand_of_lit_or_var
+          ; args = List.map args ~f:(operand_of_lit_or_var t ~class_:Class.I64)
           }
       ]
     @ post_moves
@@ -118,12 +173,12 @@ let ir_to_x86_ir ~this_call_conv ~var_names (ir : Ir.t) =
     @ [ restore_clobbers ]
   | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
   | Alloca { dest; size = Var v } ->
-    [ mov (reg dest) (Reg Reg.RSP)
-    ; sub (Reg Reg.RSP) (Reg (Reg.unallocated v))
+    [ mov (reg dest) (Reg Reg.rsp)
+    ; sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
     ]
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
-    [ cmp (operand_of_lit_or_var cond) (Imm Int64.zero)
+    [ cmp (operand_of_lit_or_var t ~class_:Class.I64 cond) (Imm Int64.zero)
     ; jne if_true (Some if_false)
     ]
 ;;
@@ -133,6 +188,7 @@ let get_fn = fn
 let create fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
+  ; var_classes = Var.Table.create ()
   ; fn
   }
 ;;
@@ -166,11 +222,10 @@ let make_prologue t =
        arg_n, arg_n+1, ..., return addr
   *)
   let args = List.map t.fn.args ~f:(new_name t.var_names) in
-  let reg_args, args_on_stack =
-    List.split_n args (List.length Reg.integer_arguments)
-  in
+  let gp_arg_regs = Reg.arguments Class.I64 in
+  let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
-    List.zip_with_remainder reg_args Reg.integer_arguments
+    List.zip_with_remainder reg_args gp_arg_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
       mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
@@ -182,7 +237,7 @@ let make_prologue t =
         (* go to front of this reg, and we also need to skip the ret addr *)
         -((i + 2) * 8)
       in
-      mov (Reg (Reg.unallocated arg)) (Mem (RSP, stack_offset)))
+      mov (Reg (Reg.unallocated arg)) (Mem (Reg.rsp, stack_offset)))
   in
   let block =
     Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))
@@ -197,7 +252,7 @@ let make_prologue t =
        ~f:Ir.x86
        (reg_arg_moves
         @ stack_arg_moves
-        @ [ tag_def noop (Reg RBP) ]
+        @ [ tag_def noop (Reg Reg.rbp) ]
           (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
        )
      |> Vec.of_list;
@@ -213,14 +268,15 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       new_name t.var_names ("res__" ^ Int.to_string i))
   in
+  let gp_res_regs = Reg.results Class.I64 in
   let reg_res_moves =
-    List.zip_with_remainder args Reg.integer_results
+    List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
       mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
   in
   let args' =
-    List.zip_with_remainder args Reg.integer_results
+    List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) -> Reg (Reg.allocated arg (Some reg)))
   in
@@ -265,7 +321,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     Vec.map_inplace block.instructions ~f:(function
       | X86 (ALLOCA (dest, i)) ->
-        let ir = mov dest (Mem (RBP, t.fn.bytes_alloca'd)) in
+        let ir = mov dest (Mem (Reg.rbp, t.fn.bytes_alloca'd)) in
         t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
         X86 ir
       | ir -> ir);
@@ -287,7 +343,15 @@ let split_blocks_and_add_prologue_and_epilogue t =
           List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
-            | Reg (Allocated (v, _) | Unallocated v) -> v
+            | Reg reg ->
+              (match var_of_reg reg with
+               | Some v -> v
+               | None ->
+                 let v = new_name t.var_names arg in
+                 Vec.push
+                   block.instructions
+                   (X86 (mov (Reg (Reg.unallocated v)) operand));
+                 v)
             | other ->
               let v = new_name t.var_names arg in
               Vec.push
@@ -320,11 +384,13 @@ let split_blocks_and_add_prologue_and_epilogue t =
 let par_moves t ~dst_to_src =
   let pending =
     List.map dst_to_src ~f:(fun (dst, src) ->
-      Reg.unallocated dst, Reg.unallocated src)
+      reg_of_var t dst, reg_of_var t src)
     |> Reg.Map.of_alist_exn
     |> Ref.create
   in
-  let temp () = new_name t.var_names "regalloc_scratch" |> Reg.unallocated in
+  let temp class_ =
+    Reg.unallocated ~class_ (new_name t.var_names "regalloc_scratch")
+  in
   let emitted = Vec.create () in
   let emit dst src =
     if Reg.equal dst src
@@ -347,7 +413,7 @@ let par_moves t ~dst_to_src =
       if not emitted_any
       then (
         let _dst, src = Map.min_elt_exn !pending in
-        let tmp = temp () in
+        let tmp = temp src.class_ in
         emit tmp src;
         pending
         := Map.map !pending ~f:(fun src' ->
@@ -395,8 +461,8 @@ let remove_call_block_args t =
 ;;
 
 let simple_translation_to_x86_ir ~this_call_conv t =
-  let ir_to_x86_ir ir =
-    let res = ir_to_x86_ir ~this_call_conv ~var_names:t.var_names ir in
+  let lower_ir ir =
+    let res = ir_to_x86_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
       List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
     res
@@ -405,8 +471,8 @@ let simple_translation_to_x86_ir ~this_call_conv t =
     add_count t.block_names block.id_hum;
     block.instructions
     <- Vec.concat_map block.instructions ~f:(fun ir ->
-         ir_to_x86_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
-    block.terminal <- Ir.x86_terminal (ir_to_x86_ir block.terminal));
+         lower_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
+    block.terminal <- Ir.x86_terminal (lower_ir block.terminal));
   t
 ;;
 

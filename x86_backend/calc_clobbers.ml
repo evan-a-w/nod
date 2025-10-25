@@ -44,7 +44,10 @@ let init_state (functions : Function.t String.Map.t) : t String.Map.t =
       | None ->
         Set.inter
           (Hashtbl.find_exn defs fn.name)
-          (Reg.callee_saved ~call_conv:fn.call_conv));
+          (Reg.callee_saved
+             ~call_conv:fn.call_conv
+             X86_reg.Class.I64
+           |> Reg.Set.of_list));
     let new_clobbers_raw =
       Reg.Set.union_list
         (Hashtbl.find_exn defs fn.name
@@ -56,7 +59,12 @@ let init_state (functions : Function.t String.Map.t) : t String.Map.t =
                |> Option.value ~default:Reg.Set.empty)))
     in
     let new_clobbers =
-      Set.diff new_clobbers_raw (Reg.callee_saved ~call_conv:fn.call_conv)
+      Set.diff
+        new_clobbers_raw
+        (Reg.callee_saved
+           ~call_conv:fn.call_conv
+           X86_reg.Class.I64
+         |> Reg.Set.of_list)
     in
     Hashtbl.set clobbers ~key:fn.name ~data:new_clobbers;
     if not (Reg.Set.equal new_clobbers old_clobbers)
