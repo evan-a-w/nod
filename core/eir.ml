@@ -1,11 +1,19 @@
 open! Ssa
 open! Core
+open! Import
 
 module Tags = struct
   type t = { constant : Int64.t option } [@@deriving sexp]
 
   let empty = { constant = None }
 end
+
+type input =
+  ( (instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t)
+      Function0.t'
+      String.Map.t
+    , Nod_error.t )
+    Result.t
 
 module Loc = struct
   type where =
@@ -466,10 +474,9 @@ let optimize ?opt_flags functions =
     functions
 ;;
 
-let compile ?opt_flags s =
+let compile ?opt_flags (input : input) =
   match
-    Parser.parse_string s
-    |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+    Result.map input ~f:(map_function_roots ~f:Cfg.process)
     |> Result.map ~f:set_entry_block_args
     |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   with

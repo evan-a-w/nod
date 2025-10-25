@@ -1,5 +1,5 @@
 open! Core
-open! Nod
+open! Import
 
 let test ?don't_opt s =
   Test_cfg.test s;
@@ -9,7 +9,7 @@ let test ?don't_opt s =
   |> Result.map ~f:Eir.set_entry_block_args
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
   |> function
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok fns ->
     let go fns =
       Map.iter fns ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
@@ -53,7 +53,7 @@ let%expect_test "funs" =
 
 let%expect_test "eir compile with args" =
   match Eir.compile {| a(%x, %y) {add %z, %x, %y return %z} |} with
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok fns ->
     Map.iter fns ~f:(fun { Function.root = block; _ } ->
       let instrs = Vec.to_list block.Block.instructions @ [ block.terminal ] in
@@ -150,8 +150,10 @@ let%expect_test "fib" =
     (fib_exit (args ()) (instrs ((Return (Var a%0))))) |}]
 ;;
 
-let%expect_test "fib_rec" = test Examples.Textual.fib_recursive;
-  [%expect {|
+let%expect_test "fib_rec" =
+  test Examples.Textual.fib_recursive;
+  [%expect
+    {|
     (%root
      (instrs
       ((Branch
@@ -218,6 +220,7 @@ let%expect_test "fib_rec" = test Examples.Textual.fib_recursive;
        (Add ((dest res) (src1 (Var sub1_res)) (src2 (Var sub2_res))))
        (Return (Var res)))))
     |}]
+;;
 
 let%expect_test "phi pruning" =
   test Examples.Textual.e;

@@ -1,11 +1,11 @@
 open! Core
-open! Nod
+open! Import
 
 let test s =
   s
   |> Parser.parse_string
   |> function
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok output -> print_s [%sexp (output : Parser.output)]
 ;;
 

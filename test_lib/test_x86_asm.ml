@@ -1,9 +1,9 @@
 open! Core
-open! Nod
+open! Import
 
 let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
-  match Eir.compile ~opt_flags program with
-  | Error e -> Parser.error_to_string e |> print_endline
+  match Nod.compile ~opt_flags program with
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
     let asm = X86_backend.compile_to_asm functions in
     print_endline asm
