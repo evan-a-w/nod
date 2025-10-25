@@ -78,17 +78,17 @@ let fold_operands ins ~f ~init =
     List.fold args ~init ~f:(fun acc op -> f acc op)
   | PUSH op ->
     let init = fold_operand op ~f ~init in
-    fold_operand (Reg Reg.RSP) ~f ~init
+    fold_operand (Reg Reg.rsp) ~f ~init
   | POP reg ->
     let init = fold_operand (Reg reg) ~f ~init in
-    fold_operand (Reg Reg.RSP) ~f ~init
+    fold_operand (Reg Reg.rsp) ~f ~init
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
-let map_reg r ~f =
-  match r with
-  | Reg.Unallocated v | Reg.Allocated (v, _) -> f v
-  | _ -> Reg r
+let map_reg (reg : Reg.t) ~f =
+  match reg.reg with
+  | Unallocated v | Allocated (v, _) -> f v
+  | _ -> Reg reg
 ;;
 
 let map_var_operand op ~f =
@@ -138,12 +138,13 @@ let rec map_var_operands ins ~f =
 ;;
 
 let var_of_reg = function
-  | Reg.Unallocated v | Allocated (v, _) -> Some v
+  | ({ reg = Unallocated v | Allocated (v, _); class_ = _ } : Reg.t) -> Some v
   | _ -> None
 ;;
 
 let vars_of_reg = function
-  | Reg.Unallocated v | Allocated (v, _) -> Var.Set.singleton v
+  | ({ reg = Unallocated v | Allocated (v, _); class_ = _ } : Reg.t) ->
+    Var.Set.singleton v
   | _ -> Var.Set.empty
 ;;
 
