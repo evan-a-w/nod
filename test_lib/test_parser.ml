@@ -111,7 +111,7 @@ ret %ptr
 
 let%expect_test "call parses" =
   {|
-call bar(%a, 7) -> (%r0:i64, %r1:i64)
+call bar(%a:i64, 7) -> (%r0:i64, %r1:i64)
 call foo()
 ret %r0
 |} |> test;
@@ -122,9 +122,11 @@ ret %r0
        (root
         ((~instrs_by_label
           ((%root
-            ((Call (fn foo) (results ()) (args ()))
-             (Call (fn bar) (results (r0 r1)) (args ((Var a) (Lit 7))))
-             (Return (Var r0))))))
+            ((Call (fn bar)
+              (results (((name r0) (type_ I64)) ((name r1) (type_ I64))))
+              (args ((Var ((name a) (type_ I64))) (Lit 7))))
+             (Call (fn foo) (results ()) (args ()))
+             (Return (Var ((name r0) (type_ I64))))))))
          (~labels (%root))))
        (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
        (bytes_for_spills 0) (bytes_for_clobber_saves 0))))

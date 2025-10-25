@@ -20,7 +20,7 @@ let on_x86_irs (ir : Ir.t) ~f =
   | _ -> ()
 ;;
 
-(* CR-soon ewilliams: This should lookup smth *)
+(* CR-soon This should lookup smth *)
 let call_conv ~fn:_ = Call_conv.Default
 
 let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
@@ -32,10 +32,23 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   match x86_block.terminal with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Alloca _
+  | Noop
+  | And _
+  | Or _
+  | Add _
+  | Sub _
+  | Mul _
+  | Div _
+  | Mod _
+  | Alloca _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
+  | Movq (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
@@ -47,10 +60,23 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
     <- X86_terminal
          (List.take terminals (List.length terminals - 1)
           @ [ new_true_terminal ])
-  | Noop | And _ | Or _ | Add _ | Sub _ | Mul _ | Div _ | Mod _ | Alloca _
+  | Noop
+  | And _
+  | Or _
+  | Add _
+  | Sub _
+  | Mul _
+  | Div _
+  | Mod _
+  | Alloca _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
+  | Movq (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> ()
 ;;
 
