@@ -284,5 +284,7 @@ let run (functions : Function.t String.Map.t) =
         | Ir0.X86_terminal xs -> List.iter xs ~f:process_instruction
         | Ir0.X86 x -> process_instruction x
         | _ -> ()));
+    Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
+    Buffer.add_string buffer "\n";
     Buffer.contents buffer
 ;;

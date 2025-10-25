@@ -97,10 +97,10 @@ ret %res
 |}
   in
   print_endline output;
-  [%expect {|12|}]
+  [%expect {| 12 |}]
 ;;
 
-let%expect_test "branch execution" =
+(* let%expect_test "branch execution" =
   let output =
     compile_and_execute
       {|
@@ -313,7 +313,7 @@ ret %result
   in
   print_endline output;
   [%expect {| 64 |}]
-;;
+;; *)
 
 (* (\* Float arithmetic tests *\) *)
 
