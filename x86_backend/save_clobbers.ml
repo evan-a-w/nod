@@ -41,11 +41,11 @@ let save_and_restore_in_prologue_and_epilogue
     let epilogue = Option.value_exn fn.epilogue in
     let to_restore = Set.to_list to_restore in
     let () =
+      (* change prologue *)
       let header_bytes_excl_clobber_saves =
         fn.bytes_alloca'd + fn.bytes_for_spills
       in
       let new_prologue : Ir.t Vec.t = Vec.create () in
-      (* change prologue *)
       if header_bytes_excl_clobber_saves > 0
       then
         Vec.push
