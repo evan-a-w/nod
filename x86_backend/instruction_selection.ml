@@ -98,17 +98,53 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
   | Sub arith -> make_arith sub arith
-  (* TODO: Implement proper SSE float instructions *)
-  | Fadd _ | Fsub _ | Fmul _ | Fdiv _ ->
-    failwith "Float instructions not yet supported in x86 backend"
+  | Fadd arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; addsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fsub arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; subsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fmul arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; mulsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fdiv arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; divsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
   | Return lit_or_var ->
     [ RET [ operand_of_lit_or_var t ~class_:Class.I64 lit_or_var ] ]
   | Move (v, lit_or_var) ->
-    require_class t v Class.I64;
-    [ mov (reg v) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
-  | Movq _ ->
-    (* TODO: Implement proper movq instruction for bitcast between i64 and f64 *)
-    failwith "Movq instruction not yet supported in x86 backend"
+    let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
+    require_class t v class_;
+    [ mov (reg v) (operand_of_lit_or_var t ~class_ lit_or_var) ]
+  | Movq (dest, src) ->
+    (* Bitcast between i64 and f64 - move between gp and xmm registers *)
+    let dest_class =
+      if Type.equal (Var.type_ dest) Type.F64 then Class.F64 else Class.I64
+    in
+    let src_class =
+      match src with
+      | Ir.Lit_or_var.Var v ->
+        if Type.equal (Var.type_ v) Type.F64 then Class.F64 else Class.I64
+      | Ir.Lit_or_var.Lit _ ->
+        failwith "movq should not have literals (checked by type checker)"
+    in
+    require_class t dest dest_class;
+    [ movq
+        (Reg (reg_of_var t dest))
+        (operand_of_lit_or_var t ~class_:src_class src)
+    ]
   | Load (v, mem) ->
     require_class t v Class.I64;
     let force_physical =
@@ -389,6 +425,12 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | MOV (_, _)
        | ADD (_, _)
        | SUB (_, _)
+       | ADDSD (_, _)
+       | SUBSD (_, _)
+       | MULSD (_, _)
+       | DIVSD (_, _)
+       | MOVSD (_, _)
+       | MOVQ (_, _)
        | IMUL _ | IDIV _ | MOD _ | LABEL _
        | CMP (_, _)
        | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ -> ()));
@@ -464,6 +506,12 @@ let insert_par_moves t =
          | Save_clobbers | Restore_clobbers | ALLOCA _
          | ADD (_, _)
          | SUB (_, _)
+         | ADDSD (_, _)
+         | SUBSD (_, _)
+         | MULSD (_, _)
+         | DIVSD (_, _)
+         | MOVSD (_, _)
+         | MOVQ (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
          | CMP (_, _)
          | CALL _ | PUSH _ | POP _ -> ())));

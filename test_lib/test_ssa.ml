@@ -17,9 +17,7 @@ let test ?don't_opt s =
           let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
           print_s
             [%message
-              block.id_hum
-                ~args:(block.args : Var.t Vec.t)
-                (instrs : Ir.t list)]))
+              block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
     in
     go fns;
     (match don't_opt with
@@ -31,7 +29,8 @@ let test ?don't_opt s =
 ;;
 
 let%expect_test "funs" =
-  test {| a(%x:i64, %y:i64, %z:i64) {add %a:i64, %x, %y add %a, %a, %z return %a} |};
+  test
+    {| a(%x:i64, %y:i64, %z:i64) {add %a:i64, %x, %y add %a, %a, %z return %a} |};
   [%expect
     {|
     Error: errors in choices `Error: unexpected token (Ident a) at ((line 0)(col 1)(file""))

@@ -327,12 +327,15 @@ let%expect_test "e2" =
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 7)))
+          ((X86 (MOV (Reg ((reg R13) (class_ I64))) (Imm 7)))
            (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 2)))
+           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 3)))
            (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (Tag_def (Tag_use (IMUL (Imm 3)) (Reg ((reg RAX) (class_ I64))))
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R14) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
              (Reg ((reg RAX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))

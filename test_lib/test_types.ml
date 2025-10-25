@@ -25,7 +25,8 @@ let test s =
 (* Pointer arithmetic tests *)
 
 let%expect_test "pointer + i64" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     add %result:ptr, %ptr, 8
     return %result
@@ -34,7 +35,8 @@ let%expect_test "pointer + i64" =
 ;;
 
 let%expect_test "i64 + pointer" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     add %result:ptr, 8, %ptr
     return %result
@@ -43,7 +45,8 @@ let%expect_test "i64 + pointer" =
 ;;
 
 let%expect_test "pointer - i64" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     sub %result:ptr, %ptr, 8
     return %result
@@ -52,7 +55,8 @@ let%expect_test "pointer - i64" =
 ;;
 
 let%expect_test "pointer + literal" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     add %result:ptr, %ptr, 16
     return %result
@@ -61,7 +65,8 @@ let%expect_test "pointer + literal" =
 ;;
 
 let%expect_test "pointer arithmetic with i64 variable" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     mov %offset:i64, 24
     add %result:ptr, %ptr, %offset
@@ -71,7 +76,8 @@ let%expect_test "pointer arithmetic with i64 variable" =
 ;;
 
 let%expect_test "pointer subtraction gives i64" =
-  test {|
+  test
+    {|
     mov %ptr1:ptr, 1000
     mov %ptr2:ptr, 1050
     sub %diff:i64, %ptr2, %ptr1
@@ -83,29 +89,34 @@ let%expect_test "pointer subtraction gives i64" =
 (* Pointer arithmetic error cases *)
 
 let%expect_test "pointer + pointer (should fail)" =
-  test {|
+  test
+    {|
     mov %ptr1:ptr, 1000
     mov %ptr2:ptr, 2000
     add %result:ptr, %ptr1, %ptr2
     return %result
   |};
-  [%expect {| Error: type mismatch: add with pointer destination requires one pointer and one i64 operand |}]
+  [%expect
+    {| Error: type mismatch: add with pointer destination requires one pointer and one i64 operand |}]
 ;;
 
 let%expect_test "pointer + i32 (should fail)" =
-  test {|
+  test
+    {|
     mov %ptr:ptr, 1000
     mov %offset:i32, 8
     add %result:ptr, %ptr, %offset
     return %result
   |};
-  [%expect {| Error: type mismatch: add with pointer destination requires one pointer and one i64 operand |}]
+  [%expect
+    {| Error: type mismatch: add with pointer destination requires one pointer and one i64 operand |}]
 ;;
 
 (* Integer arithmetic tests *)
 
 let%expect_test "i64 + i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 10
     mov %b:i64, 20
     add %c:i64, %a, %b
@@ -115,7 +126,8 @@ let%expect_test "i64 + i64" =
 ;;
 
 let%expect_test "i32 + i32" =
-  test {|
+  test
+    {|
     mov %a:i32, 10
     mov %b:i32, 20
     add %c:i32, %a, %b
@@ -125,13 +137,15 @@ let%expect_test "i32 + i32" =
 ;;
 
 let%expect_test "mixed integer types (should fail)" =
-  test {|
+  test
+    {|
     mov %a:i64, 10
     mov %b:i32, 20
     add %c:i64, %a, %b
     return %c
   |};
-  [%expect {| Error: type mismatch: add expects rhs of type i64 but got b:i32 |}]
+  [%expect
+    {| Error: type mismatch: add expects rhs of type i64 but got b:i32 |}]
 ;;
 
 (* Alloca tests *)
@@ -158,7 +172,8 @@ let%expect_test "alloca with non-ptr destination (should fail)" =
     alloca %not_ptr:i64, 16
     return %not_ptr
   |};
-  [%expect {| Error: type mismatch: alloca destination not_ptr:i64 must have ptr type |}]
+  [%expect
+    {| Error: type mismatch: alloca destination not_ptr:i64 must have ptr type |}]
 ;;
 
 (* Move tests *)
@@ -186,13 +201,15 @@ let%expect_test "move mismatched types (should fail)" =
     mov %b:i32, %a
     return %b
   |};
-  [%expect {| Error: type mismatch: move destination b:i32 does not match source a:i64 |}]
+  [%expect
+    {| Error: type mismatch: move destination b:i32 does not match source a:i64 |}]
 ;;
 
 (* All arithmetic operations with integers *)
 
 let%expect_test "sub i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 100
     mov %b:i64, 30
     sub %c:i64, %a, %b
@@ -202,7 +219,8 @@ let%expect_test "sub i64" =
 ;;
 
 let%expect_test "mul i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 10
     mov %b:i64, 20
     mul %c:i64, %a, %b
@@ -212,7 +230,8 @@ let%expect_test "mul i64" =
 ;;
 
 let%expect_test "div i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 100
     mov %b:i64, 10
     div %c:i64, %a, %b
@@ -222,7 +241,8 @@ let%expect_test "div i64" =
 ;;
 
 let%expect_test "mod i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 100
     mov %b:i64, 7
     mod %c:i64, %a, %b
@@ -232,7 +252,8 @@ let%expect_test "mod i64" =
 ;;
 
 let%expect_test "and i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 255
     mov %b:i64, 15
     and %c:i64, %a, %b
@@ -242,7 +263,8 @@ let%expect_test "and i64" =
 ;;
 
 let%expect_test "or i64" =
-  test {|
+  test
+    {|
     mov %a:i64, 8
     mov %b:i64, 4
     or %c:i64, %a, %b
@@ -254,7 +276,8 @@ let%expect_test "or i64" =
 (* Multiple size tests *)
 
 let%expect_test "i8 arithmetic" =
-  test {|
+  test
+    {|
     mov %a:i8, 10
     mov %b:i8, 20
     add %c:i8, %a, %b
@@ -264,7 +287,8 @@ let%expect_test "i8 arithmetic" =
 ;;
 
 let%expect_test "i16 arithmetic" =
-  test {|
+  test
+    {|
     mov %a:i16, 1000
     mov %b:i16, 2000
     add %c:i16, %a, %b
@@ -276,7 +300,8 @@ let%expect_test "i16 arithmetic" =
 (* Complex pointer arithmetic *)
 
 let%expect_test "multiple pointer arithmetic operations" =
-  test {|
+  test
+    {|
     alloca %base:ptr, 100
     add %ptr1:ptr, %base, 8
     add %ptr2:ptr, %ptr1, 16
@@ -287,7 +312,8 @@ let%expect_test "multiple pointer arithmetic operations" =
 ;;
 
 let%expect_test "complex pointer computation" =
-  test {|
+  test
+    {|
     alloca %arr:ptr, 80
     mov %idx:i64, 5
     mul %offset:i64, %idx, 8
@@ -300,7 +326,8 @@ let%expect_test "complex pointer computation" =
 (* Float arithmetic tests *)
 
 let%expect_test "f32 fadd" =
-  test {|
+  test
+    {|
     mov %a:f32, 1
     mov %b:f32, 2
     fadd %c:f32, %a, %b
@@ -310,7 +337,8 @@ let%expect_test "f32 fadd" =
 ;;
 
 let%expect_test "f64 fadd" =
-  test {|
+  test
+    {|
     mov %a:f64, 1
     mov %b:f64, 2
     fadd %c:f64, %a, %b
@@ -320,7 +348,8 @@ let%expect_test "f64 fadd" =
 ;;
 
 let%expect_test "f64 fsub" =
-  test {|
+  test
+    {|
     mov %a:f64, 10
     mov %b:f64, 3
     fsub %c:f64, %a, %b
@@ -330,7 +359,8 @@ let%expect_test "f64 fsub" =
 ;;
 
 let%expect_test "f64 fmul" =
-  test {|
+  test
+    {|
     mov %a:f64, 3
     mov %b:f64, 7
     fmul %c:f64, %a, %b
@@ -340,7 +370,8 @@ let%expect_test "f64 fmul" =
 ;;
 
 let%expect_test "f64 fdiv" =
-  test {|
+  test
+    {|
     mov %a:f64, 100
     mov %b:f64, 4
     fdiv %c:f64, %a, %b
@@ -350,37 +381,44 @@ let%expect_test "f64 fdiv" =
 ;;
 
 let%expect_test "mixed f32 and f64 (should fail)" =
-  test {|
+  test
+    {|
     mov %a:f32, 1
     mov %b:f64, 2
     fadd %c:f64, %a, %b
     return %a
   |};
-  [%expect {| Error: type mismatch: fadd expects lhs of type f64 but got a:f32 |}]
+  [%expect
+    {| Error: type mismatch: fadd expects lhs of type f64 but got a:f32 |}]
 ;;
 
 let%expect_test "float destination but integer operands (should fail)" =
-  test {|
+  test
+    {|
     mov %a:i64, 1
     mov %b:i64, 2
     fadd %c:f64, %a, %b
     return %a
   |};
-  [%expect {| Error: type mismatch: fadd expects lhs of type f64 but got a:i64 |}]
+  [%expect
+    {| Error: type mismatch: fadd expects lhs of type f64 but got a:i64 |}]
 ;;
 
 let%expect_test "integer instruction with float (should fail)" =
-  test {|
+  test
+    {|
     mov %a:f64, 1
     mov %b:f64, 2
     add %c:f64, %a, %b
     return %a
   |};
-  [%expect {| Error: type mismatch: add destination c:f64 must be integer or pointer |}]
+  [%expect
+    {| Error: type mismatch: add destination c:f64 must be integer or pointer |}]
 ;;
 
 let%expect_test "all float operations" =
-  test {|
+  test
+    {|
     mov %x:f64, 100
     mov %y:f64, 20
     fadd %sum:f64, %x, %y
@@ -417,7 +455,8 @@ let%expect_test "movq with literal (should fail)" =
     movq %f:f64, 42
     return %f
   |};
-  [%expect {| Error: type mismatch: movq cannot accept literals, got literal for f:f64 |}]
+  [%expect
+    {| Error: type mismatch: movq cannot accept literals, got literal for f:f64 |}]
 ;;
 
 let%expect_test "movq i64 to i64 (should fail)" =
@@ -426,7 +465,8 @@ let%expect_test "movq i64 to i64 (should fail)" =
     movq %b:i64, %a
     return %b
   |};
-  [%expect {| Error: type mismatch: movq requires i64<->f64 conversion, got a:i64 to b:i64 |}]
+  [%expect
+    {| Error: type mismatch: movq requires i64<->f64 conversion, got a:i64 to b:i64 |}]
 ;;
 
 let%expect_test "movq f64 to f64 (should fail)" =
@@ -435,7 +475,8 @@ let%expect_test "movq f64 to f64 (should fail)" =
     movq %b:f64, %a
     return %a
   |};
-  [%expect {| Error: type mismatch: movq requires i64<->f64 conversion, got a:f64 to b:f64 |}]
+  [%expect
+    {| Error: type mismatch: movq requires i64<->f64 conversion, got a:f64 to b:f64 |}]
 ;;
 
 let%expect_test "movq i32 to f64 (should fail)" =
@@ -444,5 +485,6 @@ let%expect_test "movq i32 to f64 (should fail)" =
     movq %f:f64, %i
     return %i
   |};
-  [%expect {| Error: type mismatch: movq requires i64<->f64 conversion, got i:i32 to f:f64 |}]
+  [%expect
+    {| Error: type mismatch: movq requires i64<->f64 conversion, got i:i32 to f:f64 |}]
 ;;
