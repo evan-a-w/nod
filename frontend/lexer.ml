@@ -1,5 +1,5 @@
 open! Core
-open Parser_core
+open! Import
 open State.Result
 open Let_syntax
 

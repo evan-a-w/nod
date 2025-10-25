@@ -1,5 +1,5 @@
 open! Core
-open! Nod
+open! Import
 module Std = Stdlib
 
 let make_harness_source
@@ -58,7 +58,7 @@ let compile_and_execute
   =
   match Eir.compile ~opt_flags program with
   | Error err ->
-    Or_error.error_string (Parser.error_to_string err) |> Or_error.ok_exn
+    Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
   | Ok functions ->
     let asm = X86_backend.compile_to_asm functions in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in

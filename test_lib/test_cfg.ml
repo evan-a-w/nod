@@ -1,5 +1,5 @@
 open! Core
-open! Nod
+open! Import
 
 let map_function_roots ~f functions =
   Map.map ~f:(Function.map_root ~f) functions
@@ -10,7 +10,7 @@ let test s =
   |> Parser.parse_string
   |> Result.map ~f:(map_function_roots ~f:Cfg.process)
   |> function
-  | Error e -> Parser.error_to_string e |> print_endline
+  | Error e -> Nod_error.to_string e |> print_endline
   | Ok fns ->
     Map.iter
       fns
