@@ -36,19 +36,19 @@ let ident () =
 
 let record_var_type name type_ =
   let%bind state = get_state () in
-  (match Hashtbl.find state.State.var_types name with
-   | None ->
-     Hashtbl.set state.var_types ~key:name ~data:type_;
-     return ()
-   | Some existing when Type.equal existing type_ -> return ()
-   | Some existing ->
-     fail
-       (`Type_mismatch
-          (sprintf
-             "variable %s previously annotated as %s but got %s"
-             name
-             (Type.to_string existing)
-             (Type.to_string type_))))
+  match Hashtbl.find state.State.var_types name with
+  | None ->
+    Hashtbl.set state.var_types ~key:name ~data:type_;
+    return ()
+  | Some existing when Type.equal existing type_ -> return ()
+  | Some existing ->
+    fail
+      (`Type_mismatch
+        (sprintf
+           "variable %s previously annotated as %s but got %s"
+           name
+           (Type.to_string existing)
+           (Type.to_string type_)))
 ;;
 
 let ensure_var_type name =
