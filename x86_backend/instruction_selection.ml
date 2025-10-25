@@ -1,7 +1,6 @@
 open! Core
 open! Import
 open! Common
-
 module Class = X86_reg.Class
 
 type t =
@@ -106,7 +105,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         (new_name t.var_names "tmp_force_physical")
         None
     in
-    [ mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
+    [ mov
+        (Reg force_physical)
+        (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
     ; mov
         (Ir.Mem.to_x86_ir_operand mem)
         (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
@@ -117,11 +118,11 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
     let gp_arg_regs = Reg.arguments Class.I64 in
-    let num_stack_args = Int.max 0 (List.length args - List.length gp_arg_regs) in
+    let num_stack_args =
+      Int.max 0 (List.length args - List.length gp_arg_regs)
+    in
     let pre_moves =
-      Sequence.zip_full
-        (Sequence.of_list args)
-        (Sequence.of_list gp_arg_regs)
+      Sequence.zip_full (Sequence.of_list args) (Sequence.of_list gp_arg_regs)
       |> Sequence.filter_map ~f:(function
         | `Right _ -> None
         | `Left x -> Some (push (operand_of_lit_or_var t ~class_:Class.I64 x))
