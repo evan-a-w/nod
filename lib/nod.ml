@@ -1,6 +1,5 @@
 open! Core
 module Nod_error = Nod_common.Nod_error
-module Examples = Nod_common.Examples
 module Pos = Nod_common.Pos
 module Token = Nod_common.Token
 module Frontend = Nod_frontend
@@ -22,6 +21,7 @@ module Ssa = Nod_core.Ssa
 module Var = Nod_core.Var
 module X86_ir = Nod_core.X86_ir
 module X86_backend = Nod_x86_backend.X86_backend
+module Examples = Nod_examples.Examples
 
 module Eir = struct
   include Nod_core.Eir
