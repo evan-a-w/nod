@@ -24,7 +24,8 @@ let on_x86_irs (ir : Ir.t) ~f =
 let call_conv ~fn:_ = Call_conv.Default
 
 let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
-  Int.max (List.length args - List.length Reg.integer_arguments) 0
+  let gp_args = X86_reg.arguments X86_reg.Class.I64 in
+  Int.max (List.length args - List.length gp_args) 0
 ;;
 
 let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
