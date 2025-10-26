@@ -49,11 +49,10 @@ let%expect_test "branches lower with labels" =
     .globl root
     root:
       push rbp
-      push r13
       push r14
       push r15
       mov rbp, rsp
-      add rbp, 32
+      add rbp, 24
       jmp root__a
     root__a:
       mov r15, 10
@@ -63,36 +62,31 @@ let%expect_test "branches lower with labels" =
     root__intermediate_a_to_b:
       jmp root__b
     root__b:
-      mov r13, r14
-      add r13, 5
+      mov r15, r14
+      add r15, 5
       jmp root__intermediate_b_to_end0
     root__intermediate_b_to_end0:
-      mov r15, r13
       jmp root__end
     root__end:
       mov rax, r15
       jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
-      sub rsp, 32
+      sub rsp, 24
       pop r15
       pop r14
-      pop r13
       pop rbp
       ret
     root__intermediate_b_to_end:
-      mov r15, r13
       jmp root__end
     root__intermediate_a_to_c:
       jmp root__c
     root__c:
-      mov r14, 0
+      mov r15, 0
       jmp root__intermediate_c_to_end0
     root__intermediate_c_to_end0:
-      mov r15, r14
       jmp root__end
     root__intermediate_c_to_end:
-      mov r15, r14
       jmp root__end
     .section .note.GNU-stack,"",@progbits
     |}]
@@ -107,59 +101,57 @@ let%expect_test "recursive fib" =
     .globl fib
     fib:
       push rbp
-      push r13
       push r14
       push r15
       mov rbp, rsp
-      add rbp, 32
-      mov r13, rdi
+      add rbp, 24
+      mov r14, rdi
       jmp fib___root
     fib___root:
-      cmp r13, 0
+      cmp r14, 0
       jne fib__intermediate__root_to_check1_
       jmp fib__intermediate__root_to_ret_1
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
     fib__check1_:
-      mov r15, r13
-      sub r15, 1
-      cmp r15, 0
+      sub r14, 1
+      cmp r14, 0
       jne fib__intermediate_check1__to_rec
       jmp fib__intermediate_check1__to_ret_1
     fib__intermediate_check1__to_rec:
       jmp fib__rec
     fib__rec:
       push rax
-      mov rdi, r15
+      mov rdi, r14
+      call fib
+      mov r15, rax
+      pop rax
+      sub r14, 1
+      push rax
+      mov rdi, r14
       call fib
       mov r14, rax
       pop rax
-      mov r13, r15
-      sub r13, 1
-      push rax
-      mov rdi, r13
-      call fib
-      mov r13, rax
-      pop rax
-      add r14, r13
-      mov rax, r14
+      add r15, r14
+      mov rax, r15
       jmp fib__fib__epilogue
     fib__fib__epilogue:
       mov rsp, rbp
-      sub rsp, 32
+      sub rsp, 24
       pop r15
       pop r14
-      pop r13
       pop rbp
       ret
     fib__intermediate_check1__to_ret_1:
+      mov r15, r14
+      mov r14, r15
       jmp fib__ret_1
     fib__ret_1:
       mov r15, 1
       mov rax, r15
       jmp fib__fib__epilogue
     fib__intermediate__root_to_ret_1:
-      mov r15, r14
+      mov r14, r15
       jmp fib__ret_1
     .section .note.GNU-stack,"",@progbits
     |}]
@@ -236,34 +228,30 @@ done:
       add rbp, 120
       jmp root___root
     root___root:
-      mov r14, [rbp]
-      mov r15, 0
+      mov r15, [rbp]
       mov r14, 0
-      mov r13, r14
+      mov r13, 0
       jmp root__loop
     root__loop:
       mov r12, 8
-      mov rax, r15
+      mov rax, r14
       imul r12
       mov r12, rax
-      mov r11, r14
+      mov r11, r15
       add r11, r12
-      mov r12, r13
-      add r12, r15
-      mov r12, r15
-      add r12, 1
+      add r13, r14
+      add r14, 1
+      mov r12, r14
       sub r12, 10
       cmp r12, 0
       jne root__intermediate_loop_to_loop
       jmp root__intermediate_loop_to_done
     root__intermediate_loop_to_loop:
-      mov r15, r12
-      mov r13, r12
       jmp root__loop
     root__intermediate_loop_to_done:
       jmp root__done
     root__done:
-      mov rax, r12
+      mov rax, r13
       jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
