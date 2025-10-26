@@ -207,7 +207,7 @@ type 'block t =
      - Int -> Float: sign-extends and converts (cvtsi2sd/cvtsi2ss)
      - Float -> Int: truncates toward zero, overflow saturates (cvttsd2si/cvttss2si)
      - Float <-> Float: precision change, rounds to nearest (cvtsd2ss/cvtss2sd)
-     - Int -> Int: truncate (larger→smaller) or sign-extend (smaller→larger)
+     - Int -> Int: truncate (larger -> smaller) or sign-extend (smaller -> larger)
   *)
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
