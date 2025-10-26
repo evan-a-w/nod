@@ -185,31 +185,29 @@ ret %total_offset
   [%expect {| 30 |}]
 ;;
 
-(* FIXME: This test currently hangs due to register allocation issue where i%1 and sum%1
-   don't interfere in the loop body, causing incorrect phi moves *)
-(* let%expect_test "pointer arithmetic in loop" = *)
-(*   let output = *)
-(*     compile_and_execute *)
-(*       {| *)
-(* alloca %array:ptr, 80 *)
-(* mov %i:i64, 0 *)
-(* mov %sum:i64, 0 *)
+let%expect_test "pointer arithmetic in loop" =
+  let output =
+    compile_and_execute
+      {|
+alloca %array:ptr, 80
+mov %i:i64, 0
+mov %sum:i64, 0
 
-(* loop: *)
-(*   mul %offset:i64, %i, 8 *)
-(*   add %ptr:ptr, %array, %offset *)
-(*   add %sum:i64, %sum, %i *)
-(*   add %i:i64, %i, 1 *)
-(*   sub %cond:i64, %i, 10 *)
-(*   branch %cond, loop, done *)
+loop:
+  mul %offset:i64, %i, 8
+  add %ptr:ptr, %array, %offset
+  add %sum:i64, %sum, %i
+  add %i:i64, %i, 1
+  sub %cond:i64, %i, 10
+  branch %cond, loop, done
 
-(* done: *)
-(*   ret %sum *)
-(* |} *)
-(*   in *)
-(*   print_endline output; *)
-(*   [%expect {| 45 |}] *)
-(* ;; *)
+done:
+  ret %sum
+|}
+  in
+  print_endline output;
+  [%expect {| 45 |}]
+;;
 
 let%expect_test "pointer arithmetic - subtracting from pointer" =
   let output =
