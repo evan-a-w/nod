@@ -1350,13 +1350,24 @@ let%expect_test "longer example" =
      (instrs
       ((Move ((name j%0) (type_ I64)) (Lit 0))
        (Move ((name partial%0) (type_ I64)) (Lit 0))
-       (Branch (Uncond ((block ((id_hum innerCheck) (args ()))) (args ())))))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
+         (if_false ((block ((id_hum outerInc) (args ()))) (args ()))))))))
     (innerCheck (args ())
      (instrs
-      ((Branch (Uncond ((block ((id_hum innerBody) (args ()))) (args ())))))))
+      ((Sub
+        ((dest ((name condInner) (type_ I64)))
+         (src1 (Var ((name j%0) (type_ I64)))) (src2 (Lit 3))))
+       (Branch
+        (Cond (cond (Var ((name condInner) (type_ I64))))
+         (if_true ((block ((id_hum innerBody) (args ()))) (args ())))
+         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
     (innerBody (args ())
      (instrs
-      ((And ((dest ((name isEven) (type_ I64))) (src1 (Lit 0)) (src2 (Lit 1))))
+      ((And
+        ((dest ((name isEven) (type_ I64))) (src1 (Var ((name j%0) (type_ I64))))
+         (src2 (Lit 1))))
        (Move ((name condSkip) (type_ I64)) (Var ((name isEven) (type_ I64))))
        (Branch
         (Cond (cond (Var ((name condSkip) (type_ I64))))
@@ -1371,14 +1382,20 @@ let%expect_test "longer example" =
     (doWork (args ())
      (instrs
       ((Mul
-        ((dest ((name tmp) (type_ I64))) (src1 (Lit 0))
-         (src2 (Var ((name i%0) (type_ I64))))))
-       (Move ((name partial%3) (type_ I64)) (Var ((name tmp) (type_ I64))))
+        ((dest ((name tmp) (type_ I64))) (src1 (Var ((name i%0) (type_ I64))))
+         (src2 (Var ((name j%0) (type_ I64))))))
+       (Add
+        ((dest ((name partial%3) (type_ I64)))
+         (src1 (Var ((name partial%0) (type_ I64))))
+         (src2 (Var ((name tmp) (type_ I64))))))
        (Branch (Uncond ((block ((id_hum innerCheck) (args ()))) (args ())))))))
     (innerExit (args ())
      (instrs
-      ((Move ((name total%0) (type_ I64)) (Lit 0))
-       (Branch (Uncond ((block ((id_hum outerInc) (args ()))) (args ())))))))
+      ((Move ((name total%0) (type_ I64)) (Var ((name partial%0) (type_ I64))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum outerInc) (args ()))) (args ())))
+         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
     (outerInc (args ())
      (instrs
       ((Add

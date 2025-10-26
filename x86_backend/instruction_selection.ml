@@ -354,7 +354,7 @@ let make_epilogue t ~ret_shape =
     List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+      mov (Reg reg) (Reg (Reg.allocated arg (Some reg))))
   in
   let args' =
     List.zip_with_remainder args gp_res_regs
