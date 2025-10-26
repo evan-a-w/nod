@@ -13,7 +13,7 @@ let note_var_class table var class_ =
     Error.raise_s
       [%message
         "register class mismatch"
-          (var : string)
+          (var : Var.t)
           (existing : Class.t)
           (class_ : Class.t)]
 ;;
@@ -188,7 +188,7 @@ let run_sat
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
-              (assignments : Assignment.t String.Table.t)
+              (assignments : Assignment.t Var.Table.t)
               (core : int array)]
       | ( UnsatCore _
         , ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill ) ->
@@ -218,7 +218,7 @@ let replace_regs
   =
   let open Calc_liveness in
   let root = fn.Function.root in
-  let spill_slot_by_var = String.Table.create () in
+  let spill_slot_by_var = Var.Table.create () in
   let free_spill_slots = ref Int.Set.empty in
   let used_spill_slots = ref Int.Set.empty in
   let get_spill_slot () =
@@ -325,7 +325,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
       ~don't_spill
       ~class_of_var
       ~class_);
-  if dump_crap then print_s [%sexp (assignments : Assignment.t String.Table.t)];
+  if dump_crap then print_s [%sexp (assignments : Assignment.t Var.Table.t)];
   let spill_slots_used =
     replace_regs
       (module Calc_liveness)

@@ -2,7 +2,7 @@ open! Core
 
 type t =
   { id_hum : string
-  ; mutable args : string Vec.t
+  ; mutable args : Var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
   ; mutable instructions : t Ir0.t Vec.t
@@ -21,7 +21,7 @@ let t_of_sexp _ = failwith ":()"
 let sexp_of_t t =
   let id_hum = t.id_hum in
   let args = t.args in
-  [%sexp { id_hum : string; args : string Vec.t }]
+  [%sexp { id_hum : string; args : Var.t Vec.t }]
 ;;
 
 let create ~id_hum ~terminal =
@@ -101,7 +101,7 @@ let to_sexp_verbose root =
     let instrs = Vec.to_list t.instructions @ [ t.terminal ] in
     Vec.push
       ts
-      [%message t.id_hum ~args:(t.args : string Vec.t) (instrs : t Ir0.t list)]);
+      [%message t.id_hum ~args:(t.args : Var.t Vec.t) (instrs : t Ir0.t list)]);
   [%sexp (ts : Sexp.t Vec.t)]
 ;;
 

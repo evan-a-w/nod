@@ -49,7 +49,8 @@ let run (functions : Function.t String.Map.t) =
     | Raw.XMM13 -> "xmm13"
     | Raw.XMM14 -> "xmm14"
     | Raw.XMM15 -> "xmm15"
-    | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier v
+    | Raw.Unallocated v | Raw.Allocated (v, None) ->
+      sanitize_identifier (Var.name v)
     | Raw.Allocated (_, Some reg) -> string_of_raw reg
   in
   let string_of_reg reg = string_of_raw (Reg.raw reg) in
@@ -125,20 +126,27 @@ let run (functions : Function.t String.Map.t) =
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
+      let lower_move ~dst ~src s =
+        `Emit
+          (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+           then []
+           else
+             [ sprintf
+                 "%s %s, %s"
+                 s
+                 (string_of_operand dst)
+                 (string_of_operand src)
+             ])
+      in
       let lower_instruction instr =
         let instr = unwrap_tags instr in
         match instr with
         | NOOP | Save_clobbers | Restore_clobbers -> `No_emit
-        | MOV (dst, src) ->
-          `Emit
-            (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
-             then []
-             else
-               [ sprintf
-                   "mov %s, %s"
-                   (string_of_operand dst)
-                   (string_of_operand src)
-               ])
+        | MOV (dst, src) -> lower_move ~dst ~src "mov"
+        | MOVSD (dst, src) -> lower_move ~dst ~src "movsd"
+        | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
+        | CVTSI2SD (dst, src) -> lower_move ~dst ~src "cvtsi2sd"
+        | CVTTSD2SI (dst, src) -> lower_move ~dst ~src "cvttsd2si"
         | ADD (dst, src) ->
           `Emit
             [ sprintf
@@ -150,6 +158,34 @@ let run (functions : Function.t String.Map.t) =
           `Emit
             [ sprintf
                 "sub %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | ADDSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "addsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | SUBSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "subsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | MULSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "mulsd %s, %s"
+                (string_of_operand dst)
+                (string_of_operand src)
+            ]
+        | DIVSD (dst, src) ->
+          `Emit
+            [ sprintf
+                "divsd %s, %s"
                 (string_of_operand dst)
                 (string_of_operand src)
             ]
@@ -241,5 +277,7 @@ let run (functions : Function.t String.Map.t) =
         | Ir0.X86_terminal xs -> List.iter xs ~f:process_instruction
         | Ir0.X86 x -> process_instruction x
         | _ -> ()));
+    Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
+    Buffer.add_string buffer "\n";
     Buffer.contents buffer
 ;;

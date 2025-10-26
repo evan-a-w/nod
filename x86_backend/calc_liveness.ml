@@ -119,7 +119,12 @@ module Make (Arg : Arg) = struct
           in
           { Liveness.live_in = new_live_in; live_out = live_in }
         in
-        block_liveness.terminal <- f block_liveness.overall block.terminal;
+        let after_terminal =
+          { Liveness.live_in = block_liveness.overall.live_out
+          ; live_out = block_liveness.overall.live_out
+          }
+        in
+        block_liveness.terminal <- f after_terminal block.terminal;
         (* prob unnecessary *)
         Vec.clear block_liveness.instructions;
         let (_ : Liveness.t) =

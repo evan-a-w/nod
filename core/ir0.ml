@@ -189,6 +189,10 @@ type 'block t =
   | Mul of arith
   | Div of arith
   | Mod of arith
+  | Fadd of arith
+  | Fsub of arith
+  | Fmul of arith
+  | Fdiv of arith
   | Alloca of alloca
   | Call of
       { fn : string
@@ -198,6 +202,13 @@ type 'block t =
   | Load of Var.t * Mem.t
   | Store of Lit_or_var.t * Mem.t
   | Move of Var.t * Lit_or_var.t
+  | Cast of Var.t * Lit_or_var.t
+  (* Cast performs type conversion between different types:
+     - Int -> Float: sign-extends and converts (cvtsi2sd/cvtsi2ss)
+     - Float -> Int: truncates toward zero, overflow saturates (cvttsd2si/cvttss2si)
+     - Float <-> Float: precision change, rounds to nearest (cvtsd2ss/cvtss2sd)
+     - Int -> Int: truncate (larger -> smaller) or sign-extend (smaller -> larger)
+  *)
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
   | X86 of 'block X86_ir.t
@@ -219,7 +230,12 @@ let filter_map_call_blocks t ~f =
   | Mul _
   | Div _
   | Mod _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Move _
+  | Cast _
   | Return _
   | Load _
   | Store _
@@ -273,9 +289,19 @@ let defs = function
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
   | Alloca a -> [ a.dest ]
-  | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a -> [ a.dest ]
+  | And a
+  | Or a
+  | Add a
+  | Sub a
+  | Mul a
+  | Div a
+  | Mod a
+  | Fadd a
+  | Fsub a
+  | Fmul a
+  | Fdiv a -> [ a.dest ]
   | Load (a, _) -> [ a ]
-  | Move (var, _) -> [ var ]
+  | Move (var, _) | Cast (var, _) -> [ var ]
   | Call { results; _ } -> results
   | Branch _ | Unreachable | Noop | Return _ | Store _ -> []
 ;;
@@ -290,11 +316,16 @@ let blocks = function
   | Mul _
   | Div _
   | Mod _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Store _
   | Load _
   | And _
   | Or _
   | Move (_, _)
+  | Cast (_, _)
   | Call _ | Unreachable | Noop | Return _ -> []
 ;;
 
@@ -303,11 +334,20 @@ let uses = function
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
   | Alloca a -> Lit_or_var.vars a.size
-  | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a ->
-    Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
+  | Add a
+  | Sub a
+  | Mul a
+  | Div a
+  | Mod a
+  | And a
+  | Or a
+  | Fadd a
+  | Fsub a
+  | Fmul a
+  | Fdiv a -> Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
   | Load (_, b) -> Mem.vars b
-  | Move (_, src) -> Lit_or_var.vars src
+  | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
   | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
@@ -345,9 +385,14 @@ let map_defs t ~f =
   | Div a -> Div (map_arith_defs a ~f)
   | Mod a -> Mod (map_arith_defs a ~f)
   | Sub a -> Sub (map_arith_defs a ~f)
+  | Fadd a -> Fadd (map_arith_defs a ~f)
+  | Fsub a -> Fsub (map_arith_defs a ~f)
+  | Fmul a -> Fmul (map_arith_defs a ~f)
+  | Fdiv a -> Fdiv (map_arith_defs a ~f)
   | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
+  | Cast (var, b) -> Cast (f var, b)
   | Call { fn; results; args } ->
     Call { fn; results = List.map results ~f; args }
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
@@ -365,11 +410,16 @@ let map_uses t ~f =
   | Div a -> Div (map_arith_uses a ~f)
   | Mod a -> Mod (map_arith_uses a ~f)
   | Sub a -> Sub (map_arith_uses a ~f)
+  | Fadd a -> Fadd (map_arith_uses a ~f)
+  | Fsub a -> Fsub (map_arith_uses a ~f)
+  | Fmul a -> Fmul (map_arith_uses a ~f)
+  | Fdiv a -> Fdiv (map_arith_uses a ~f)
   | Alloca a -> Alloca (map_alloca_uses a ~f)
   | Store (a, b) -> Store (Lit_or_var.map_vars a ~f, Mem.map_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_vars b ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
+  | Cast (var, b) -> Cast (var, Lit_or_var.map_vars b ~f)
   | Call { fn; results; args } ->
     Call { fn; results; args = List.map args ~f:(Lit_or_var.map_vars ~f) }
   | Branch b -> Branch (Branch.map_uses b ~f)
@@ -389,7 +439,12 @@ let is_terminal = function
   | Div _
   | Mod _
   | Sub _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Move _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -411,7 +466,12 @@ let map_call_blocks t ~f =
   | Div _
   | Mod _
   | Sub _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Move _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -433,7 +493,12 @@ let iter_call_blocks t ~f =
   | Div _
   | Mod _
   | Sub _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Move _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -451,11 +516,16 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Mul a -> Mul a
   | Div a -> Div a
   | Mod a -> Mod a
+  | Fadd a -> Fadd a
+  | Fsub a -> Fsub a
+  | Fmul a -> Fmul a
+  | Fdiv a -> Fdiv a
   | Alloca a -> Alloca a
   | Store (a, b) -> Store (a, b)
   | Load (a, b) -> Load (a, b)
   | Sub a -> Sub a
   | Move (var, b) -> Move (var, b)
+  | Cast (var, b) -> Cast (var, b)
   | Call call -> Call call
   | Branch b -> Branch (Branch.map_blocks b ~f)
   | Noop -> Noop
@@ -475,10 +545,15 @@ let map_lit_or_vars t ~f =
   | Div a -> Div (map_arith_lit_or_vars a ~f)
   | Mod a -> Mod (map_arith_lit_or_vars a ~f)
   | Sub a -> Sub (map_arith_lit_or_vars a ~f)
+  | Fadd a -> Fadd (map_arith_lit_or_vars a ~f)
+  | Fsub a -> Fsub (map_arith_lit_or_vars a ~f)
+  | Fmul a -> Fmul (map_arith_lit_or_vars a ~f)
+  | Fdiv a -> Fdiv (map_arith_lit_or_vars a ~f)
   | Alloca a -> Alloca (map_alloca_lit_or_vars a ~f)
   | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
   | Move (var, b) -> Move (var, f b)
+  | Cast (var, b) -> Cast (var, f b)
   | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
   | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
   | Return var -> Return (f var)
@@ -503,7 +578,12 @@ let call_blocks = function
   | Store _
   | Mod _
   | Sub _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
   | Move _
+  | Cast _
   | Alloca _
   | Unreachable
   | Noop
@@ -526,7 +606,7 @@ let map_x86_operands t ~f =
 
 let uses_ex_args t =
   Set.diff
-    (uses t |> String.Set.of_list)
+    (uses t |> Var.Set.of_list)
     (List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
-     |> String.Set.of_list)
+     |> Var.Set.of_list)
 ;;

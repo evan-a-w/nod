@@ -1,9 +1,17 @@
 open! Core
 
-type t = string [@@deriving sexp, compare, equal, hash]
+type t =
+  { name : string
+  ; type_ : Type.t
+  }
+[@@deriving compare, equal, hash, sexp]
 
 include functor Comparable.Make
 include functor Hashable.Make
 
-let of_string = Fn.id
-let to_string = Fn.id
+let create ~name ~type_ = { name; type_ }
+let name t = t.name
+let type_ t = t.type_
+let map_name t ~f = { t with name = f t.name }
+let with_type t type_ = { t with type_ }
+let to_string = name
