@@ -236,11 +236,6 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%map src = lit_or_var () in
     Ir.move dest src
-  | "movq" ->
-    let%bind dest = var_decl () in
-    let%bind (_ : Pos.t) = comma () in
-    let%map src = lit_or_var () in
-    Ir.movq dest src
   | "b" | "branch" -> branch ()
   | "return" | "ret" ->
     let%map res = lit_or_var () in
