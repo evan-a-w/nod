@@ -202,7 +202,13 @@ type 'block t =
   | Load of Var.t * Mem.t
   | Store of Lit_or_var.t * Mem.t
   | Move of Var.t * Lit_or_var.t
-  | Movq of Var.t * Lit_or_var.t (* bitcast between i64 and f64 *)
+  | Cast of Var.t * Lit_or_var.t
+  (* Cast performs type conversion between different types:
+     - Int -> Float: sign-extends and converts (cvtsi2sd/cvtsi2ss)
+     - Float -> Int: truncates toward zero, overflow saturates (cvttsd2si/cvttss2si)
+     - Float <-> Float: precision change, rounds to nearest (cvtsd2ss/cvtss2sd)
+     - Int -> Int: truncate (larger→smaller) or sign-extend (smaller→larger)
+  *)
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
   | X86 of 'block X86_ir.t
@@ -229,7 +235,7 @@ let filter_map_call_blocks t ~f =
   | Fmul _
   | Fdiv _
   | Move _
-  | Movq _
+  | Cast _
   | Return _
   | Load _
   | Store _
@@ -283,9 +289,19 @@ let defs = function
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
   | Alloca a -> [ a.dest ]
-  | And a | Or a | Add a | Sub a | Mul a | Div a | Mod a | Fadd a | Fsub a | Fmul a | Fdiv a -> [ a.dest ]
+  | And a
+  | Or a
+  | Add a
+  | Sub a
+  | Mul a
+  | Div a
+  | Mod a
+  | Fadd a
+  | Fsub a
+  | Fmul a
+  | Fdiv a -> [ a.dest ]
   | Load (a, _) -> [ a ]
-  | Move (var, _) | Movq (var, _) -> [ var ]
+  | Move (var, _) | Cast (var, _) -> [ var ]
   | Call { results; _ } -> results
   | Branch _ | Unreachable | Noop | Return _ | Store _ -> []
 ;;
@@ -309,7 +325,7 @@ let blocks = function
   | And _
   | Or _
   | Move (_, _)
-  | Movq (_, _)
+  | Cast (_, _)
   | Call _ | Unreachable | Noop | Return _ -> []
 ;;
 
@@ -318,11 +334,20 @@ let uses = function
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
   | Alloca a -> Lit_or_var.vars a.size
-  | Add a | Sub a | Mul a | Div a | Mod a | And a | Or a | Fadd a | Fsub a | Fmul a | Fdiv a ->
-    Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
+  | Add a
+  | Sub a
+  | Mul a
+  | Div a
+  | Mod a
+  | And a
+  | Or a
+  | Fadd a
+  | Fsub a
+  | Fmul a
+  | Fdiv a -> Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
   | Load (_, b) -> Mem.vars b
-  | Move (_, src) | Movq (_, src) -> Lit_or_var.vars src
+  | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
   | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
@@ -367,7 +392,7 @@ let map_defs t ~f =
   | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Move (var, b) -> Move (f var, b)
-  | Movq (var, b) -> Movq (f var, b)
+  | Cast (var, b) -> Cast (f var, b)
   | Call { fn; results; args } ->
     Call { fn; results = List.map results ~f; args }
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
@@ -394,7 +419,7 @@ let map_uses t ~f =
   | Load (a, b) -> Load (a, Mem.map_vars b ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
-  | Movq (var, b) -> Movq (var, Lit_or_var.map_vars b ~f)
+  | Cast (var, b) -> Cast (var, Lit_or_var.map_vars b ~f)
   | Call { fn; results; args } ->
     Call { fn; results; args = List.map args ~f:(Lit_or_var.map_vars ~f) }
   | Branch b -> Branch (Branch.map_uses b ~f)
@@ -419,7 +444,7 @@ let is_terminal = function
   | Fmul _
   | Fdiv _
   | Move _
-  | Movq _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -446,7 +471,7 @@ let map_call_blocks t ~f =
   | Fmul _
   | Fdiv _
   | Move _
-  | Movq _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -473,7 +498,7 @@ let iter_call_blocks t ~f =
   | Fmul _
   | Fdiv _
   | Move _
-  | Movq _
+  | Cast _
   | Noop
   | Load _
   | Store _
@@ -500,7 +525,7 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Load (a, b) -> Load (a, b)
   | Sub a -> Sub a
   | Move (var, b) -> Move (var, b)
-  | Movq (var, b) -> Movq (var, b)
+  | Cast (var, b) -> Cast (var, b)
   | Call call -> Call call
   | Branch b -> Branch (Branch.map_blocks b ~f)
   | Noop -> Noop
@@ -528,7 +553,7 @@ let map_lit_or_vars t ~f =
   | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
   | Move (var, b) -> Move (var, f b)
-  | Movq (var, b) -> Movq (var, f b)
+  | Cast (var, b) -> Cast (var, f b)
   | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
   | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
   | Return var -> Return (f var)
@@ -558,7 +583,7 @@ let call_blocks = function
   | Fmul _
   | Fdiv _
   | Move _
-  | Movq _
+  | Cast _
   | Alloca _
   | Unreachable
   | Noop

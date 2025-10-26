@@ -128,23 +128,47 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
     require_class t v class_;
     [ mov (reg v) (operand_of_lit_or_var t ~class_ lit_or_var) ]
-  | Movq (dest, src) ->
-    (* Bitcast between i64 and f64 - move between gp and xmm registers *)
-    let dest_class =
-      if Type.equal (Var.type_ dest) Type.F64 then Class.F64 else Class.I64
-    in
-    let src_class =
+  | Cast (dest, src) ->
+    (* Type conversion between different types *)
+    let dest_type = Var.type_ dest in
+    let src_type =
       match src with
-      | Ir.Lit_or_var.Var v ->
-        if Type.equal (Var.type_ v) Type.F64 then Class.F64 else Class.I64
-      | Ir.Lit_or_var.Lit _ ->
-        failwith "movq should not have literals (checked by type checker)"
+      | Ir.Lit_or_var.Var v -> Var.type_ v
+      | Ir.Lit_or_var.Lit _ -> Type.I64 (* literals are treated as i64 *)
     in
+    let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
+    let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
     require_class t dest dest_class;
-    [ movq
-        (Reg (reg_of_var t dest))
-        (operand_of_lit_or_var t ~class_:src_class src)
-    ]
+    (match src_type, dest_type with
+     | t1, t2 when Type.is_integer t1 && Type.is_float t2 ->
+       (* Int to float conversion *)
+       (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
+       let src_operand = operand_of_lit_or_var t ~class_:src_class src in
+       (match src_operand with
+        | Imm _ ->
+          (* Load immediate into a temporary register first *)
+          let tmp_reg =
+            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_cvt") None
+          in
+          [ mov (Reg tmp_reg) src_operand
+          ; cvtsi2sd (Reg (reg_of_var t dest)) (Reg tmp_reg)
+          ]
+        | Reg _ | Mem _ ->
+          [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
+     | t1, t2 when Type.is_float t1 && Type.is_integer t2 ->
+       (* Float to int conversion (with truncation) *)
+       [ cvttsd2si (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:src_class src) ]
+     | t1, t2 when Type.is_integer t1 && Type.is_integer t2 ->
+       (* Int to int conversion (sign-extend or truncate) *)
+       (* For now, just use mov - x86 will handle sign extension/truncation *)
+       [ mov (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:Class.I64 src) ]
+     | _ ->
+       (* Float to float or other conversions not yet supported *)
+       failwithf
+         "Unsupported cast from %s to %s"
+         (Type.to_string src_type)
+         (Type.to_string dest_type)
+         ())
   | Load (v, mem) ->
     require_class t v Class.I64;
     let force_physical =
@@ -431,6 +455,8 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | DIVSD (_, _)
        | MOVSD (_, _)
        | MOVQ (_, _)
+       | CVTSI2SD (_, _)
+       | CVTTSD2SI (_, _)
        | IMUL _ | IDIV _ | MOD _ | LABEL _
        | CMP (_, _)
        | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ -> ()));
@@ -512,6 +538,8 @@ let insert_par_moves t =
          | DIVSD (_, _)
          | MOVSD (_, _)
          | MOVQ (_, _)
+         | CVTSI2SD (_, _)
+         | CVTTSD2SI (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
          | CMP (_, _)
          | CALL _ | PUSH _ | POP _ -> ())));

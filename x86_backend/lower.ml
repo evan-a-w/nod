@@ -145,6 +145,8 @@ let run (functions : Function.t String.Map.t) =
         | MOV (dst, src) -> lower_move ~dst ~src "mov"
         | MOVSD (dst, src) -> lower_move ~dst ~src "movsd"
         | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
+        | CVTSI2SD (dst, src) -> lower_move ~dst ~src "cvtsi2sd"
+        | CVTTSD2SI (dst, src) -> lower_move ~dst ~src "cvttsd2si"
         | ADD (dst, src) ->
           `Emit
             [ sprintf
