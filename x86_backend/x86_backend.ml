@@ -28,10 +28,50 @@ module For_testing = struct
         let ~instructions, ~terminal =
           Liveness_state.block_instructions_with_liveness liveness_state ~block
         in
-        print_s
-          [%message
-            block.id_hum
-              (instructions : (Ir.t * Liveness.t) list)
-              (terminal : Ir.t * Liveness.t)]))
+        (* Print block header *)
+        print_endline "";
+        print_endline ("Block: " ^ block.id_hum);
+        print_endline (String.make (String.length block.id_hum + 7) '=');
+        (* Build sexp records for each row *)
+        let instruction_records =
+          List.mapi instructions ~f:(fun idx (instr, liveness) ->
+            let live_in_sexp =
+              Set.to_list liveness.live_in
+              |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
+              |> fun l -> Sexp.List l
+            in
+            let live_out_sexp =
+              Set.to_list liveness.live_out
+              |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
+              |> fun l -> Sexp.List l
+            in
+            Sexp.List
+              [ Sexp.List [ Sexp.Atom "Idx"; Sexp.Atom (Int.to_string idx) ]
+              ; Sexp.List [ Sexp.Atom "Instruction"; Ir.sexp_of_t instr ]
+              ; Sexp.List [ Sexp.Atom "Live In"; live_in_sexp ]
+              ; Sexp.List [ Sexp.Atom "Live Out"; live_out_sexp ]
+              ])
+        in
+        let terminal_record =
+          let instr, liveness = terminal in
+          let live_in_sexp =
+            Set.to_list liveness.live_in
+            |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
+            |> fun l -> Sexp.List l
+          in
+          let live_out_sexp =
+            Set.to_list liveness.live_out
+            |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
+            |> fun l -> Sexp.List l
+          in
+          Sexp.List
+            [ Sexp.List [ Sexp.Atom "Idx"; Sexp.Atom "TERM" ]
+            ; Sexp.List [ Sexp.Atom "Instruction"; Ir.sexp_of_t instr ]
+            ; Sexp.List [ Sexp.Atom "Live In"; live_in_sexp ]
+            ; Sexp.List [ Sexp.Atom "Live Out"; live_out_sexp ]
+            ]
+        in
+        let all_records = instruction_records @ [ terminal_record ] in
+        Table.print_sexp_records all_records))
   ;;
 end

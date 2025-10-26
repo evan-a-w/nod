@@ -252,124 +252,84 @@ let%expect_test "debug borked" =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
     X86_backend.For_testing.print_selected_instructions functions;
-  [%expect {|
-    (root__prologue
-     (instructions
-      (((X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86 (JMP ((block ((id_hum start) (args ()))) (args ()))))
-       ((live_in (2)) (live_out (2))))))
-    (start
-     (instructions
-      (((X86
-         (MOV (Reg ((reg (Unallocated ((name i) (type_ I64)))) (class_ I64)))
-          (Imm 1)))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (MOV (Reg ((reg (Unallocated ((name sum) (type_ I64)))) (class_ I64)))
-          (Imm 0)))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (MOV (Reg ((reg (Unallocated ((name i%1) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name i) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (MOV (Reg ((reg (Unallocated ((name sum%1) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name sum) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86_terminal
-        ((JMP
-          ((block
-            ((id_hum check)
-             (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))))
-           (args ())))))
-       ((live_in (2)) (live_out (2))))))
-    (check
-     (instructions
-      (((X86
-         (MOV (Reg ((reg (Unallocated ((name cond) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name i%1) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (SUB (Reg ((reg (Unallocated ((name cond) (type_ I64)))) (class_ I64)))
-          (Imm 100)))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86_terminal
-        ((CMP (Reg ((reg (Unallocated ((name cond) (type_ I64)))) (class_ I64)))
-          (Imm 0))
-         (JNE ((block ((id_hum intermediate_check_to_body) (args ()))) (args ()))
-          (((block ((id_hum intermediate_check_to_exit) (args ()))) (args ()))))))
-       ((live_in (2)) (live_out (2))))))
-    (intermediate_check_to_body (instructions ())
-     (terminal
-      ((X86 (JMP ((block ((id_hum body) (args ()))) (args ()))))
-       ((live_in (2)) (live_out (2))))))
-    (body
-     (instructions
-      (((X86
-         (MOV (Reg ((reg (Unallocated ((name sum%2) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name sum%1) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (ADD (Reg ((reg (Unallocated ((name sum%2) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name i%1) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (MOV (Reg ((reg (Unallocated ((name i%1) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name i%2) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))
-       ((X86
-         (MOV (Reg ((reg (Unallocated ((name sum%1) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name sum%2) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86_terminal
-        ((JMP
-          ((block
-            ((id_hum check)
-             (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))))
-           (args ())))))
-       ((live_in (2)) (live_out (2))))))
-    (intermediate_check_to_exit
-     (instructions
-      (((X86
-         (MOV (Reg ((reg (Unallocated ((name sum%0) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name sum%1) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86
-        (JMP
-         ((block ((id_hum exit) (args (((name sum%0) (type_ I64)))))) (args ()))))
-       ((live_in (2)) (live_out (2))))))
-    (exit
-     (instructions
-      (((X86
-         (MOV
-          (Reg ((reg (Unallocated ((name res__0) (type_ I64)))) (class_ I64)))
-          (Reg ((reg (Unallocated ((name sum%0) (type_ I64)))) (class_ I64)))))
-        ((live_in (2)) (live_out (2))))))
-     (terminal
-      ((X86_terminal
-        ((JMP
-          ((block ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
-           (args ())))))
-       ((live_in (2)) (live_out (2))))))
-    (root__epilogue
-     (instructions
-      (((X86
-         (MOV
-          (Reg
-           ((reg (Allocated ((name res__0) (type_ I64)) (RAX))) (class_ I64)))
-          (Reg ((reg RAX) (class_ I64)))))
-        ((live_in (2)) (live_out ())))))
-     (terminal
-      ((X86
-        (RET
-         ((Reg
-           ((reg (Allocated ((name res__0) (type_ I64)) (RAX))) (class_ I64))))))
-       ((live_in ()) (live_out ())))))
+    [%expect
+      {|
+    Block: root__prologue
+    =====================
+    +------+-----------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                         | Live In | Live Out |
+    +------+-----------------------------------------------------+---------+----------+
+    | 0    | (X86(Tag_def NOOP(Reg((reg RBP)(class_ I64)))))     | {2}     | {2}      |
+    | TERM | (X86(JMP((block((id_hum start)(args())))(args())))) | {2}     | {2}      |
+    +------+-----------------------------------------------------+---------+----------+
+
+    Block: start
+    ============
+    +------+--------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                                                          | Live In | Live Out |
+    +------+--------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Unallocated((name i)(type_ I64))))(class_ I64)))(Imm 1)))                                                          | {2}     | {2}      |
+    | 1    | (X86(MOV(Reg((reg(Unallocated((name sum)(type_ I64))))(class_ I64)))(Imm 0)))                                                        | {2}     | {2}      |
+    | 2    | (X86(MOV(Reg((reg(Unallocated((name i%1)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name i)(type_ I64))))(class_ I64)))))     | {2}     | {2}      |
+    | 3    | (X86(MOV(Reg((reg(Unallocated((name sum%1)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name sum)(type_ I64))))(class_ I64))))) | {2}     | {2}      |
+    | TERM | (X86_terminal((JMP((block((id_hum check)(args(((name i%1)(type_ I64))((name sum%1)(type_ I64))))))(args())))))                       | {2}     | {2}      |
+    +------+--------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+
+    Block: check
+    ============
+    +------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                                                                                                                                                  | Live In | Live Out |
+    +------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Unallocated((name cond)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name i%1)(type_ I64))))(class_ I64)))))                                                                                          | {2}     | {2}      |
+    | 1    | (X86(SUB(Reg((reg(Unallocated((name cond)(type_ I64))))(class_ I64)))(Imm 100)))                                                                                                                                             | {2}     | {2}      |
+    | TERM | (X86_terminal((CMP(Reg((reg(Unallocated((name cond)(type_ I64))))(class_ I64)))(Imm 0))(JNE((block((id_hum intermediate_check_to_body)(args())))(args()))(((block((id_hum intermediate_check_to_exit)(args())))(args())))))) | {2}     | {2}      |
+    +------+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+
+    Block: intermediate_check_to_body
+    =================================
+    +------+----------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                        | Live In | Live Out |
+    +------+----------------------------------------------------+---------+----------+
+    | TERM | (X86(JMP((block((id_hum body)(args())))(args())))) | {2}     | {2}      |
+    +------+----------------------------------------------------+---------+----------+
+
+    Block: body
+    ===========
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                                                            | Live In | Live Out |
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Unallocated((name sum%2)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name sum%1)(type_ I64))))(class_ I64))))) | {2}     | {2}      |
+    | 1    | (X86(ADD(Reg((reg(Unallocated((name sum%2)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name i%1)(type_ I64))))(class_ I64)))))   | {2}     | {2}      |
+    | 2    | (X86(MOV(Reg((reg(Unallocated((name i%1)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name i%2)(type_ I64))))(class_ I64)))))     | {2}     | {2}      |
+    | 3    | (X86(MOV(Reg((reg(Unallocated((name sum%1)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name sum%2)(type_ I64))))(class_ I64))))) | {2}     | {2}      |
+    | TERM | (X86_terminal((JMP((block((id_hum check)(args(((name i%1)(type_ I64))((name sum%1)(type_ I64))))))(args())))))                         | {2}     | {2}      |
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+
+    Block: intermediate_check_to_exit
+    =================================
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                                                            | Live In | Live Out |
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Unallocated((name sum%0)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name sum%1)(type_ I64))))(class_ I64))))) | {2}     | {2}      |
+    | TERM | (X86(JMP((block((id_hum exit)(args(((name sum%0)(type_ I64))))))(args()))))                                                            | {2}     | {2}      |
+    +------+----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+
+    Block: exit
+    ===========
+    +------+-----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                                                             | Live In | Live Out |
+    +------+-----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(Reg((reg(Unallocated((name sum%0)(type_ I64))))(class_ I64))))) | {2}     | {2}      |
+    | TERM | (X86_terminal((JMP((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args())))))                                       | {2}     | {2}      |
+    +------+-----------------------------------------------------------------------------------------------------------------------------------------+---------+----------+
+
+    Block: root__epilogue
+    =====================
+    +------+----------------------------------------------------------------------------------------------------------+---------+----------+
+    | Idx  | Instruction                                                                                              | Live In | Live Out |
+    +------+----------------------------------------------------------------------------------------------------------+---------+----------+
+    | 0    | (X86(MOV(Reg((reg(Allocated((name res__0)(type_ I64))(RAX)))(class_ I64)))(Reg((reg RAX)(class_ I64))))) | {2}     | {}       |
+    | TERM | (X86(RET((Reg((reg(Allocated((name res__0)(type_ I64))(RAX)))(class_ I64))))))                           | {}      | {}       |
+    +------+----------------------------------------------------------------------------------------------------------+---------+----------+
     |}]
 ;;
