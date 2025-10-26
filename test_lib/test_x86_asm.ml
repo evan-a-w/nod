@@ -164,3 +164,117 @@ let%expect_test "recursive fib" =
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
+
+let%expect_test "basic float add" =
+  compile_and_lower
+    {|
+mov %x:f64, 3
+mov %y:f64, 7
+fadd %sum:f64, %x, %y
+movsd %result:i64, %sum
+ret %result
+         |};
+  [%expect
+    {|
+    .intel_syntax noprefix
+    .text
+    .globl root
+    root:
+      push rbp
+      push r15
+      mov rbp, rsp
+      add rbp, 16
+      jmp root___root
+    root___root:
+      mov xmm14, 3
+      mov xmm15, 7
+      addsd xmm14, xmm15
+      movq r15, xmm14
+      mov rax, r15
+      jmp root__root__epilogue
+    root__root__epilogue:
+      mov rsp, rbp
+      sub rsp, 16
+      pop r15
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "borked_pointer_arith_loop" =
+  compile_and_lower
+    {|
+alloca %array:ptr, 80
+mov %i:i64, 0
+mov %sum:i64, 0
+
+loop:
+  mul %offset:i64, %i, 8
+  add %ptr:ptr, %array, %offset
+  add %sum:i64, %sum, %i
+  add %i:i64, %i, 1
+  sub %cond:i64, %i, 10
+  branch %cond, loop, done
+
+done:
+  ret %sum
+|};
+  [%expect
+    {|
+    .intel_syntax noprefix
+    .text
+    .globl root
+    root:
+      sub rsp, 80
+      push rbp
+      push r12
+      push r13
+      push r14
+      push r15
+      mov rbp, rsp
+      add rbp, 120
+      jmp root___root
+    root___root:
+      mov r15, [rbp]
+      mov r14, 0
+      mov r15, 0
+      mov r14, r15
+      jmp root__loop
+    root__loop:
+      mov r13, 8
+      mov rax, r14
+      imul r13
+      mov r13, rax
+      mov r12, r15
+      add r12, r13
+      mov r13, r14
+      add r13, r14
+      mov r13, r14
+      add r13, 1
+      sub r13, 10
+      cmp r13, 0
+      jne root__intermediate_loop_to_loop
+      jmp root__intermediate_loop_to_done
+    root__intermediate_loop_to_loop:
+      mov r14, r13
+      mov r14, r13
+      jmp root__loop
+    root__intermediate_loop_to_done:
+      jmp root__done
+    root__done:
+      mov rax, r13
+      jmp root__root__epilogue
+    root__root__epilogue:
+      mov rsp, rbp
+      sub rsp, 120
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      add rsp, 80
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;

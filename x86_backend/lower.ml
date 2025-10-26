@@ -126,34 +126,25 @@ let run (functions : Function.t String.Map.t) =
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
+      let lower_move ~dst ~src s =
+        `Emit
+          (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+           then []
+           else
+             [ sprintf
+                 "%s %s, %s"
+                 s
+                 (string_of_operand dst)
+                 (string_of_operand src)
+             ])
+      in
       let lower_instruction instr =
         let instr = unwrap_tags instr in
         match instr with
         | NOOP | Save_clobbers | Restore_clobbers -> `No_emit
-        | MOV (dst, src) ->
-          `Emit
-            (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
-             then []
-             else
-               [ sprintf
-                   "mov %s, %s"
-                   (string_of_operand dst)
-                   (string_of_operand src)
-               ])
-        | MOVSD (dst, src) ->
-          `Emit
-            [ sprintf
-                "movsd %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | MOVQ (dst, src) ->
-          `Emit
-            [ sprintf
-                "movq %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
+        | MOV (dst, src) -> lower_move ~dst ~src "mov"
+        | MOVSD (dst, src) -> lower_move ~dst ~src "movsd"
+        | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
         | ADD (dst, src) ->
           `Emit
             [ sprintf
