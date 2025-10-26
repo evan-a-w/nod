@@ -193,22 +193,29 @@ module Opt = struct
 
   let create ~opt_flags ssa =
     let t = create ~opt_flags ssa in
+    let early_sets = Var.Table.create () in
+    let early_set var =
+      Hashtbl.find_or_add early_sets var ~default:Loc.Hash_set.create
+    in
     let define ~loc var =
       let id = Var.name var in
-      let opt_var =
-        { Opt_var.id
-        ; tags = Tags.empty
-        ; loc
-        ; uses = Loc.Hash_set.create ()
-        ; active = true
-        }
-      in
-      Hashtbl.set t.vars ~key:id ~data:opt_var;
-      t.active_vars <- Set.add t.active_vars id
+      if Hashtbl.mem t.vars id
+      then ()
+      else (
+        let opt_var =
+          { Opt_var.id
+          ; tags = Tags.empty
+          ; loc
+          ; uses = early_set var
+          ; active = true
+          }
+        in
+        Hashtbl.set t.vars ~key:id ~data:opt_var;
+        t.active_vars <- Set.add t.active_vars id)
     in
     let use ~loc var =
       match Hashtbl.find t.vars (Var.name var) with
-      | None -> ()
+      | None -> Hash_set.add (early_set var) loc
       | Some opt_var -> Hash_set.add opt_var.uses loc
     in
     iter t ~f:(fun block ->
@@ -224,6 +231,7 @@ module Opt = struct
       in
       Vec.iter block.instructions ~f:use;
       use block.terminal);
+    print_s [%sexp (Hashtbl.find_exn t.vars "i%2" : Opt_var.t)];
     t
   ;;
 
@@ -277,19 +285,31 @@ module Opt = struct
           else
             { cb with
               args =
-                List.filteri cb.args ~f:(fun i var ->
-                  let id = Var.name var in
-                  match i = idx, active_var t id with
-                  | false, _ -> true
-                  | true, None -> false
-                  | true, Some opt_var ->
-                    (* kill the tang *)
-                    Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
-                      match loc.Loc.where with
-                      | Loc.Block_arg _ -> true
-                      | Instr instr -> not (phys_equal instr parent.terminal));
-                    try_kill_var t ~id;
-                    false)
+                (let new_args =
+                   List.filteri cb.args ~f:(fun i var ->
+                     let id = Var.name var in
+                     match i = idx, active_var t id with
+                     | false, _ -> true
+                     | true, None -> false
+                     | true, Some opt_var ->
+                       (* CR: BUG TO FIX: thsi can run multiple t imes *)
+                       (* kill the tang *)
+                       Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
+                         match loc.Loc.where with
+                         | Loc.Block_arg _ -> true
+                         | Instr instr ->
+                           let b = not (phys_equal instr parent.terminal) in
+                           if String.equal id "i%2"
+                           then
+                             print_s [%message "HERE" (b : bool) (instr : Ir.t)];
+                           b);
+                       try_kill_var t ~id;
+                       false)
+                 in
+                 print_s
+                   [%message
+                     (new_args : Var.t list) ~old_args:(cb.args : Var.t list)];
+                 new_args)
             })
       in
       (* can actually change during execution :() *)
@@ -392,6 +412,13 @@ module Opt = struct
   let update_uses t ~old_instr ~new_instr ~loc =
     let old_uses = Ir.uses old_instr in
     let new_uses = Ir.uses new_instr in
+    print_s
+      [%message
+        "Update uses"
+          (old_instr : Ir.t)
+          (new_instr : Ir.t)
+          (old_uses : Var.t list)
+          (new_uses : Var.t list)];
     let old_ids = List.map old_uses ~f:Var.name in
     let new_ids = List.map new_uses ~f:Var.name in
     List.iter old_ids ~f:(fun id ->
@@ -501,6 +528,8 @@ module Opt = struct
       then refine_terminal t ~block
     in
     dfs_vars ~on_terminal t ~f:(fun ~var ->
+      if String.equal var.id "i%2"
+      then print_s [%message "dfs" (var.id : string)];
       if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
       if Opt_flags.unused_vars t.opt_flags
       then try_kill_var t ~id:var.Opt_var.id;

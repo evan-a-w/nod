@@ -18,60 +18,62 @@ module For_testing = struct
   ;;
 
   let print_selected_instructions (functions : Function.t String.Map.t) =
-    select_instructions functions
+    (* select_instructions *)
+    functions
     |> Map.iteri ~f:(fun ~key:_name ~data:fn ->
       let reg_numbering = Reg_numbering.create fn.root in
-      let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
+      let (module Calc_liveness) = Calc_liveness.var ~reg_numbering in
       let open Calc_liveness in
       let liveness_state = Liveness_state.create ~root:fn.root in
-      Block.iter fn.root ~f:(fun block ->
+      Block.to_list fn.root
+      |> List.concat_map ~f:(fun block ->
         let ~instructions, ~terminal =
           Liveness_state.block_instructions_with_liveness liveness_state ~block
         in
-        (* Print block header *)
-        print_endline "";
-        print_endline ("Block: " ^ block.id_hum);
-        print_endline (String.make (String.length block.id_hum + 7) '=');
-        (* Build sexp records for each row *)
-        let instruction_records =
-          List.mapi instructions ~f:(fun idx (instr, liveness) ->
-            let live_in_sexp =
-              Set.to_list liveness.live_in
-              |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
-              |> fun l -> Sexp.List l
-            in
-            let live_out_sexp =
-              Set.to_list liveness.live_out
-              |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
-              |> fun l -> Sexp.List l
-            in
-            Sexp.List
-              [ Sexp.List [ Sexp.Atom "Idx"; Sexp.Atom (Int.to_string idx) ]
-              ; Sexp.List [ Sexp.Atom "Instruction"; Ir.sexp_of_t instr ]
-              ; Sexp.List [ Sexp.Atom "Live In"; live_in_sexp ]
-              ; Sexp.List [ Sexp.Atom "Live Out"; live_out_sexp ]
-              ])
+        let block_liveness =
+          Liveness_state.block_liveness liveness_state block
         in
-        let terminal_record =
-          let instr, liveness = terminal in
-          let live_in_sexp =
-            Set.to_list liveness.live_in
-            |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
-            |> fun l -> Sexp.List l
-          in
-          let live_out_sexp =
-            Set.to_list liveness.live_out
-            |> List.map ~f:(fun i -> Sexp.Atom (Int.to_string i))
-            |> fun l -> Sexp.List l
-          in
-          Sexp.List
-            [ Sexp.List [ Sexp.Atom "Idx"; Sexp.Atom "TERM" ]
-            ; Sexp.List [ Sexp.Atom "Instruction"; Ir.sexp_of_t instr ]
-            ; Sexp.List [ Sexp.Atom "Live In"; live_in_sexp ]
-            ; Sexp.List [ Sexp.Atom "Live Out"; live_out_sexp ]
-            ]
+        let block_live_in, block_live_out =
+          ( Liveness.live_in' block_liveness.overall
+          , Liveness.live_out' block_liveness.overall )
         in
-        let all_records = instruction_records @ [ terminal_record ] in
-        Table.print_sexp_records all_records))
+        let instructions, liveness = List.unzip (instructions @ [ terminal ]) in
+        let live_in, live_out =
+          List.map liveness ~f:(fun liveness ->
+            let live_in = Liveness.live_in' liveness in
+            let live_out = Liveness.live_out' liveness in
+            live_in, live_out)
+          |> List.unzip
+        in
+        let names = List.map instructions ~f:(Fn.const block.id_hum) in
+        let inner_sexps =
+          List.zip_exn
+            names
+            (List.zip_exn instructions (List.zip_exn live_in live_out))
+          |> List.map ~f:(fun (block, (instruction, (live_in, live_out))) ->
+            [%message
+              (block : string)
+                (instruction : Ir.t)
+                (live_in : Var.t list)
+                (live_out : Var.t list)])
+        in
+        let args = block.args in
+        let block = block.id_hum in
+        [ [%message
+            (block : string)
+              ~instruction:
+                ([%message "block start" (args : Var.t Vec.t)] : Sexp.t)
+              ~live_in:(block_live_in : Var.t list)
+              ~live_out:(List.hd_exn liveness |> Liveness.live_in' : Var.t list)]
+        ]
+        @ inner_sexps
+        @ [ [%message
+              (block : string)
+                ~instruction:("block end" : string)
+                ~live_in:
+                  (List.last_exn liveness |> Liveness.live_out' : Var.t list)
+                ~live_out:(block_live_out : Var.t list)]
+          ])
+      |> Table.print_records)
   ;;
 end

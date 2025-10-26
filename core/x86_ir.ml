@@ -285,7 +285,13 @@ let rec reg_uses ins : Reg.Set.t =
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
-  | ALLOCA _ | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
+  | JE (a, b) | JNE (a, b) ->
+    Call_block.uses a
+    @ (Option.map b ~f:Call_block.uses |> Option.value ~default:[])
+    |> List.map ~f:Reg.unallocated
+    |> Reg.Set.of_list
+  | JMP a -> Call_block.uses a |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
+  | ALLOCA _ | NOOP | LABEL _ -> Reg.Set.empty
 ;;
 
 let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
