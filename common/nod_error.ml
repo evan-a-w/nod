@@ -9,6 +9,9 @@ type t =
   | `Unexpected_eof_in_comment
   | `Unexpected_token of Token.t * Pos.t
   | `Unknown_instruction of string
+  | `Unknown_type of string
+  | `Unknown_variable of string
+  | `Type_mismatch of string
   | `Choices of t list
   ]
 
@@ -29,6 +32,12 @@ let rec to_string : t -> string = function
       (Pos.to_string pos)
   | `Unknown_instruction s ->
     Printf.sprintf "Error: unknown instruction '%s'\n" s
+  | `Unknown_type s ->
+    Printf.sprintf "Error: unknown type '%s'\n" s
+  | `Unknown_variable s ->
+    Printf.sprintf "Error: unknown variable '%s'\n" s
+  | `Type_mismatch s ->
+    Printf.sprintf "Error: type mismatch: %s\n" s
   | `Choices [ error ] -> to_string error
   | `Choices l ->
     Printf.sprintf

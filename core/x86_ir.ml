@@ -40,6 +40,16 @@ type 'block t =
   | IMUL of operand (* multiply RAX by operand  result RDX:RAX *)
   | IDIV of operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
   | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
+  (* SSE float instructions *)
+  | ADDSD of operand * operand (* double precision add *)
+  | SUBSD of operand * operand (* double precision sub *)
+  | MULSD of operand * operand (* double precision mul *)
+  | DIVSD of operand * operand (* double precision div *)
+  | MOVSD of operand * operand (* f64 move *)
+  | MOVQ of operand * operand (* move quadword (for i64<->f64 bitcast) *)
+  (* Type conversion instructions *)
+  | CVTSI2SD of operand * operand (* convert int64 to f64 *)
+  | CVTTSD2SI of operand * operand (* convert f64 to int64 with truncation *)
   | Save_clobbers
   | Restore_clobbers
   | CALL of
@@ -69,7 +79,15 @@ let fold_operands ins ~f ~init =
   | OR (dst, src)
   | ADD (dst, src)
   | SUB (dst, src)
-  | CMP (dst, src) ->
+  | CMP (dst, src)
+  | ADDSD (dst, src)
+  | SUBSD (dst, src)
+  | MULSD (dst, src)
+  | DIVSD (dst, src)
+  | MOVSD (dst, src)
+  | MOVQ (dst, src)
+  | CVTSI2SD (dst, src)
+  | CVTTSD2SI (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
   | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
@@ -91,7 +109,8 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw -> Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw ->
+        Reg.physical ~class_:(Reg.class_ reg) raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) var forced
   | _ -> reg
@@ -99,7 +118,8 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
 
 let map_reg (reg : Reg.t) ~f =
   match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) -> Reg (rebuild_virtual_reg reg ~var:(f v))
+  | Raw.Unallocated v | Raw.Allocated (v, _) ->
+    Reg (rebuild_virtual_reg reg ~var:(f v))
   | _ -> Reg reg
 ;;
 
@@ -125,6 +145,14 @@ let rec map_var_operands ins ~f =
   | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
   | ADD (dst, src) -> ADD (map_var_operand dst ~f, map_var_operand src ~f)
   | SUB (dst, src) -> SUB (map_var_operand dst ~f, map_var_operand src ~f)
+  | ADDSD (dst, src) -> ADDSD (map_var_operand dst ~f, map_var_operand src ~f)
+  | SUBSD (dst, src) -> SUBSD (map_var_operand dst ~f, map_var_operand src ~f)
+  | MULSD (dst, src) -> MULSD (map_var_operand dst ~f, map_var_operand src ~f)
+  | DIVSD (dst, src) -> DIVSD (map_var_operand dst ~f, map_var_operand src ~f)
+  | MOVSD (dst, src) -> MOVSD (map_var_operand dst ~f, map_var_operand src ~f)
+  | MOVQ (dst, src) -> MOVQ (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
   | IDIV op -> IDIV (map_var_operand op ~f)
   | IMUL op -> IMUL (map_var_operand op ~f)
   | MOD op -> MOD (map_var_operand op ~f)
@@ -177,7 +205,8 @@ let map_virtual_reg reg ~f =
   | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
   | Raw.Allocated (v, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw -> Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw ->
+        Reg.physical ~class_:(Reg.class_ reg) raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
   | _ -> reg
@@ -185,7 +214,6 @@ let map_virtual_reg reg ~f =
 
 let map_def_reg = map_virtual_reg
 let map_use_reg = map_virtual_reg
-;;
 
 let map_def_operand op ~f =
   match op with
@@ -206,9 +234,17 @@ let rec reg_defs ins : Reg.Set.t =
   | Save_clobbers | Restore_clobbers -> Reg.Set.empty
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
-  | MOV (dst, _) -> regs_of_operand dst
-  | ALLOCA (dst, _) | AND (dst, _) | OR (dst, _) | ADD (dst, _) | SUB (dst, _)
-    -> regs_of_operand dst
+  | MOV (dst, _) | MOVQ (dst, _) | MOVSD (dst, _)
+  | CVTSI2SD (dst, _) | CVTTSD2SI (dst, _) -> regs_of_operand dst
+  | ALLOCA (dst, _)
+  | AND (dst, _)
+  | OR (dst, _)
+  | ADD (dst, _)
+  | SUB (dst, _)
+  | ADDSD (dst, _)
+  | SUBSD (dst, _)
+  | MULSD (dst, _)
+  | DIVSD (dst, _) -> regs_of_operand dst
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | CALL { results; _ } -> Reg.Set.of_list results
   | PUSH _ -> Reg.Set.singleton Reg.rsp
@@ -224,9 +260,16 @@ let rec reg_uses ins : Reg.Set.t =
   | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
-  | MOV (_, src) -> regs_of_operand src
-  | ADD (dst, src) | SUB (dst, src) | AND (dst, src) | OR (dst, src) ->
-    Set.union (regs_of_operand dst) (regs_of_operand src)
+  | MOV (_, src) | MOVQ (_, src) | MOVSD (_, src)
+  | CVTSI2SD (_, src) | CVTTSD2SI (_, src) -> regs_of_operand src
+  | ADD (dst, src)
+  | SUB (dst, src)
+  | AND (dst, src)
+  | OR (dst, src)
+  | ADDSD (dst, src)
+  | SUBSD (dst, src)
+  | MULSD (dst, src)
+  | DIVSD (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
   | PUSH op -> Set.union (Reg.Set.singleton Reg.rsp) (regs_of_operand op)
@@ -256,6 +299,14 @@ let rec blocks instr =
   | MOV _
   | ADD _
   | SUB _
+  | ADDSD _
+  | SUBSD _
+  | MULSD _
+  | DIVSD _
+  | MOVQ _
+  | MOVSD _
+  | CVTSI2SD _
+  | CVTTSD2SI _
   | IMUL _
   | IDIV _
   | MOD _
@@ -284,8 +335,16 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | AND (x, y) -> AND (x, y)
   | OR (x, y) -> OR (x, y)
   | MOV (x, y) -> MOV (x, y)
+  | MOVSD (x, y) -> MOVSD (x, y)
+  | MOVQ (x, y) -> MOVQ (x, y)
+  | CVTSI2SD (x, y) -> CVTSI2SD (x, y)
+  | CVTTSD2SI (x, y) -> CVTTSD2SI (x, y)
   | ADD (x, y) -> ADD (x, y)
   | SUB (x, y) -> SUB (x, y)
+  | ADDSD (x, y) -> ADDSD (x, y)
+  | SUBSD (x, y) -> SUBSD (x, y)
+  | MULSD (x, y) -> MULSD (x, y)
+  | DIVSD (x, y) -> DIVSD (x, y)
   | IMUL x -> IMUL x
   | IDIV x -> IDIV x
   | MOD x -> MOD x
@@ -312,9 +371,17 @@ let rec filter_map_call_blocks t ~f =
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | NOOP
   | MOV _
+  | MOVQ _
+  | MOVSD _
+  | CVTSI2SD _
+  | CVTTSD2SI _
   | ALLOCA _
   | ADD _
   | SUB _
+  | ADDSD _
+  | SUBSD _
+  | MULSD _
+  | DIVSD _
   | IMUL _
   | IDIV _
   | MOD _
@@ -342,10 +409,18 @@ let rec map_defs t ~f =
   | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
   | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
   | MOV (dst, src) -> MOV (map_dst dst, src)
+  | MOVQ (dst, src) -> MOVQ (map_dst dst, src)
+  | MOVSD (dst, src) -> MOVSD (map_dst dst, src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (map_dst dst, src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_dst dst, src)
   | AND (dst, src) -> AND (map_dst dst, src)
   | OR (dst, src) -> OR (map_dst dst, src)
   | ADD (dst, src) -> ADD (map_dst dst, src)
   | SUB (dst, src) -> SUB (map_dst dst, src)
+  | ADDSD (dst, src) -> ADDSD (map_dst dst, src)
+  | SUBSD (dst, src) -> SUBSD (map_dst dst, src)
+  | MULSD (dst, src) -> MULSD (map_dst dst, src)
+  | DIVSD (dst, src) -> DIVSD (map_dst dst, src)
   | CALL { fn; results; args } ->
     CALL { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
   | POP reg -> POP (map_def_reg reg ~f)
@@ -367,10 +442,18 @@ let rec map_uses t ~f =
   | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
   | MOV (dst, src) -> MOV (dst, map_op src)
+  | MOVSD (dst, src) -> MOVSD (dst, map_op src)
+  | MOVQ (dst, src) -> MOVQ (dst, map_op src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (dst, map_op src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (dst, map_op src)
   | AND (dst, src) -> AND (map_op dst, map_op src)
   | OR (dst, src) -> OR (map_op dst, map_op src)
   | ADD (dst, src) -> ADD (map_op dst, map_op src)
   | SUB (dst, src) -> SUB (map_op dst, map_op src)
+  | ADDSD (dst, src) -> ADDSD (map_op dst, map_op src)
+  | SUBSD (dst, src) -> SUBSD (map_op dst, map_op src)
+  | MULSD (dst, src) -> MULSD (map_op dst, map_op src)
+  | DIVSD (dst, src) -> DIVSD (map_op dst, map_op src)
   | IMUL op -> IMUL (map_op op)
   | IDIV op -> IDIV (map_op op)
   | MOD op -> MOD (map_op op)
@@ -395,10 +478,18 @@ let rec map_operands t ~f =
   | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
   | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
   | MOV (dst, src) -> MOV (f dst, f src)
+  | MOVSD (dst, src) -> MOVSD (f dst, f src)
+  | MOVQ (dst, src) -> MOVQ (f dst, f src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (f dst, f src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (f dst, f src)
   | AND (dst, src) -> AND (f dst, f src)
   | OR (dst, src) -> OR (f dst, f src)
   | ADD (dst, src) -> ADD (f dst, f src)
   | SUB (dst, src) -> SUB (f dst, f src)
+  | ADDSD (dst, src) -> ADDSD (f dst, f src)
+  | SUBSD (dst, src) -> SUBSD (f dst, f src)
+  | MULSD (dst, src) -> MULSD (f dst, f src)
+  | DIVSD (dst, src) -> DIVSD (f dst, f src)
   | IMUL op -> IMUL (f op)
   | IDIV op -> IDIV (f op)
   | MOD op -> MOD (f op)
@@ -433,8 +524,16 @@ let rec map_call_blocks t ~f =
   | AND (_, _)
   | OR (_, _)
   | MOV (_, _)
+  | MOVSD (_, _)
+  | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
+  | ADDSD (_, _)
+  | SUBSD (_, _)
+  | MULSD (_, _)
+  | DIVSD (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
@@ -455,8 +554,16 @@ let rec iter_call_blocks t ~f =
   | AND (_, _)
   | OR (_, _)
   | MOV (_, _)
+  | MOVSD (_, _)
+  | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
+  | ADDSD (_, _)
+  | SUBSD (_, _)
+  | MULSD (_, _)
+  | DIVSD (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> ()
@@ -471,8 +578,16 @@ let rec call_blocks = function
   | AND (_, _)
   | OR (_, _)
   | MOV (_, _)
+  | MOVSD (_, _)
+  | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
+  | ADDSD (_, _)
+  | SUBSD (_, _)
+  | MULSD (_, _)
+  | DIVSD (_, _)
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
@@ -488,8 +603,16 @@ let rec is_terminal = function
   | AND (_, _)
   | OR (_, _)
   | MOV (_, _)
+  | MOVSD (_, _)
+  | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
+  | ADDSD (_, _)
+  | SUBSD (_, _)
+  | MULSD (_, _)
+  | DIVSD (_, _)
   | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
   | ALLOCA _ | CALL _ | PUSH _ | POP _ -> false

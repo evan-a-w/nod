@@ -19,7 +19,7 @@ let require_class t var class_ =
     then
       failwithf
         "register class mismatch for %s: saw %s and %s"
-        var
+        (Var.name var)
         (Sexp.to_string_hum (Class.sexp_of_t existing))
         (Sexp.to_string_hum (Class.sexp_of_t class_))
         ()
@@ -32,6 +32,19 @@ let class_of_var t var =
 ;;
 
 let reg_of_var t var = Reg.unallocated ~class_:(class_of_var t var) var
+
+let type_of_class = function
+  | Class.I64 -> Type.I64
+  | Class.F64 -> Type.F64
+;;
+
+let fresh_var ?(type_ = Type.I64) t base =
+  Var.create ~name:(new_name t.var_names base) ~type_
+;;
+
+let fresh_like_var t var =
+  Var.create ~name:(new_name t.var_names (Var.name var)) ~type_:(Var.type_ var)
+;;
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
@@ -54,25 +67,28 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
     require_class t dest Class.I64;
     let tmp_rax =
-      Reg.allocated
-        ~class_:Class.I64
-        (new_name t.var_names "tmp_rax")
-        (Some Reg.rax)
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_rax") (Some Reg.rax)
     in
     let tmp_dst =
-      Reg.allocated
-        ~class_:Class.I64
-        (new_name t.var_names "tmp_dst")
-        (Some take_reg)
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_dst") (Some take_reg)
     in
-    [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
-    ; tag_def
-        (tag_use
-           (make_instr (operand_of_lit_or_var t ~class_:Class.I64 src2))
-           (Reg tmp_rax))
-        (Reg tmp_dst)
-    ; mov (reg dest) (Reg tmp_dst)
-    ]
+    (* IMUL/IDIV only accept register or memory operands, not immediates.
+       If src2 is a literal, we need to load it into a register first. *)
+    let src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
+    let src2_final, extra_mov =
+      match src2_op with
+      | Imm _ ->
+        let tmp_reg =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_imm") None
+        in
+        Reg tmp_reg, [ mov (Reg tmp_reg) src2_op ]
+      | Reg _ | Mem _ -> src2_op, []
+    in
+    extra_mov
+    @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
+      ; tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst)
+      ; mov (reg dest) (Reg tmp_dst)
+      ]
   in
   match ir with
   | X86 x -> [ x ]
@@ -82,28 +98,88 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
   | Sub arith -> make_arith sub arith
+  | Fadd arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; addsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fsub arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; subsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fmul arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; mulsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
+  | Fdiv arith ->
+    require_class t arith.dest Class.F64;
+    let dest_op = Reg (reg_of_var t arith.dest) in
+    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
+    ; divsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
+    ]
   | Return lit_or_var ->
     [ RET [ operand_of_lit_or_var t ~class_:Class.I64 lit_or_var ] ]
   | Move (v, lit_or_var) ->
-    require_class t v Class.I64;
-    [ mov (reg v) (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
+    let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
+    require_class t v class_;
+    [ mov (reg v) (operand_of_lit_or_var t ~class_ lit_or_var) ]
+  | Cast (dest, src) ->
+    (* Type conversion between different types *)
+    let dest_type = Var.type_ dest in
+    let src_type =
+      match src with
+      | Ir.Lit_or_var.Var v -> Var.type_ v
+      | Ir.Lit_or_var.Lit _ -> Type.I64 (* literals are treated as i64 *)
+    in
+    let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
+    let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
+    require_class t dest dest_class;
+    (match src_type, dest_type with
+     | t1, t2 when Type.is_integer t1 && Type.is_float t2 ->
+       (* Int to float conversion *)
+       (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
+       let src_operand = operand_of_lit_or_var t ~class_:src_class src in
+       (match src_operand with
+        | Imm _ ->
+          (* Load immediate into a temporary register first *)
+          let tmp_reg =
+            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_cvt") None
+          in
+          [ mov (Reg tmp_reg) src_operand
+          ; cvtsi2sd (Reg (reg_of_var t dest)) (Reg tmp_reg)
+          ]
+        | Reg _ | Mem _ ->
+          [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
+     | t1, t2 when Type.is_float t1 && Type.is_integer t2 ->
+       (* Float to int conversion (with truncation) *)
+       [ cvttsd2si (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:src_class src) ]
+     | t1, t2 when Type.is_integer t1 && Type.is_integer t2 ->
+       (* Int to int conversion (sign-extend or truncate) *)
+       (* For now, just use mov - x86 will handle sign extension/truncation *)
+       [ mov (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:Class.I64 src) ]
+     | _ ->
+       (* Float to float or other conversions not yet supported *)
+       failwithf
+         "Unsupported cast from %s to %s"
+         (Type.to_string src_type)
+         (Type.to_string dest_type)
+         ())
   | Load (v, mem) ->
     require_class t v Class.I64;
     let force_physical =
-      Reg.allocated
-        ~class_:Class.I64
-        (new_name t.var_names "tmp_force_physical")
-        None
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
     in
     [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
     ; mov (reg v) (Reg force_physical)
     ]
   | Store (lit_or_var, mem) ->
     let force_physical =
-      Reg.allocated
-        ~class_:Class.I64
-        (new_name t.var_names "tmp_force_physical")
-        None
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
     in
     [ mov
         (Reg force_physical)
@@ -128,10 +204,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         | `Left x -> Some (push (operand_of_lit_or_var t ~class_:Class.I64 x))
         | `Both (arg, reg) ->
           let force_physical =
-            Reg.allocated
-              ~class_:Class.I64
-              (new_name t.var_names "arg_reg")
-              (Some reg)
+            Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
           in
           let instr =
             mov
@@ -141,7 +214,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           Some instr)
       |> Sequence.to_list
     in
-    (* CR-soon ewilliams: compound results via arg to pointer *)
+    (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results Class.I64 in
     let post_moves =
@@ -213,7 +286,9 @@ let mint_intermediate
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   block.dfs_id <- Some 0;
-  block.args <- Vec.of_list to_call_block.args;
+  (* The intermediate block doesn't need formal parameters - it's just a place
+     to insert phi moves. The phi moves will be generated by insert_par_moves
+     based on the mismatch between to_call_block.args and to_call_block.block.args *)
   { Call_block.block; args = to_call_block.args }
 ;;
 
@@ -222,7 +297,7 @@ let make_prologue t =
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
-  let args = List.map t.fn.args ~f:(new_name t.var_names) in
+  let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
   let gp_arg_regs = Reg.arguments Class.I64 in
   let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
@@ -267,7 +342,7 @@ let make_epilogue t ~ret_shape =
   *)
   let args =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
-      new_name t.var_names ("res__" ^ Int.to_string i))
+      fresh_var t ("res__" ^ Int.to_string i))
   in
   let gp_res_regs = Reg.results Class.I64 in
   let reg_res_moves =
@@ -315,7 +390,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   in
   let prologue = make_prologue t in
   let epilogue = make_epilogue t ~ret_shape in
-  (* CR-soon ewilliams: Omit prologue and epilogue if unneeded (eg. leaf fn) *)
+  (* CR-soon: Omit prologue and epilogue if unneeded (eg. leaf fn) *)
   t.fn.prologue <- Some prologue;
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
@@ -348,13 +423,13 @@ let split_blocks_and_add_prologue_and_epilogue t =
               (match var_of_reg reg with
                | Some v -> v
                | None ->
-                 let v = new_name t.var_names arg in
+                 let v = fresh_like_var t arg in
                  Vec.push
                    block.instructions
                    (X86 (mov (Reg (Reg.unallocated v)) operand));
                  v)
             | other ->
-              let v = new_name t.var_names arg in
+              let v = fresh_like_var t arg in
               Vec.push
                 block.instructions
                 (X86 (mov (Reg (Reg.unallocated v)) other));
@@ -376,6 +451,14 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | MOV (_, _)
        | ADD (_, _)
        | SUB (_, _)
+       | ADDSD (_, _)
+       | SUBSD (_, _)
+       | MULSD (_, _)
+       | DIVSD (_, _)
+       | MOVSD (_, _)
+       | MOVQ (_, _)
+       | CVTSI2SD (_, _)
+       | CVTTSD2SI (_, _)
        | IMUL _ | IDIV _ | MOD _ | LABEL _
        | CMP (_, _)
        | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ -> ()));
@@ -383,14 +466,21 @@ let split_blocks_and_add_prologue_and_epilogue t =
 ;;
 
 let par_moves t ~dst_to_src =
-  let pending =
+  (* Convert vars to regs once and reuse the same reg objects throughout *)
+  let dst_src_regs =
     List.map dst_to_src ~f:(fun (dst, src) ->
       reg_of_var t dst, reg_of_var t src)
-    |> Reg.Map.of_alist_exn
+  in
+  let all_dsts = List.map dst_src_regs ~f:fst in
+  let all_srcs = List.map dst_src_regs ~f:snd in
+  let pending =
+    Reg.Map.of_alist_exn dst_src_regs
     |> Ref.create
   in
   let temp class_ =
-    Reg.unallocated ~class_ (new_name t.var_names "regalloc_scratch")
+    Reg.unallocated
+      ~class_
+      (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
   let emitted = Vec.create () in
   let emit dst src =
@@ -422,7 +512,31 @@ let par_moves t ~dst_to_src =
       go ())
   in
   go ();
-  emitted
+  (* Tag all destinations as defined and all sources as used to ensure proper interference.
+     To make destinations interfere with each other, we use a trick:
+     1. Before moves: Tag_use all sources (keeps them live)
+     2. Do the moves
+     3. After moves: Tag_use all destinations (keeps them live for next instruction)
+     This ensures when subsequent instructions define variables, all destinations are in live_out. *)
+  if Vec.length emitted = 0
+  then emitted
+  else (
+    let result = Vec.create () in
+    (* Tag_use all sources before the moves *)
+    let pre_instr =
+      List.fold all_srcs ~init:X86_ir.NOOP ~f:(fun acc src ->
+        X86_ir.Tag_use (acc, Reg src))
+    in
+    Vec.push result (Ir.x86 pre_instr);
+    (* Add the actual moves *)
+    Vec.iter emitted ~f:(Vec.push result);
+    (* Tag_use all destinations after the moves to keep them live *)
+    let post_instr =
+      List.fold all_dsts ~init:X86_ir.NOOP ~f:(fun acc dst ->
+        X86_ir.Tag_use (acc, Reg dst))
+    in
+    Vec.push result (Ir.x86 post_instr);
+    result)
 ;;
 
 let insert_par_moves t =
@@ -449,6 +563,14 @@ let insert_par_moves t =
          | Save_clobbers | Restore_clobbers | ALLOCA _
          | ADD (_, _)
          | SUB (_, _)
+         | ADDSD (_, _)
+         | SUBSD (_, _)
+         | MULSD (_, _)
+         | DIVSD (_, _)
+         | MOVSD (_, _)
+         | MOVQ (_, _)
+         | CVTSI2SD (_, _)
+         | CVTTSD2SI (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
          | CMP (_, _)
          | CALL _ | PUSH _ | POP _ -> ())));
@@ -457,7 +579,9 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    block.terminal <- Ir.remove_block_args block.terminal);
+    block.terminal <- Ir.remove_block_args block.terminal;
+    (* Clear block args since phi moves have been inserted *)
+    Vec.clear block.args);
   t
 ;;
 
@@ -465,7 +589,8 @@ let simple_translation_to_x86_ir ~this_call_conv t =
   let lower_ir ir =
     let res = ir_to_x86_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
-      List.iter (X86_ir.vars ir) ~f:(add_count t.var_names));
+      List.iter (X86_ir.vars ir) ~f:(fun var ->
+        add_count t.var_names (Var.name var)));
     res
   in
   Block.iter t.fn.root ~f:(fun block ->
@@ -484,7 +609,7 @@ let run (fn : Function.t) =
   |> split_blocks_and_add_prologue_and_epilogue
   |> insert_par_moves
   |> remove_call_block_args
-  (* CR-soon ewilliams: Some peephole opts to make things less absurd
+  (* CR-soon: Some peephole opts to make things less absurd
        omit pointless instructions (eg. moves to constants, moves to same reg, etc.)
   *)
   |> get_fn

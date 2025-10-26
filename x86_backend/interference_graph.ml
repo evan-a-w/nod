@@ -56,5 +56,5 @@ let print
     |> List.map ~f:(fun (a, b) ->
       Calc_liveness.Arg.t_of_id a, Calc_liveness.Arg.t_of_id b)
   in
-  print_s [%sexp (edges : (String.t * String.t) list)]
+  print_s [%sexp (edges : (Var.t * Var.t) list)]
 ;;
