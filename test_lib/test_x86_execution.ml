@@ -185,6 +185,8 @@ ret %total_offset
   [%expect {| 30 |}]
 ;;
 
+(* FIXME: This test currently hangs due to register allocation issue where i%1 and sum%1
+   don't interfere in the loop body, causing incorrect phi moves *)
 (* let%expect_test "pointer arithmetic in loop" = *)
 (*   let output = *)
 (*     compile_and_execute *)

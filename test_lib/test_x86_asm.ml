@@ -112,16 +112,16 @@ let%expect_test "recursive fib" =
       push r15
       mov rbp, rsp
       add rbp, 32
-      mov r14, rdi
+      mov r13, rdi
       jmp fib___root
     fib___root:
-      cmp r14, 0
+      cmp r13, 0
       jne fib__intermediate__root_to_check1_
       jmp fib__intermediate__root_to_ret_1
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
     fib__check1_:
-      mov r15, r14
+      mov r15, r13
       sub r15, 1
       cmp r15, 0
       jne fib__intermediate_check1__to_rec
@@ -155,11 +155,11 @@ let%expect_test "recursive fib" =
     fib__intermediate_check1__to_ret_1:
       jmp fib__ret_1
     fib__ret_1:
-      mov r14, 1
-      mov rax, r14
+      mov r15, 1
+      mov rax, r15
       jmp fib__fib__epilogue
     fib__intermediate__root_to_ret_1:
-      mov r15, r13
+      mov r15, r14
       jmp fib__ret_1
     .section .note.GNU-stack,"",@progbits
     |}]
@@ -236,34 +236,34 @@ done:
       add rbp, 120
       jmp root___root
     root___root:
-      mov r15, [rbp]
-      mov r14, 0
+      mov r14, [rbp]
       mov r15, 0
-      mov r14, r15
+      mov r14, 0
+      mov r13, r14
       jmp root__loop
     root__loop:
-      mov r13, 8
-      mov rax, r14
-      imul r13
-      mov r13, rax
+      mov r12, 8
+      mov rax, r15
+      imul r12
+      mov r12, rax
+      mov r11, r14
+      add r11, r12
+      mov r12, r13
+      add r12, r15
       mov r12, r15
-      add r12, r13
-      mov r13, r14
-      add r13, r14
-      mov r13, r14
-      add r13, 1
-      sub r13, 10
-      cmp r13, 0
+      add r12, 1
+      sub r12, 10
+      cmp r12, 0
       jne root__intermediate_loop_to_loop
       jmp root__intermediate_loop_to_done
     root__intermediate_loop_to_loop:
-      mov r14, r13
-      mov r14, r13
+      mov r15, r12
+      mov r13, r12
       jmp root__loop
     root__intermediate_loop_to_done:
       jmp root__done
     root__done:
-      mov rax, r13
+      mov rax, r12
       jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
@@ -276,5 +276,89 @@ done:
       add rsp, 80
       ret
     .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "debug borked loop - show SSA" =
+  let program =
+    {|
+alloca %array:ptr, 80
+mov %i:i64, 0
+mov %sum:i64, 0
+
+loop:
+  mul %offset:i64, %i, 8
+  add %ptr:ptr, %array, %offset
+  add %sum:i64, %sum, %i
+  add %i:i64, %i, 1
+  sub %cond:i64, %i, 10
+  branch %cond, loop, done
+
+done:
+  ret %sum
+|}
+  in
+  match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt program with
+  | Error e -> print_endline (Nod_error.to_string e)
+  | Ok functions ->
+    Map.iteri functions ~f:(fun ~key:name ~data:fn ->
+      print_endline (sprintf "=== Function: %s ===" name);
+      Block.iter fn.Function.root ~f:(fun block ->
+        print_endline (sprintf "\nBlock: %s" block.Block.id_hum);
+        print_endline
+          (sprintf
+             "  Args: %s"
+             (Vec.to_list block.args
+              |> List.map ~f:(fun v ->
+                sprintf "%s:%s" (Var.name v) (Type.to_string (Var.type_ v)))
+              |> String.concat ~sep:", "));
+        Vec.iter block.instructions ~f:(fun instr ->
+          print_endline (sprintf "  %s" (Sexp.to_string_hum (Ir.sexp_of_t instr))));
+        print_endline
+          (sprintf "  Terminal: %s" (Sexp.to_string_hum (Ir.sexp_of_t block.terminal)))));
+  [%expect {|
+    === Function: root ===
+
+    Block: %root
+      Args:
+      (Alloca ((dest ((name array) (type_ Ptr))) (size (Lit 80))))
+      (Move ((name i) (type_ I64)) (Lit 0))
+      (Move ((name sum) (type_ I64)) (Lit 0))
+      Terminal: (Branch
+     (Uncond
+      ((block
+        ((id_hum loop)
+         (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
+       (args (((name i) (type_ I64)) ((name sum) (type_ I64)))))))
+
+    Block: loop
+      Args: i%0:i64, sum%0:i64
+      (Mul
+     ((dest ((name offset) (type_ I64))) (src1 (Var ((name i%0) (type_ I64))))
+      (src2 (Lit 8))))
+      (Add
+     ((dest ((name ptr) (type_ Ptr))) (src1 (Var ((name array) (type_ Ptr))))
+      (src2 (Var ((name offset) (type_ I64))))))
+      (Add
+     ((dest ((name sum%1) (type_ I64))) (src1 (Var ((name sum%0) (type_ I64))))
+      (src2 (Var ((name i%0) (type_ I64))))))
+      (Add
+     ((dest ((name i%1) (type_ I64))) (src1 (Var ((name i%0) (type_ I64))))
+      (src2 (Lit 1))))
+      (Sub
+     ((dest ((name cond) (type_ I64))) (src1 (Var ((name i%1) (type_ I64))))
+      (src2 (Lit 10))))
+      Terminal: (Branch
+     (Cond (cond (Var ((name cond) (type_ I64))))
+      (if_true
+       ((block
+         ((id_hum loop)
+          (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
+        (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))))
+      (if_false ((block ((id_hum done) (args ()))) (args ())))))
+
+    Block: done
+      Args:
+      Terminal: (Return (Var ((name sum%1) (type_ I64))))
     |}]
 ;;
