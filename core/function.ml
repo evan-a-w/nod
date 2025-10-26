@@ -8,4 +8,5 @@ let to_sexp_verbose t =
   [%sexp (t' : Sexp.t t')]
 ;;
 
+let sexp_of_t = to_sexp_verbose
 let print_verbose t = print_s (to_sexp_verbose t)
