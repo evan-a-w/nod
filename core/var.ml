@@ -4,26 +4,7 @@ type t =
   { name : string
   ; type_ : Type.t
   }
-[@@deriving compare, equal, hash]
-
-let sexp_of_t { name; type_ } =
-  Sexp.List
-    [ Sexp.List [ Sexp.Atom "name"; [%sexp (name : string)] ]
-    ; Sexp.List [ Sexp.Atom "type_"; Type.sexp_of_t type_ ]
-    ]
-;;
-
-let t_of_sexp sexp =
-  match sexp with
-  | Sexp.List
-      [ Sexp.List [ Sexp.Atom "name"; name_sexp ]
-      ; Sexp.List [ Sexp.Atom "type_"; type_sexp ]
-      ] ->
-    let name = [%of_sexp: string] name_sexp in
-    let type_ = Type.t_of_sexp type_sexp in
-    { name; type_ }
-  | _ -> failwith "Var.t_of_sexp: unexpected shape"
-;;
+[@@deriving compare, equal, hash, sexp]
 
 include functor Comparable.Make
 include functor Hashable.Make
