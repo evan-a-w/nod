@@ -25,7 +25,7 @@ let add_block_args =
     | Mod _
     | Sub _
     | Move _
-    | Movq _
+    | Cast _
     | Call _
     | Unreachable
     | Noop
@@ -63,7 +63,7 @@ let remove_block_args =
     | Mod _
     | Sub _
     | Move _
-    | Movq _
+    | Cast _
     | Call _
     | Unreachable
     | Noop
@@ -250,25 +250,32 @@ module Type_check = struct
           (Type.to_string (Var.type_ src_var))
   ;;
 
-  let check_movq (dest, src) =
+  let check_cast (dest, src) =
     let dest_type = Var.type_ dest in
     match src with
     | Lit_or_var.Lit _ ->
-      type_error
-        "movq cannot accept literals, got literal for %s:%s"
-        (Var.name dest)
-        (Type.to_string dest_type)
-    | Var src_var ->
-      let src_type = Var.type_ src_var in
-      let valid_pair =
-        (Type.equal src_type Type.I64 && Type.equal dest_type Type.F64)
-        || (Type.equal src_type Type.F64 && Type.equal dest_type Type.I64)
-      in
-      if valid_pair
+      (* Literals can be cast to compatible types *)
+      if Type.is_numeric dest_type || Type.equal dest_type Type.Ptr
       then Ok ()
       else
         type_error
-          "movq requires i64<->f64 conversion, got %s:%s to %s:%s"
+          "cast cannot convert literal to %s:%s"
+          (Var.name dest)
+          (Type.to_string dest_type)
+    | Var src_var ->
+      let src_type = Var.type_ src_var in
+      (* Cast requires different types *)
+      if Type.equal src_type dest_type
+      then
+        type_error
+          "cast requires different types, use move for %s to %s"
+          (Type.to_string src_type)
+          (Type.to_string dest_type)
+      else if Type.is_numeric src_type && Type.is_numeric dest_type
+      then Ok () (* Numeric conversions are valid *)
+      else
+        type_error
+          "cast cannot convert %s:%s to %s:%s"
           (Var.name src_var)
           (Type.to_string src_type)
           (Var.name dest)
@@ -335,7 +342,7 @@ module Type_check = struct
     | Fdiv arith -> check_float_arith ~op:"fdiv" arith
     | Alloca alloca -> check_alloca alloca
     | Move (dst, src) -> check_move (dst, src)
-    | Movq (dst, src) -> check_movq (dst, src)
+    | Cast (dst, src) -> check_cast (dst, src)
     | Load (dst, src) -> check_load (dst, src)
     | Store (dst, src) -> check_store (dst, src)
     | Return _ -> Ok ()

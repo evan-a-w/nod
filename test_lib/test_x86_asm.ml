@@ -165,13 +165,13 @@ let%expect_test "recursive fib" =
     |}]
 ;;
 
-let%expect_test "basic float add" =
+let%expect_test "basic float add with cast" =
   compile_and_lower
     {|
 mov %x:f64, 3
 mov %y:f64, 7
 fadd %sum:f64, %x, %y
-movsd %result:i64, %sum
+cast %result:i64, %sum
 ret %result
          |};
   [%expect
@@ -189,7 +189,7 @@ ret %result
       mov xmm14, 3
       mov xmm15, 7
       addsd xmm14, xmm15
-      movq r15, xmm14
+      cvttsd2si r15, xmm14
       mov rax, r15
       jmp root__root__epilogue
     root__root__epilogue:

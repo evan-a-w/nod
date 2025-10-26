@@ -48,7 +48,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Movq (_, _)
+  | Cast (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
@@ -76,7 +76,7 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Load (_, _)
   | Store (_, _)
   | Move (_, _)
-  | Movq (_, _)
+  | Cast (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> ()
 ;;
 

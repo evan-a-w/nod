@@ -47,6 +47,9 @@ type 'block t =
   | DIVSD of operand * operand (* double precision div *)
   | MOVSD of operand * operand (* f64 move *)
   | MOVQ of operand * operand (* move quadword (for i64<->f64 bitcast) *)
+  (* Type conversion instructions *)
+  | CVTSI2SD of operand * operand (* convert int64 to f64 *)
+  | CVTTSD2SI of operand * operand (* convert f64 to int64 with truncation *)
   | Save_clobbers
   | Restore_clobbers
   | CALL of
@@ -82,7 +85,9 @@ let fold_operands ins ~f ~init =
   | MULSD (dst, src)
   | DIVSD (dst, src)
   | MOVSD (dst, src)
-  | MOVQ (dst, src) ->
+  | MOVQ (dst, src)
+  | CVTSI2SD (dst, src)
+  | CVTTSD2SI (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
   | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
@@ -146,6 +151,8 @@ let rec map_var_operands ins ~f =
   | DIVSD (dst, src) -> DIVSD (map_var_operand dst ~f, map_var_operand src ~f)
   | MOVSD (dst, src) -> MOVSD (map_var_operand dst ~f, map_var_operand src ~f)
   | MOVQ (dst, src) -> MOVQ (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
   | IDIV op -> IDIV (map_var_operand op ~f)
   | IMUL op -> IMUL (map_var_operand op ~f)
   | MOD op -> MOD (map_var_operand op ~f)
@@ -227,7 +234,8 @@ let rec reg_defs ins : Reg.Set.t =
   | Save_clobbers | Restore_clobbers -> Reg.Set.empty
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
-  | MOV (dst, _) | MOVQ (dst, _) | MOVSD (dst, _) -> regs_of_operand dst
+  | MOV (dst, _) | MOVQ (dst, _) | MOVSD (dst, _)
+  | CVTSI2SD (dst, _) | CVTTSD2SI (dst, _) -> regs_of_operand dst
   | ALLOCA (dst, _)
   | AND (dst, _)
   | OR (dst, _)
@@ -252,7 +260,8 @@ let rec reg_uses ins : Reg.Set.t =
   | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
-  | MOV (_, src) | MOVQ (_, src) | MOVSD (_, src) -> regs_of_operand src
+  | MOV (_, src) | MOVQ (_, src) | MOVSD (_, src)
+  | CVTSI2SD (_, src) | CVTTSD2SI (_, src) -> regs_of_operand src
   | ADD (dst, src)
   | SUB (dst, src)
   | AND (dst, src)
@@ -296,6 +305,8 @@ let rec blocks instr =
   | DIVSD _
   | MOVQ _
   | MOVSD _
+  | CVTSI2SD _
+  | CVTTSD2SI _
   | IMUL _
   | IDIV _
   | MOD _
@@ -326,6 +337,8 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | MOV (x, y) -> MOV (x, y)
   | MOVSD (x, y) -> MOVSD (x, y)
   | MOVQ (x, y) -> MOVQ (x, y)
+  | CVTSI2SD (x, y) -> CVTSI2SD (x, y)
+  | CVTTSD2SI (x, y) -> CVTTSD2SI (x, y)
   | ADD (x, y) -> ADD (x, y)
   | SUB (x, y) -> SUB (x, y)
   | ADDSD (x, y) -> ADDSD (x, y)
@@ -360,6 +373,8 @@ let rec filter_map_call_blocks t ~f =
   | MOV _
   | MOVQ _
   | MOVSD _
+  | CVTSI2SD _
+  | CVTTSD2SI _
   | ALLOCA _
   | ADD _
   | SUB _
@@ -396,6 +411,8 @@ let rec map_defs t ~f =
   | MOV (dst, src) -> MOV (map_dst dst, src)
   | MOVQ (dst, src) -> MOVQ (map_dst dst, src)
   | MOVSD (dst, src) -> MOVSD (map_dst dst, src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (map_dst dst, src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_dst dst, src)
   | AND (dst, src) -> AND (map_dst dst, src)
   | OR (dst, src) -> OR (map_dst dst, src)
   | ADD (dst, src) -> ADD (map_dst dst, src)
@@ -427,6 +444,8 @@ let rec map_uses t ~f =
   | MOV (dst, src) -> MOV (dst, map_op src)
   | MOVSD (dst, src) -> MOVSD (dst, map_op src)
   | MOVQ (dst, src) -> MOVQ (dst, map_op src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (dst, map_op src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (dst, map_op src)
   | AND (dst, src) -> AND (map_op dst, map_op src)
   | OR (dst, src) -> OR (map_op dst, map_op src)
   | ADD (dst, src) -> ADD (map_op dst, map_op src)
@@ -461,6 +480,8 @@ let rec map_operands t ~f =
   | MOV (dst, src) -> MOV (f dst, f src)
   | MOVSD (dst, src) -> MOVSD (f dst, f src)
   | MOVQ (dst, src) -> MOVQ (f dst, f src)
+  | CVTSI2SD (dst, src) -> CVTSI2SD (f dst, f src)
+  | CVTTSD2SI (dst, src) -> CVTTSD2SI (f dst, f src)
   | AND (dst, src) -> AND (f dst, f src)
   | OR (dst, src) -> OR (f dst, f src)
   | ADD (dst, src) -> ADD (f dst, f src)
@@ -505,6 +526,8 @@ let rec map_call_blocks t ~f =
   | MOV (_, _)
   | MOVSD (_, _)
   | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -533,6 +556,8 @@ let rec iter_call_blocks t ~f =
   | MOV (_, _)
   | MOVSD (_, _)
   | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -555,6 +580,8 @@ let rec call_blocks = function
   | MOV (_, _)
   | MOVSD (_, _)
   | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -578,6 +605,8 @@ let rec is_terminal = function
   | MOV (_, _)
   | MOVSD (_, _)
   | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)

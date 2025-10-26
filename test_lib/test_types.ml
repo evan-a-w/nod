@@ -430,61 +430,60 @@ let%expect_test "all float operations" =
   [%expect {| OK |}]
 ;;
 
-(* Movq instruction tests for bitcast between i64 and f64 *)
+(* Cast instruction tests for type conversions *)
 
-let%expect_test "movq i64 to f64" =
+let%expect_test "cast i64 to f64" =
   test {|
     mov %i:i64, 42
-    movq %f:f64, %i
-    return %i
+    cast %f:f64, %i
+    cast %result:i64, %f
+    return %result
   |};
   [%expect {| OK |}]
 ;;
 
-let%expect_test "movq f64 to i64" =
+let%expect_test "cast f64 to i64" =
   test {|
     mov %f:f64, 3
-    movq %i:i64, %f
+    cast %i:i64, %f
     return %i
   |};
   [%expect {| OK |}]
 ;;
 
-let%expect_test "movq with literal (should fail)" =
+let%expect_test "cast with literal" =
   test {|
-    movq %f:f64, 42
+    cast %f:f64, 42
     return %f
   |};
-  [%expect
-    {| Error: type mismatch: movq cannot accept literals, got literal for f:f64 |}]
+  [%expect {| OK |}]
 ;;
 
-let%expect_test "movq i64 to i64 (should fail)" =
+let%expect_test "cast i64 to i64 (should fail)" =
   test {|
     mov %a:i64, 1
-    movq %b:i64, %a
+    cast %b:i64, %a
     return %b
   |};
   [%expect
-    {| Error: type mismatch: movq requires i64<->f64 conversion, got a:i64 to b:i64 |}]
+    {| Error: type mismatch: cast requires different types, use move for i64 to i64 |}]
 ;;
 
-let%expect_test "movq f64 to f64 (should fail)" =
+let%expect_test "cast f64 to f64 (should fail)" =
   test {|
     mov %a:f64, 1
-    movq %b:f64, %a
+    cast %b:f64, %a
     return %a
   |};
   [%expect
-    {| Error: type mismatch: movq requires i64<->f64 conversion, got a:f64 to b:f64 |}]
+    {| Error: type mismatch: cast requires different types, use move for f64 to f64 |}]
 ;;
 
-let%expect_test "movq i32 to f64 (should fail)" =
+let%expect_test "cast i32 to f64" =
   test {|
     mov %i:i32, 42
-    movq %f:f64, %i
+    cast %f:f64, %i
     return %i
   |};
-  [%expect
-    {| Error: type mismatch: movq requires i64<->f64 conversion, got i:i32 to f:f64 |}]
+  [%expect {| OK |}]
 ;;
