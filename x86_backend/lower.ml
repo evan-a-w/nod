@@ -4,19 +4,18 @@ open! Common
 module Reg = X86_reg
 module Raw = X86_reg.Raw
 
-let run (functions : Function.t String.Map.t) =
-  let sanitize_identifier s =
-    let sanitized =
-      String.filter_map s ~f:(fun c ->
-        match c with
-        | 'A' .. 'Z' -> Some (Char.lowercase c)
-        | 'a' .. 'z' | '0' .. '9' | '_' -> Some c
-        | _ -> Some '_')
-    in
-    let sanitized = if String.is_empty sanitized then "_" else sanitized in
-    if Char.is_digit sanitized.[0] then "_" ^ sanitized else sanitized
+let sanitize_identifier s =
+  let sanitized =
+    String.filter_map s ~f:(fun c ->
+      match c with
+      | 'A' .. 'Z' -> Some (Char.lowercase c)
+      | 'a' .. 'z' | '0' .. '9' | '_' -> Some c
+      | _ -> Some '_')
   in
-  let rec string_of_raw = function
+  let sanitized = if String.is_empty sanitized then "_" else sanitized in
+  if Char.is_digit sanitized.[0] then "_" ^ sanitized else sanitized
+
+let rec string_of_raw = function
     | Raw.RAX -> "rax"
     | Raw.RBX -> "rbx"
     | Raw.RCX -> "rcx"
@@ -52,32 +51,32 @@ let run (functions : Function.t String.Map.t) =
     | Raw.Unallocated v | Raw.Allocated (v, None) ->
       sanitize_identifier (Var.name v)
     | Raw.Allocated (_, Some reg) -> string_of_raw reg
-  in
-  let string_of_reg reg = string_of_raw (Reg.raw reg) in
-  let string_of_mem reg disp =
+
+let string_of_reg reg = string_of_raw (Reg.raw reg)
+let string_of_mem reg disp =
     let base = string_of_reg reg in
     match disp with
     | 0 -> sprintf "[%s]" base
     | d when d > 0 -> sprintf "[%s + %d]" base d
     | d -> sprintf "[%s - %d]" base (-d)
-  in
-  let string_of_operand = function
+
+let string_of_operand = function
     | Reg reg -> string_of_reg reg
     | Imm imm -> Int64.to_string imm
     | Mem (reg, disp) -> string_of_mem reg disp
-  in
-  let is_valid_move_dest = function
+
+let is_valid_move_dest = function
     | Reg _ | Mem _ -> true
     | Imm _ -> false
-  in
-  let rec unwrap_tags = function
+let rec unwrap_tags = function
     | Tag_use (ins, _) | Tag_def (ins, _) -> unwrap_tags ins
     | ins -> ins
-  in
-  let add_line buf line =
+
+let add_line buf line =
     Buffer.add_string buf line;
     Buffer.add_char buf '\n'
-  in
+
+let run (functions : Function.t String.Map.t) =
   let functions_alist = Map.to_alist functions in
   match functions_alist with
   | [] -> ""
