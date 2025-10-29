@@ -281,21 +281,12 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
  ;; 
 
  (*
+
  let%expect_test "nested loops - no opt vs opt" = 
    test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f; 
    [%expect {| 
      no_opt: 42 
      opt: 42 
-     |}] 
- ;; 
-
- let%expect_test "deep call stack - no opt vs opt" = 
-   test_both_modes 
-     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
-     deep_call_stack; 
-   [%expect {| 
-     no_opt: 1530 
-     opt: 1530 
      |}] 
  ;; 
 
@@ -306,6 +297,17 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
    [%expect {| 
      no_opt: 115 
      opt: 115 
+     |}] 
+ ;; 
+
+
+ let%expect_test "deep call stack - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
+     deep_call_stack; 
+   [%expect {| 
+     no_opt: 1530 
+     opt: 1530 
      |}] 
  ;; 
 
