@@ -61,11 +61,22 @@ let%expect_test "branches lower with labels" =
       jmp root__intermediate_a_to_b
     root__intermediate_a_to_b:
       jmp root__b
+    root__intermediate_a_to_c:
+      jmp root__c
     root__b:
       mov r15, r14
       add r15, 5
       jmp root__intermediate_b_to_end0
+    root__c:
+      mov r15, 0
+      jmp root__intermediate_c_to_end0
     root__intermediate_b_to_end0:
+      jmp root__end
+    root__intermediate_b_to_end:
+      jmp root__end
+    root__intermediate_c_to_end0:
+      jmp root__end
+    root__intermediate_c_to_end:
       jmp root__end
     root__end:
       mov rax, r15
@@ -77,17 +88,6 @@ let%expect_test "branches lower with labels" =
       pop r14
       pop rbp
       ret
-    root__intermediate_b_to_end:
-      jmp root__end
-    root__intermediate_a_to_c:
-      jmp root__c
-    root__c:
-      mov r15, 0
-      jmp root__intermediate_c_to_end0
-    root__intermediate_c_to_end0:
-      jmp root__end
-    root__intermediate_c_to_end:
-      jmp root__end
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
@@ -113,6 +113,9 @@ let%expect_test "recursive fib" =
       jmp fib__intermediate__root_to_ret_1
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
+    fib__intermediate__root_to_ret_1:
+      mov r14, r15
+      jmp fib__ret_1
     fib__check1_:
       sub r14, 1
       cmp r14, 0
@@ -120,6 +123,14 @@ let%expect_test "recursive fib" =
       jmp fib__intermediate_check1__to_ret_1
     fib__intermediate_check1__to_rec:
       jmp fib__rec
+    fib__intermediate_check1__to_ret_1:
+      mov r15, r14
+      mov r14, r15
+      jmp fib__ret_1
+    fib__ret_1:
+      mov r15, 1
+      mov rax, r15
+      jmp fib__fib__epilogue
     fib__rec:
       push rax
       mov rdi, r14
@@ -142,17 +153,6 @@ let%expect_test "recursive fib" =
       pop r14
       pop rbp
       ret
-    fib__intermediate_check1__to_ret_1:
-      mov r15, r14
-      mov r14, r15
-      jmp fib__ret_1
-    fib__ret_1:
-      mov r15, 1
-      mov rax, r15
-      jmp fib__fib__epilogue
-    fib__intermediate__root_to_ret_1:
-      mov r14, r15
-      jmp fib__ret_1
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
