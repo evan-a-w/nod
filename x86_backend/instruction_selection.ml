@@ -561,8 +561,7 @@ let insert_par_moves t =
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
     block.terminal <- Ir.remove_block_args block.terminal
-    (* Clear block args since phi moves have been inserted *)
-    (* Vec.clear block.args *));
+    (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
 

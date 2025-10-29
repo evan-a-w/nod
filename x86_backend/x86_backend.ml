@@ -22,7 +22,7 @@ module For_testing = struct
     functions
     |> Map.iteri ~f:(fun ~key:_name ~data:fn ->
       let reg_numbering = Reg_numbering.create fn.root in
-      let (module Calc_liveness) = Calc_liveness.var ~reg_numbering in
+      let (module Calc_liveness) = Calc_liveness.var ~treat_block_args_as_defs:true ~reg_numbering in
       let open Calc_liveness in
       let liveness_state = Liveness_state.create ~root:fn.root in
       Block.to_list fn.root

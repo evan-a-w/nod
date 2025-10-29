@@ -306,7 +306,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
     Hashtbl.find var_classes var |> Option.value ~default:Class.I64
   in
   let reg_numbering = Reg_numbering.create fn.root in
-  let (module Calc_liveness) = Calc_liveness.var ~reg_numbering in
+  let (module Calc_liveness) = Calc_liveness.var ~treat_block_args_as_defs:false ~reg_numbering in
   let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
   let interference_graph =
     Interference_graph.create

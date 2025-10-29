@@ -5,6 +5,7 @@ open! Common
 module type Arg = sig
   type t
 
+  val treat_block_args_as_defs : bool
   val uses_of_ir : Ir.t -> t list
   val defs_of_ir : Ir.t -> t list
   val t_of_var : Var.t -> t option
@@ -98,14 +99,17 @@ module Make (Arg : Arg) = struct
         let defs = Set.union defs (defs_of_ir ir) in
         ~defs, ~uses
       in
-      let uses =
-        List.filter_map
-          (Vec.to_list block.args)
-          ~f:(Arg.t_of_var >> Option.map ~f:Arg.id_of_t)
-        |> Int.Set.of_list
+      let defs =
+        if not Arg.treat_block_args_as_defs then
+          Int.Set.empty 
+        else 
+          List.filter_map
+            (Vec.to_list block.args)
+            ~f:(Arg.t_of_var >> Option.map ~f:Arg.id_of_t)
+          |> Int.Set.of_list
       in
       let acc =
-        Vec.fold block.instructions ~init:(~defs:Int.Set.empty, ~uses) ~f
+        Vec.fold block.instructions ~init:(~defs, ~uses:Int.Set.empty) ~f
       in
       f acc block.terminal
     ;;
@@ -204,9 +208,11 @@ module Make (Arg : Arg) = struct
   end
 end
 
-let var ~reg_numbering =
+let var ~treat_block_args_as_defs ~reg_numbering =
   (module Make (struct
       type t = Var.t
+
+      let treat_block_args_as_defs = treat_block_args_as_defs
 
       let uses_of_ir = Ir.uses
       let defs_of_ir = Ir.defs
@@ -220,6 +226,8 @@ let var ~reg_numbering =
 let phys ~reg_numbering =
   (module Make (struct
       type t = Reg.t
+
+      let treat_block_args_as_defs = false
 
       let filter_physical set = Set.filter set ~f:Reg.is_physical |> Set.to_list
 

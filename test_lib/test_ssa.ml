@@ -397,9 +397,13 @@ let%expect_test "phi pruning" =
      (instrs
       ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move ((name x%4) (type_ I64)) (Lit 999))
+       (Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (ifFalse (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move ((name x%3) (type_ I64)) (Lit 20))
+       (Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
 
 
@@ -714,7 +718,9 @@ let%expect_test "all examples" =
     (%root (args ())
      (instrs ((Branch (Uncond ((block ((id_hum divide) (args ()))) (args ())))))))
     (divide (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move ((name c%1) (type_ I64)) (Lit 10))
+       (Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
@@ -923,9 +929,13 @@ let%expect_test "all examples" =
      (instrs
       ((Branch (Uncond ((block ((id_hum ifFalse) (args ()))) (args ())))))))
     (ifTrue (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move ((name x%4) (type_ I64)) (Lit 999))
+       (Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (ifFalse (args ())
-     (instrs ((Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
+     (instrs
+      ((Move ((name x%3) (type_ I64)) (Lit 20))
+       (Branch (Uncond ((block ((id_hum end) (args ()))) (args ())))))))
     (end (args ()) (instrs (Unreachable)))
     ++++++++++++++++++++++++++
     ++++++++++++++++++++++++++
@@ -1375,7 +1385,10 @@ let%expect_test "longer example" =
          (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
     (skipEven (args ())
      (instrs
-      ((Branch
+      ((Add
+        ((dest ((name j%4) (type_ I64))) (src1 (Lit 1))
+         (src2 (Var ((name j%0) (type_ I64))))))
+       (Branch
         (Cond (cond (Lit 1))
          (if_true ((block ((id_hum innerCheck) (args ()))) (args ())))
          (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
@@ -1388,6 +1401,9 @@ let%expect_test "longer example" =
         ((dest ((name partial%3) (type_ I64)))
          (src1 (Var ((name partial%0) (type_ I64))))
          (src2 (Var ((name tmp) (type_ I64))))))
+       (Add
+        ((dest ((name j%3) (type_ I64))) (src1 (Lit 1))
+         (src2 (Var ((name j%0) (type_ I64))))))
        (Branch (Uncond ((block ((id_hum innerCheck) (args ()))) (args ())))))))
     (innerExit (args ())
      (instrs
