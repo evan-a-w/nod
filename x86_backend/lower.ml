@@ -68,6 +68,7 @@ let string_of_operand = function
 let is_valid_move_dest = function
     | Reg _ | Mem _ -> true
     | Imm _ -> false
+
 let rec unwrap_tags = function
     | Tag_use (ins, _) | Tag_def (ins, _) -> unwrap_tags ins
     | ins -> ins
@@ -75,6 +76,28 @@ let rec unwrap_tags = function
 let add_line buf line =
     Buffer.add_string buf line;
     Buffer.add_char buf '\n'
+
+let order_blocks root =
+  let idx_by_block = Block.Table.create () in
+  let blocks = Vec.create () in
+  let push_exn block =
+    let idx = Vec.length blocks in
+    Hashtbl.add_exn idx_by_block ~key:block ~data:idx;
+    Vec.push blocks block
+  in
+  let rec go (block : Block.t) =
+    match Hashtbl.mem idx_by_block block with
+    | true -> ()
+    | false -> 
+      push_exn block;
+      Vec.iter block.children ~f:(fun child -> 
+        if Vec.length child.parents = 1 && not (Hashtbl.mem idx_by_block child) then 
+          push_exn child);
+      Vec.iter block.children ~f:go
+  in
+  go root;
+  (~idx_by_block, ~blocks)
+
 
 let run (functions : Function.t String.Map.t) =
   let functions_alist = Map.to_alist functions in
@@ -103,13 +126,9 @@ let run (functions : Function.t String.Map.t) =
       in
       let fn_label = ensure_unique fn_label_base in
       add_line buffer (sprintf ".globl %s" fn_label);
-      let blocks =
-        let acc = ref [] in
-        Block.iter fn.Function.root ~f:(fun block -> acc := block :: !acc);
-        List.rev !acc
-      in
+      let ~idx_by_block:_, ~blocks = order_blocks fn.root in
       let label_by_block = Block.Table.create () in
-      List.iteri blocks ~f:(fun idx block ->
+      Vec.iteri blocks ~f:(fun idx block ->
         let base_label =
           if idx = 0
           then fn_label
@@ -262,7 +281,7 @@ let run (functions : Function.t String.Map.t) =
           pending_const_cmp := None;
           List.iter lines ~f:emit_instruction
       in
-      List.iter blocks ~f:(fun block ->
+      Vec.iter blocks ~f:(fun block ->
         let label = label_of_block block in
         add_line buffer (label ^ ":");
         pending_const_cmp := None;
