@@ -80,22 +80,30 @@ let add_line buf line =
 let order_blocks root =
   let idx_by_block = Block.Table.create () in
   let blocks = Vec.create () in
-  let push_exn block =
+  let try_push block =
     let idx = Vec.length blocks in
-    Hashtbl.add_exn idx_by_block ~key:block ~data:idx;
-    Vec.push blocks block
+    match Hashtbl.add idx_by_block ~key:block ~data:idx with
+    | `Duplicate -> ()
+    | `Ok -> Vec.push blocks block
   in
-  let rec go (block : Block.t) =
-    match Hashtbl.mem idx_by_block block with
-    | true -> ()
-    | false -> 
-      push_exn block;
-      Vec.iter block.children ~f:(fun child -> 
-        if Vec.length child.parents = 1 && not (Hashtbl.mem idx_by_block child) then 
-          push_exn child);
-      Vec.iter block.children ~f:go
+  let seen = Block.Hash_set.create () in
+  let q = Queue.of_list [ root ] in
+  let rec go () =
+    match Queue.dequeue q with
+    | None -> ()
+    | Some block -> 
+      match Hash_set.mem seen block with
+      | true -> go ()
+      | false -> 
+        Hash_set.add seen block;
+        try_push block;
+        Vec.iter block.children ~f:(fun child -> 
+          if Vec.length child.parents = 1 && not (Hashtbl.mem idx_by_block child) then 
+            try_push child);
+        Vec.iter block.children ~f:(Queue.enqueue q);
+        go ()
   in
-  go root;
+  go ();
   (~idx_by_block, ~blocks)
 
 
@@ -127,6 +135,11 @@ let run (functions : Function.t String.Map.t) =
       let fn_label = ensure_unique fn_label_base in
       add_line buffer (sprintf ".globl %s" fn_label);
       let ~idx_by_block:_, ~blocks = order_blocks fn.root in
+      (* let blocks =
+        let acc = ref [] in
+        Block.iter fn.Function.root ~f:(fun block -> acc := block :: !acc);
+        List.rev !acc
+      in *)
       let label_by_block = Block.Table.create () in
       Vec.iteri blocks ~f:(fun idx block ->
         let base_label =

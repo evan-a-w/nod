@@ -86,61 +86,16 @@ let%expect_test "borked" =
       jmp root__intermediate_outercheck_to_exit
     root__intermediate_outercheck_to_outerbody:
       jmp root__outerbody
+    root__intermediate_outercheck_to_exit:
+      jmp root__exit
     root__outerbody:
       mov r13, 0
       mov r12, 0
       jmp root__intermediate_outerbody_to_innercheck
     root__intermediate_outerbody_to_innercheck:
       jmp root__innercheck
-    root__innercheck:
-      mov r11, r13
-      sub r11, 3
-      cmp r11, 0
-      jne root__intermediate_innercheck_to_innerbody
-      jmp root__intermediate_innercheck_to_innerexit
-    root__intermediate_innercheck_to_innerbody:
-      jmp root__innerbody
-    root__innerbody:
-      mov r11, r13
-      and r11, 1
-      cmp r11, 0
-      jne root__intermediate_innerbody_to_dowork
-      jmp root__intermediate_innerbody_to_skipeven
-    root__intermediate_innerbody_to_dowork:
-      jmp root__dowork
-    root__dowork:
-      mov rax, r14
-      imul r13
-      mov r11, rax
-      mov r10, r12
-      add r10, r11
-      mov r11, 1
-      add r11, r13
-      jmp root__innercheck
-    root__intermediate_innerbody_to_skipeven:
-      jmp root__skipeven
-    root__skipeven:
-      mov r11, 1
-      add r11, r13
-      jmp root__intermediate_skipeven_to_innercheck
-    root__intermediate_skipeven_to_innercheck:
-      jmp root__innercheck
-    root__intermediate_skipeven_to_innerexit:
-      jmp root__innerexit
-    root__innerexit:
-      mov r11, r12
-      jmp root__intermediate_innerexit_to_outerinc
-    root__intermediate_innerexit_to_outerinc:
+    root__intermediate_outerbody_to_outerinc:
       jmp root__outerinc
-    root__outerinc:
-      mov r11, 1
-      add r11, r14
-      mov r14, r11
-      mov r13, r12
-      mov r12, r13
-      jmp root__outercheck
-    root__intermediate_innerexit_to_exit:
-      jmp root__exit
     root__exit:
       mov rax, r15
       jmp root__root__epilogue
@@ -153,12 +108,57 @@ let%expect_test "borked" =
       pop r12
       pop rbp
       ret
+    root__innercheck:
+      mov r11, r13
+      sub r11, 3
+      cmp r11, 0
+      jne root__intermediate_innercheck_to_innerbody
+      jmp root__intermediate_innercheck_to_innerexit
+    root__intermediate_innercheck_to_innerbody:
+      jmp root__innerbody
     root__intermediate_innercheck_to_innerexit:
       jmp root__innerexit
-    root__intermediate_outerbody_to_outerinc:
+    root__outerinc:
+      mov r11, 1
+      add r11, r14
+      mov r14, r11
+      mov r13, r12
+      mov r12, r13
+      jmp root__outercheck
+    root__innerbody:
+      mov r11, r13
+      and r11, 1
+      cmp r11, 0
+      jne root__intermediate_innerbody_to_dowork
+      jmp root__intermediate_innerbody_to_skipeven
+    root__intermediate_innerbody_to_dowork:
+      jmp root__dowork
+    root__intermediate_innerbody_to_skipeven:
+      jmp root__skipeven
+    root__innerexit:
+      mov r11, r12
+      jmp root__intermediate_innerexit_to_outerinc
+    root__intermediate_innerexit_to_outerinc:
       jmp root__outerinc
-    root__intermediate_outercheck_to_exit:
+    root__intermediate_innerexit_to_exit:
       jmp root__exit
+    root__dowork:
+      mov rax, r14
+      imul r13
+      mov r11, rax
+      mov r10, r12
+      add r10, r11
+      mov r11, 1
+      add r11, r13
+      jmp root__innercheck
+    root__skipeven:
+      mov r11, 1
+      add r11, r13
+      jmp root__intermediate_skipeven_to_innercheck
+    root__intermediate_skipeven_to_innercheck:
+      jmp root__innercheck
+    root__intermediate_skipeven_to_innerexit:
+      jmp root__innerexit
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
