@@ -272,69 +272,71 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
     |}]
 ;;
 
-(* let%expect_test "sum 1 to 100 - no opt vs opt" = *)
-(*   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.sum_100; *)
-(*   [%expect {| *)
-(*          no_opt: 4950 *)
-(*          opt: 4950 *)
-(*          |}] *)
-(* ;; *)
+ let%expect_test "sum 1 to 100 - no opt vs opt" = 
+   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.sum_100; 
+   [%expect {| 
+          no_opt: 4950 
+          opt: 4950 
+          |}] 
+ ;; 
 
-(* let%expect_test "nested loops - no opt vs opt" = *)
-(*   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f; *)
-(*   [%expect {| *)
-(*     no_opt: 42 *)
-(*     opt: 42 *)
-(*     |}] *)
-(* ;; *)
+ (*
+ let%expect_test "nested loops - no opt vs opt" = 
+   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f; 
+   [%expect {| 
+     no_opt: 42 
+     opt: 42 
+     |}] 
+ ;; 
 
-(* let%expect_test "deep call stack - no opt vs opt" = *)
-(*   test_both_modes *)
-(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) *)
-(*     deep_call_stack; *)
-(*   [%expect {| *)
-(*     no_opt: 1530 *)
-(*     opt: 1530 *)
-(*     |}] *)
-(* ;; *)
+ let%expect_test "deep call stack - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
+     deep_call_stack; 
+   [%expect {| 
+     no_opt: 1530 
+     opt: 1530 
+     |}] 
+ ;; 
 
-(* let%expect_test "complex arithmetic - no opt vs opt" = *)
-(*   test_both_modes *)
-(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) *)
-(*     complex_arithmetic; *)
-(*   [%expect {| *)
-(*     no_opt: 115 *)
-(*     opt: 115 *)
-(*     |}] *)
-(* ;; *)
+ let%expect_test "complex arithmetic - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
+     complex_arithmetic; 
+   [%expect {| 
+     no_opt: 115 
+     opt: 115 
+     |}] 
+ ;; 
 
-(* let%expect_test "mutual recursion even(12) - no opt vs opt" = *)
-(*   test_both_modes *)
-(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"12" ()) *)
-(*     mutual_recursion; *)
-(*   [%expect {| *)
-(*     no_opt: 1 *)
-(*     opt: 1 *)
-(*     |}] *)
-(* ;; *)
+ let%expect_test "mutual recursion even(12) - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"12" ()) 
+     mutual_recursion; 
+   [%expect {| 
+     no_opt: 1 
+     opt: 1 
+     |}] 
+ ;; 
 
-(* let%expect_test "mutual recursion even(13) - no opt vs opt" = *)
-(*   test_both_modes *)
-(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"13" ()) *)
-(*     mutual_recursion; *)
-(*   [%expect {| *)
-(*     no_opt: 0 *)
-(*     opt: 0 *)
-(*     |}] *)
-(* ;; *)
+ let%expect_test "mutual recursion even(13) - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"13" ()) 
+     mutual_recursion; 
+   [%expect {| 
+     no_opt: 0 
+     opt: 0 
+     |}] 
+ ;; 
 
-(* let%expect_test "call chains - no opt vs opt" = *)
-(*   let program = String.concat Examples.Textual.call_chains ~sep:"\n" in *)
-(*   test_both_modes *)
-(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"10" ()) *)
-(*     program; *)
-(*   [%expect {| *)
-(*     no_opt: 46 *)
-(*     opt: 46 *)
-(*     |}] *)
-(* ;; *)
+ let%expect_test "call chains - no opt vs opt" = 
+   let program = String.concat Examples.Textual.call_chains ~sep:"\n" in 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"10" ()) 
+     program; 
+   [%expect {| 
+     no_opt: 46 
+     opt: 46 
+     |}] 
+ ;; 
+ *)

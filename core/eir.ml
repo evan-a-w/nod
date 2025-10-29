@@ -231,7 +231,6 @@ module Opt = struct
       in
       Vec.iter block.instructions ~f:use;
       use block.terminal);
-    print_s [%sexp (Hashtbl.find_exn t.vars "i%2" : Opt_var.t)];
     t
   ;;
 
@@ -276,48 +275,35 @@ module Opt = struct
     <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
 
   and remove_arg_from_parent t ~parent ~idx ~from_block =
-    let rec go () =
-      let current = parent.Block.terminal in
-      let new_ =
-        Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
-          if not (phys_equal cb.block from_block)
-          then cb
-          else
-            { cb with
-              args =
-                (let new_args =
-                   List.filteri cb.args ~f:(fun i var ->
-                     let id = Var.name var in
-                     match i = idx, active_var t id with
-                     | false, _ -> true
-                     | true, None -> false
-                     | true, Some opt_var ->
-                       (* CR: BUG TO FIX: thsi can run multiple t imes *)
-                       (* kill the tang *)
-                       Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
-                         match loc.Loc.where with
-                         | Loc.Block_arg _ -> true
-                         | Instr instr ->
-                           let b = not (phys_equal instr parent.terminal) in
-                           if String.equal id "i%2"
-                           then
-                             print_s [%message "HERE" (b : bool) (instr : Ir.t)];
-                           b);
-                       try_kill_var t ~id;
-                       false)
-                 in
-                 print_s
-                   [%message
-                     (new_args : Var.t list) ~old_args:(cb.args : Var.t list)];
-                 new_args)
-            })
-      in
-      (* can actually change during execution :() *)
-      if phys_equal current parent.Block.terminal
-      then parent.Block.terminal <- new_
-      else go ()
+    let found = Queue.create () in
+    let new_ =
+      Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
+        if not (phys_equal cb.block from_block)
+        then cb
+        else
+          { cb with
+            args =
+              (List.filteri cb.args ~f:(fun i var ->
+                    let id = Var.name var in
+                    match i = idx, active_var t id with
+                    | false, _ -> true
+                    | true, None -> false
+                    | true, Some opt_var ->
+                      (* kill the tang *)
+                      Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
+                        match loc.Loc.where with
+                        | Loc.Block_arg _ -> true
+                        | Instr instr -> not (phys_equal instr parent.terminal));
+                      Queue.enqueue found opt_var;
+                      false))
+          })
     in
-    go ()
+    parent.Block.terminal <- new_;
+    let loc = { Loc.where = Instr new_; block = parent } in
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) -> 
+        Hash_set.add opt_var.uses loc);
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) -> 
+        try_kill_var t ~id:opt_var.id)
 
   and remove_arg t ~block ~arg =
     let idx =
@@ -412,13 +398,6 @@ module Opt = struct
   let update_uses t ~old_instr ~new_instr ~loc =
     let old_uses = Ir.uses old_instr in
     let new_uses = Ir.uses new_instr in
-    print_s
-      [%message
-        "Update uses"
-          (old_instr : Ir.t)
-          (new_instr : Ir.t)
-          (old_uses : Var.t list)
-          (new_uses : Var.t list)];
     let old_ids = List.map old_uses ~f:Var.name in
     let new_ids = List.map new_uses ~f:Var.name in
     List.iter old_ids ~f:(fun id ->
@@ -528,8 +507,6 @@ module Opt = struct
       then refine_terminal t ~block
     in
     dfs_vars ~on_terminal t ~f:(fun ~var ->
-      if String.equal var.id "i%2"
-      then print_s [%message "dfs" (var.id : string)];
       if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
       if Opt_flags.unused_vars t.opt_flags
       then try_kill_var t ~id:var.Opt_var.id;
