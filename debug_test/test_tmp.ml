@@ -73,17 +73,14 @@ let%expect_test "borked" =
       push r15
       mov rbp, rsp
       add rbp, 40
-      jmp root__start
     root__start:
       mov r14, 0
       mov r15, 0
-      jmp root__outercheck
     root__outercheck:
       mov r13, r14
       sub r13, 7
       cmp r13, 0
-      jne root__intermediate_outercheck_to_outerbody
-      jmp root__intermediate_outercheck_to_exit
+      je root__intermediate_outercheck_to_exit
     root__intermediate_outercheck_to_outerbody:
       jmp root__outerbody
     root__intermediate_outercheck_to_exit:
@@ -91,14 +88,12 @@ let%expect_test "borked" =
     root__outerbody:
       mov r13, 0
       mov r12, 0
-      jmp root__intermediate_outerbody_to_innercheck
     root__intermediate_outerbody_to_innercheck:
       jmp root__innercheck
     root__intermediate_outerbody_to_outerinc:
       jmp root__outerinc
     root__exit:
       mov rax, r15
-      jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
       sub rsp, 40
@@ -112,8 +107,7 @@ let%expect_test "borked" =
       mov r11, r13
       sub r11, 3
       cmp r11, 0
-      jne root__intermediate_innercheck_to_innerbody
-      jmp root__intermediate_innercheck_to_innerexit
+      je root__intermediate_innercheck_to_innerexit
     root__intermediate_innercheck_to_innerbody:
       jmp root__innerbody
     root__intermediate_innercheck_to_innerexit:
@@ -129,15 +123,13 @@ let%expect_test "borked" =
       mov r11, r13
       and r11, 1
       cmp r11, 0
-      jne root__intermediate_innerbody_to_dowork
-      jmp root__intermediate_innerbody_to_skipeven
+      je root__intermediate_innerbody_to_skipeven
     root__intermediate_innerbody_to_dowork:
       jmp root__dowork
     root__intermediate_innerbody_to_skipeven:
       jmp root__skipeven
     root__innerexit:
       mov r11, r12
-      jmp root__intermediate_innerexit_to_outerinc
     root__intermediate_innerexit_to_outerinc:
       jmp root__outerinc
     root__intermediate_innerexit_to_exit:
@@ -154,7 +146,6 @@ let%expect_test "borked" =
     root__skipeven:
       mov r11, 1
       add r11, r13
-      jmp root__intermediate_skipeven_to_innercheck
     root__intermediate_skipeven_to_innercheck:
       jmp root__innercheck
     root__intermediate_skipeven_to_innerexit:

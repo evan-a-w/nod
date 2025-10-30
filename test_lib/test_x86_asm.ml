@@ -22,13 +22,11 @@ let%expect_test "super triv lowers to assembly" =
       push r15
       mov rbp, rsp
       add rbp, 24
-      jmp root__a
     root__a:
       mov r15, 10
       mov r14, 20
       sub r14, r15
       mov rax, r14
-      jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
       sub rsp, 24
@@ -53,12 +51,10 @@ let%expect_test "branches lower with labels" =
       push r15
       mov rbp, rsp
       add rbp, 24
-      jmp root__a
     root__a:
       mov r15, 10
       mov r14, 20
       sub r14, r15
-      jmp root__intermediate_a_to_b
     root__intermediate_a_to_b:
       jmp root__b
     root__intermediate_a_to_c:
@@ -77,10 +73,8 @@ let%expect_test "branches lower with labels" =
     root__intermediate_c_to_end0:
       jmp root__end
     root__intermediate_c_to_end:
-      jmp root__end
     root__end:
       mov rax, r15
-      jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
       sub rsp, 24
@@ -106,11 +100,9 @@ let%expect_test "recursive fib" =
       mov rbp, rsp
       add rbp, 24
       mov r14, rdi
-      jmp fib___root
     fib___root:
       cmp r14, 0
-      jne fib__intermediate__root_to_check1_
-      jmp fib__intermediate__root_to_ret_1
+      je fib__intermediate__root_to_ret_1
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
     fib__intermediate__root_to_ret_1:
@@ -119,14 +111,12 @@ let%expect_test "recursive fib" =
     fib__check1_:
       sub r14, 1
       cmp r14, 0
-      jne fib__intermediate_check1__to_rec
-      jmp fib__intermediate_check1__to_ret_1
+      je fib__intermediate_check1__to_ret_1
     fib__intermediate_check1__to_rec:
       jmp fib__rec
     fib__intermediate_check1__to_ret_1:
       mov r15, r14
       mov r14, r15
-      jmp fib__ret_1
     fib__ret_1:
       mov r15, 1
       mov rax, r15
@@ -145,7 +135,6 @@ let%expect_test "recursive fib" =
       pop rax
       add r15, r14
       mov rax, r15
-      jmp fib__fib__epilogue
     fib__fib__epilogue:
       mov rsp, rbp
       sub rsp, 24
@@ -176,14 +165,12 @@ ret %result
       push r15
       mov rbp, rsp
       add rbp, 16
-      jmp root___root
     root___root:
       mov xmm14, 3
       mov xmm15, 7
       addsd xmm14, xmm15
       cvttsd2si r15, xmm14
       mov rax, r15
-      jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
       sub rsp, 16
