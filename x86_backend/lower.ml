@@ -107,6 +107,27 @@ let order_blocks root =
   (~idx_by_block, ~blocks)
 
 
+let emit_binary_instr op dst src =
+  sprintf "%s %s, %s" op (string_of_operand dst) (string_of_operand src)
+;;
+
+let is_next_block ~idx_by_block ~current_idx target_block =
+  match Hashtbl.find idx_by_block target_block with
+  | None -> false
+  | Some target_idx -> target_idx = current_idx + 1
+;;
+
+let emit_conditional_jump kind target =
+  match kind with
+  | `Je -> sprintf "je %s" target
+  | `Jne -> sprintf "jne %s" target
+;;
+
+let invert_branch_kind = function
+  | `Je -> `Jne
+  | `Jne -> `Je
+;;
+
 let run (functions : Function.t String.Map.t) =
   let functions_alist = Map.to_alist functions in
   match functions_alist with
@@ -134,12 +155,7 @@ let run (functions : Function.t String.Map.t) =
       in
       let fn_label = ensure_unique fn_label_base in
       add_line buffer (sprintf ".globl %s" fn_label);
-      let ~idx_by_block:_, ~blocks = order_blocks fn.root in
-      (* let blocks =
-        let acc = ref [] in
-        Block.iter fn.Function.root ~f:(fun block -> acc := block :: !acc);
-        List.rev !acc
-      in *)
+      let ~idx_by_block, ~blocks = order_blocks fn.root in
       let label_by_block = Block.Table.create () in
       Vec.iteri blocks ~f:(fun idx block ->
         let base_label =
@@ -161,15 +177,9 @@ let run (functions : Function.t String.Map.t) =
         `Emit
           (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
            then []
-           else
-             [ sprintf
-                 "%s %s, %s"
-                 s
-                 (string_of_operand dst)
-                 (string_of_operand src)
-             ])
+           else [ emit_binary_instr s dst src ])
       in
-      let lower_instruction instr =
+      let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
         match instr with
         | NOOP | Save_clobbers | Restore_clobbers -> `No_emit
@@ -178,74 +188,28 @@ let run (functions : Function.t String.Map.t) =
         | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
         | CVTSI2SD (dst, src) -> lower_move ~dst ~src "cvtsi2sd"
         | CVTTSD2SI (dst, src) -> lower_move ~dst ~src "cvttsd2si"
-        | ADD (dst, src) ->
-          `Emit
-            [ sprintf
-                "add %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | SUB (dst, src) ->
-          `Emit
-            [ sprintf
-                "sub %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | ADDSD (dst, src) ->
-          `Emit
-            [ sprintf
-                "addsd %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | SUBSD (dst, src) ->
-          `Emit
-            [ sprintf
-                "subsd %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | MULSD (dst, src) ->
-          `Emit
-            [ sprintf
-                "mulsd %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | DIVSD (dst, src) ->
-          `Emit
-            [ sprintf
-                "divsd %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | AND (dst, src) ->
-          `Emit
-            [ sprintf
-                "and %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
-        | OR (dst, src) ->
-          `Emit
-            [ sprintf
-                "or %s, %s"
-                (string_of_operand dst)
-                (string_of_operand src)
-            ]
+        | ADD (dst, src) -> `Emit [ emit_binary_instr "add" dst src ]
+        | SUB (dst, src) -> `Emit [ emit_binary_instr "sub" dst src ]
+        | ADDSD (dst, src) -> `Emit [ emit_binary_instr "addsd" dst src ]
+        | SUBSD (dst, src) -> `Emit [ emit_binary_instr "subsd" dst src ]
+        | MULSD (dst, src) -> `Emit [ emit_binary_instr "mulsd" dst src ]
+        | DIVSD (dst, src) -> `Emit [ emit_binary_instr "divsd" dst src ]
+        | AND (dst, src) -> `Emit [ emit_binary_instr "and" dst src ]
+        | OR (dst, src) -> `Emit [ emit_binary_instr "or" dst src ]
         | IMUL op -> `Emit [ sprintf "imul %s" (string_of_operand op) ]
         | IDIV op | MOD op -> `Emit [ sprintf "idiv %s" (string_of_operand op) ]
         | CMP (Imm a, Imm b) -> `Set_pending (Some (a, b))
-        | CMP (a, b) ->
-          `Emit
-            [ sprintf "cmp %s, %s" (string_of_operand a) (string_of_operand b) ]
+        | CMP (a, b) -> `Emit [ emit_binary_instr "cmp" a b ]
         | CALL { fn = callee; _ } ->
           let callee = sanitize_identifier callee in
           `Emit [ sprintf "call %s" callee ]
         | PUSH op -> `Emit [ sprintf "push %s" (string_of_operand op) ]
         | POP reg -> `Emit [ sprintf "pop %s" (string_of_reg reg) ]
-        | JMP cb -> `Emit [ sprintf "jmp %s" (label_of_call_block cb) ]
+        | JMP cb ->
+          (* Optimize: omit jump to immediately following block *)
+          if is_next_block ~idx_by_block ~current_idx cb.Call_block.block
+          then `Emit []
+          else `Emit [ sprintf "jmp %s" (label_of_call_block cb) ]
         | JE (cb, else_) -> `Branch (`Je, cb, else_)
         | JNE (cb, else_) -> `Branch (`Jne, cb, else_)
         | RET _ -> `Emit [ "ret" ]
@@ -256,12 +220,7 @@ let run (functions : Function.t String.Map.t) =
         | Tag_use _ | Tag_def _ -> assert false
       in
       let pending_const_cmp = ref None in
-      let handle_branch branch_kind cb else_opt =
-        let emit_branch kind target =
-          match kind with
-          | `Je -> emit_instruction (sprintf "je %s" target)
-          | `Jne -> emit_instruction (sprintf "jne %s" target)
-        in
+      let handle_branch ~current_idx branch_kind cb else_opt =
         match !pending_const_cmp with
         | Some (lhs, rhs) ->
           pending_const_cmp := None;
@@ -271,42 +230,69 @@ let run (functions : Function.t String.Map.t) =
             | `Jne -> not (Int64.equal lhs rhs)
           in
           if take_branch
-          then emit_instruction (sprintf "jmp %s" (label_of_call_block cb))
+          then (
+            (* Jump to target if not next block *)
+            if not (is_next_block ~idx_by_block ~current_idx cb.Call_block.block)
+            then emit_instruction (sprintf "jmp %s" (label_of_call_block cb)))
           else (
             match else_opt with
             | None -> ()
             | Some else_cb ->
-              emit_instruction (sprintf "jmp %s" (label_of_call_block else_cb)))
+              (* Jump to else if not next block *)
+              if not (is_next_block ~idx_by_block ~current_idx else_cb.Call_block.block)
+              then emit_instruction (sprintf "jmp %s" (label_of_call_block else_cb)))
         | None ->
-          emit_branch branch_kind (label_of_call_block cb);
-          Option.iter else_opt ~f:(fun else_cb ->
-            emit_instruction (sprintf "jmp %s" (label_of_call_block else_cb)))
+          let target_is_next = is_next_block ~idx_by_block ~current_idx cb.Call_block.block in
+          let else_is_next =
+            match else_opt with
+            | None -> false
+            | Some else_cb -> is_next_block ~idx_by_block ~current_idx else_cb.Call_block.block
+          in
+          (match target_is_next, else_is_next, else_opt with
+          | true, _, Some else_cb ->
+            (* Target is next: invert condition and jump to else *)
+            let inverted_kind = invert_branch_kind branch_kind in
+            emit_instruction (emit_conditional_jump inverted_kind (label_of_call_block else_cb))
+          | true, _, None ->
+            (* Target is next and no else: no jump needed *)
+            ()
+          | false, true, _ ->
+            (* Else is next: just emit conditional jump to target *)
+            emit_instruction (emit_conditional_jump branch_kind (label_of_call_block cb))
+          | false, false, Some else_cb ->
+            (* Neither is next: emit both jumps, but prefer making else the fall-through *)
+            (* This is a heuristic - we could switch the condition to optimize better *)
+            emit_instruction (emit_conditional_jump branch_kind (label_of_call_block cb));
+            emit_instruction (sprintf "jmp %s" (label_of_call_block else_cb))
+          | false, false, None ->
+            (* Only target, not next: emit conditional jump *)
+            emit_instruction (emit_conditional_jump branch_kind (label_of_call_block cb)))
       in
-      let process_instruction instr =
-        match lower_instruction instr with
+      let process_instruction ~current_idx instr =
+        match lower_instruction ~current_idx instr with
         | `No_emit -> ()
         | `Set_pending value -> pending_const_cmp := value
         | `Emit_label label ->
           pending_const_cmp := None;
           emit_label label
-        | `Branch (kind, cb, else_opt) -> handle_branch kind cb else_opt
+        | `Branch (kind, cb, else_opt) -> handle_branch ~current_idx kind cb else_opt
         | `Emit lines ->
           pending_const_cmp := None;
           List.iter lines ~f:emit_instruction
       in
-      Vec.iter blocks ~f:(fun block ->
+      Vec.iteri blocks ~f:(fun idx block ->
         let label = label_of_block block in
         add_line buffer (label ^ ":");
         pending_const_cmp := None;
         let instructions = Vec.to_list block.Block.instructions in
         List.iter instructions ~f:(fun ir ->
           match ir with
-          | Ir0.X86 x -> process_instruction x
-          | Ir0.X86_terminal xs -> List.iter xs ~f:process_instruction
+          | Ir0.X86 x -> process_instruction ~current_idx:idx x
+          | Ir0.X86_terminal xs -> List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
         match block.Block.terminal with
-        | Ir0.X86_terminal xs -> List.iter xs ~f:process_instruction
-        | Ir0.X86 x -> process_instruction x
+        | Ir0.X86_terminal xs -> List.iter xs ~f:(process_instruction ~current_idx:idx)
+        | Ir0.X86 x -> process_instruction ~current_idx:idx x
         | _ -> ()));
     Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
     Buffer.add_string buffer "\n";
