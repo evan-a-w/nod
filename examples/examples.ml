@@ -194,6 +194,57 @@ end:
 |}
   ;;
 
+  let f_but_simple =
+    {|
+(* --- Program: nested-loops with conditionals --------------------------------- *)
+
+start:
+  mov %n:i64,    7          (* outer loop upper-bound  (change to taste) *)
+  mov %i:i64,    0
+  mov %total:i64, 0
+  b outerCheck
+
+(* ---------- outer loop ------------------------------------------------------- *)
+
+outerCheck:
+  sub %condOuter:i64, %i, %n            (* condOuter = i - n *)
+  branch %condOuter, outerBody, exit  (* if i < n → body, else exit *)
+
+outerBody:
+  mov %j:i64,      0
+  mov %partial:i64, 0
+  b innerCheck
+
+(* ---------- inner loop ------------------------------------------------------- *)
+
+innerCheck:
+  sub %condInner:i64, %j, 3             (* run while j < 3 *)
+  branch %condInner, innerBody, innerExit
+
+(* -- inner loop body (may jump to skipEven) ----------------------------------- *)
+
+innerBody:
+  mul %tmp:i64, %i, %j                  (* tmp = i * j *)
+  add %partial:i64, %partial, %tmp      (* accumulate into partial *)
+  add %j:i64, %j, 1
+  b innerCheck
+
+(* ---------- after inner loop ------------------------------------------------- *)
+
+innerExit:
+  add %total:i64, %total, %partial      (* fold inner result into total *)
+
+outerInc:
+  add %i:i64, %i, 1
+  b outerCheck
+
+(* ---------- program end ------------------------------------------------------ *)
+
+exit:
+  return %total
+
+|}
+
   let f =
     {|
 (* --- Program: nested-loops with conditionals --------------------------------- *)

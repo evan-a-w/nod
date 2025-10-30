@@ -281,6 +281,14 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
  ;; 
 
  (*
+ let%expect_test "nested loops simpler - no opt vs opt" = 
+   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f_but_simple; 
+   [%expect {| 
+     no_opt: 42 
+     opt: 42 
+     |}] 
+ ;; 
+
 
  let%expect_test "nested loops - no opt vs opt" = 
    test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f; 
