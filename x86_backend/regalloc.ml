@@ -195,10 +195,7 @@ let run_sat
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            (* Only update if variable doesn't already have an assignment.
-               Variables with forced assignments are handled by initialize_assignments. *)
-            if not (Hashtbl.mem assignments var)
-            then update_assignment ~assignments ~var ~to_:reg
+            update_assignment ~assignments ~var ~to_:reg
           | `Assignment _ | `Spill -> ())
     in
     run ())

@@ -586,16 +586,15 @@ root(%x:i64) {
    unallocated and get printed as bare identifiers (e.g., "mov v1, 1") instead of being
    assigned to registers or spill slots. *)
 
-(*
-let%expect_test "high register pressure - sum of many variables" =
+(* let%expect_test "high register pressure - sum of many variables" =
   test_both_modes ~harness:(make_harness_source ()) high_register_pressure_sum;
   [%expect {|
     no_opt: 210
     opt: 210
     |}]
-;;
+;; *)
 
-let%expect_test "high register pressure - many live across call" =
+(* let%expect_test "high register pressure - many live across call" =
   test_both_modes
     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
     high_register_pressure_call;
@@ -603,8 +602,7 @@ let%expect_test "high register pressure - many live across call" =
     no_opt: 620
     opt: 620
     |}]
-;;
-*)
+;; *)
 
 let%expect_test "high register pressure - loop with many live vars" =
   test_both_modes ~harness:(make_harness_source ()) high_register_pressure_loop;
