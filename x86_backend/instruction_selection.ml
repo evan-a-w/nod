@@ -594,3 +594,16 @@ let run (fn : Function.t) =
   *)
   |> get_fn
 ;;
+
+
+module For_testing = struct
+  let run_deebg (fn : Function.t) =
+    fn
+    |> create
+    |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
+    |> split_blocks_and_add_prologue_and_epilogue
+    |> insert_par_moves
+    (* |> remove_call_block_args *)
+    |> get_fn
+
+end
