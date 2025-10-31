@@ -94,10 +94,6 @@ let initialize_assignments root =
   ~assignments, ~don't_spill
 ;;
 
-module type Sat = sig
-  val run : unit -> unit
-end
-
 let run_sat
   ~dump_crap
   ~reg_numbering

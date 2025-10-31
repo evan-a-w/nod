@@ -280,37 +280,23 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
           |}] 
  ;; 
 
- (*
  let%expect_test "nested loops simpler - no opt vs opt" = 
-  let no_opt_result =
-    compile_and_execute ~harness:(make_harness_source ()) ~opt_flags:Eir.Opt_flags.no_opt Examples.Textual.f_but_simple
-  in
-  print_endline ("no_opt: " ^ no_opt_result);
-   (* test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f_but_simple;  *)
-   [%expect {| no_opt: 42 |}] 
+   test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f_but_simple; 
+   [%expect {|
+     no_opt: 63
+     opt: 63
+     |}] 
  ;; 
- *)
+
 
  (*
-
  let%expect_test "nested loops - no opt vs opt" = 
    test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f; 
-   [%expect {| 
-     no_opt: 42 
-     opt: 42 
+   [%expect {|
+     no_opt: 0
+     opt: 0
      |}] 
  ;; 
-
- let%expect_test "complex arithmetic - no opt vs opt" = 
-   test_both_modes 
-     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
-     complex_arithmetic; 
-   [%expect {| 
-     no_opt: 115 
-     opt: 115 
-     |}] 
- ;; 
-
 
  let%expect_test "deep call stack - no opt vs opt" = 
    test_both_modes 
@@ -329,6 +315,17 @@ let%expect_test "fibonacci 10 - no opt vs opt" =
    [%expect {| 
      no_opt: 1 
      opt: 1 
+     |}] 
+ ;; 
+
+
+ let%expect_test "complex arithmetic - no opt vs opt" = 
+   test_both_modes 
+     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) 
+     complex_arithmetic; 
+   [%expect {| 
+     no_opt: 115 
+     opt: 115 
      |}] 
  ;; 
 
