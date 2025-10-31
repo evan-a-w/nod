@@ -195,7 +195,7 @@ let run_sat
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            update_assignment ~assignments ~var ~to_:reg
+            if not (Hashtbl.mem assignments var) then update_assignment ~assignments ~var ~to_:reg
           | `Assignment _ | `Spill -> ())
     in
     run ())
@@ -242,14 +242,13 @@ let replace_regs
     let map_reg (reg : Reg.t) =
       match reg.reg with
       | Raw.Unallocated v ->
-        (match Hashtbl.find assignments v with
-         | Some Assignment.Spill ->
+        (match Hashtbl.find_exn assignments v with
+         | Assignment.Spill ->
            let offset =
              fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
            Mem (Reg.rbp, offset)
-         | Some (Assignment.Reg phys) -> Reg phys
-         | None -> Reg reg)
+         | Assignment.Reg phys -> Reg phys)
       | Raw.Allocated (v, _) ->
         let phys =
           Hashtbl.find_exn assignments v
