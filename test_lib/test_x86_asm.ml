@@ -106,7 +106,6 @@ let%expect_test "recursive fib" =
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
     fib__intermediate__root_to_ret_1:
-      mov r14, r15
       jmp fib__ret_1
     fib__check1_:
       sub r14, 1
@@ -116,7 +115,6 @@ let%expect_test "recursive fib" =
       jmp fib__rec
     fib__intermediate_check1__to_ret_1:
       mov r15, r14
-      mov r14, r15
     fib__ret_1:
       mov r15, 1
       mov rax, r15
