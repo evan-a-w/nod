@@ -244,6 +244,7 @@ exit:
   return %total
 
 |}
+  ;;
 
   let f =
     {|

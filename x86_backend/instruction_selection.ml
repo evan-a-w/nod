@@ -57,7 +57,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
 let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let make_arith f ({ dest; src1; src2 } : Ir.arith) =
-    require_class t dest  Class.I64;
+    require_class t dest Class.I64;
     let dest_op = Reg (reg_of_var t dest) in
     [ mov dest_op (operand_of_lit_or_var t ~class_:Class.I64 src1)
     ; f dest_op (operand_of_lit_or_var t ~class_:Class.I64 src2)
@@ -595,7 +595,6 @@ let run (fn : Function.t) =
   |> get_fn
 ;;
 
-
 module For_testing = struct
   let run_deebg (fn : Function.t) =
     fn
@@ -605,5 +604,5 @@ module For_testing = struct
     |> insert_par_moves
     (* |> remove_call_block_args *)
     |> get_fn
-
+  ;;
 end

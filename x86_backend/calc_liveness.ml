@@ -100,9 +100,9 @@ module Make (Arg : Arg) = struct
         ~defs, ~uses
       in
       let defs =
-        if not Arg.treat_block_args_as_defs then
-          Int.Set.empty 
-        else 
+        if not Arg.treat_block_args_as_defs
+        then Int.Set.empty
+        else
           List.filter_map
             (Vec.to_list block.args)
             ~f:(Arg.t_of_var >> Option.map ~f:Arg.id_of_t)
@@ -213,7 +213,6 @@ let var ~treat_block_args_as_defs ~reg_numbering =
       type t = Var.t
 
       let treat_block_args_as_defs = treat_block_args_as_defs
-
       let uses_of_ir = Ir.uses
       let defs_of_ir = Ir.defs
       let t_of_var = Option.return
@@ -228,7 +227,6 @@ let phys ~reg_numbering =
       type t = Reg.t
 
       let treat_block_args_as_defs = false
-
       let filter_physical set = Set.filter set ~f:Reg.is_physical |> Set.to_list
 
       let defs_of_ir = function

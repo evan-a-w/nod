@@ -5,36 +5,104 @@ open! Bigarray
 (* file: lib.rs *)
 
 type t
-type sat_result = Sat of (int * bool) list | UnsatCore of int array
+
+type sat_result =
+  | Sat of (int * bool) list
+  | UnsatCore of int array
+
 type bitset
-external create: unit -> t = "create"
-external create_with_problem: int array array -> t = "create_with_problem"
-external run: t -> sat_result = "run"
-external run_with_assumptions: t -> int array -> sat_result = "run_with_assumptions"
-external add_clause: t -> unit = "add_clause"
-external bitset_create: unit -> bitset = "bitset_create"
-external bitset_grow: bitset -> int -> unit = "bitset_grow"
-external bitset_capacity: bitset -> int = "bitset_capacity"
-external bitset_clear_all: bitset -> unit = "bitset_clear_all"
-external bitset_set: bitset -> int -> unit = "bitset_set"
-external bitset_set_between: bitset -> int -> int -> unit = "bitset_set_between"
-external bitset_clear: bitset -> int -> unit = "bitset_clear"
-external bitset_contains: bitset -> int -> bool = "bitset_contains"
-external bitset_first_set: bitset -> int option = "bitset_first_set"
-external bitset_first_unset: bitset -> int option = "bitset_first_unset"
-external bitset_first_set_ge: bitset -> int -> int option = "bitset_first_set_ge"
-external bitset_first_unset_ge: bitset -> int -> int option = "bitset_first_unset_ge"
-external bitset_union_with: bitset -> bitset -> unit = "bitset_union_with"
-external bitset_intersect_with: bitset -> bitset -> unit = "bitset_intersect_with"
-external bitset_difference_with: bitset -> bitset -> unit = "bitset_difference_with"
-external bitset_intersect: bitset -> bitset -> bitset -> unit = "bitset_intersect"
-external bitset_pop_first_set: bitset -> int option = "bitset_pop_first_set"
-external bitset_nth: bitset -> int -> int option = "bitset_nth"
-external bitset_count: bitset -> int = "bitset_count"
-external bitset_iter: bitset -> int array = "bitset_iter"
-external bitset_iter_union: bitset -> bitset -> int array = "bitset_iter_union"
-external bitset_iter_intersection: bitset -> bitset -> int array = "bitset_iter_intersection"
-external bitset_iter_difference: bitset -> bitset -> int array = "bitset_iter_difference"
-external bitset_intersect_first_set: bitset -> bitset -> int option = "bitset_intersect_first_set"
-external bitset_intersect_first_set_ge: bitset -> bitset -> int -> int option = "bitset_intersect_first_set_ge"
-external bitset_is_empty: bitset -> bool = "bitset_is_empty"
+
+external create : unit -> t = "create"
+external create_with_problem : int array array -> t = "create_with_problem"
+external run : t -> sat_result = "run"
+
+external run_with_assumptions
+  :  t
+  -> int array
+  -> sat_result
+  = "run_with_assumptions"
+
+external add_clause : t -> unit = "add_clause"
+external bitset_create : unit -> bitset = "bitset_create"
+external bitset_grow : bitset -> int -> unit = "bitset_grow"
+external bitset_capacity : bitset -> int = "bitset_capacity"
+external bitset_clear_all : bitset -> unit = "bitset_clear_all"
+external bitset_set : bitset -> int -> unit = "bitset_set"
+
+external bitset_set_between
+  :  bitset
+  -> int
+  -> int
+  -> unit
+  = "bitset_set_between"
+
+external bitset_clear : bitset -> int -> unit = "bitset_clear"
+external bitset_contains : bitset -> int -> bool = "bitset_contains"
+external bitset_first_set : bitset -> int option = "bitset_first_set"
+external bitset_first_unset : bitset -> int option = "bitset_first_unset"
+
+external bitset_first_set_ge
+  :  bitset
+  -> int
+  -> int option
+  = "bitset_first_set_ge"
+
+external bitset_first_unset_ge
+  :  bitset
+  -> int
+  -> int option
+  = "bitset_first_unset_ge"
+
+external bitset_union_with : bitset -> bitset -> unit = "bitset_union_with"
+
+external bitset_intersect_with
+  :  bitset
+  -> bitset
+  -> unit
+  = "bitset_intersect_with"
+
+external bitset_difference_with
+  :  bitset
+  -> bitset
+  -> unit
+  = "bitset_difference_with"
+
+external bitset_intersect
+  :  bitset
+  -> bitset
+  -> bitset
+  -> unit
+  = "bitset_intersect"
+
+external bitset_pop_first_set : bitset -> int option = "bitset_pop_first_set"
+external bitset_nth : bitset -> int -> int option = "bitset_nth"
+external bitset_count : bitset -> int = "bitset_count"
+external bitset_iter : bitset -> int array = "bitset_iter"
+external bitset_iter_union : bitset -> bitset -> int array = "bitset_iter_union"
+
+external bitset_iter_intersection
+  :  bitset
+  -> bitset
+  -> int array
+  = "bitset_iter_intersection"
+
+external bitset_iter_difference
+  :  bitset
+  -> bitset
+  -> int array
+  = "bitset_iter_difference"
+
+external bitset_intersect_first_set
+  :  bitset
+  -> bitset
+  -> int option
+  = "bitset_intersect_first_set"
+
+external bitset_intersect_first_set_ge
+  :  bitset
+  -> bitset
+  -> int
+  -> int option
+  = "bitset_intersect_first_set_ge"
+
+external bitset_is_empty : bitset -> bool = "bitset_is_empty"
