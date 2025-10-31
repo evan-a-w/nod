@@ -562,7 +562,8 @@ ret %dyn
 
 let%expect_test "f" =
   test Examples.Textual.f;
-  [%expect {|
+  [%expect
+    {|
     (((call_conv Default)
       (root
        ((start (args ())

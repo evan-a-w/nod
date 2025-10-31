@@ -1,7 +1,6 @@
 open! Core
 open! Import
 open! Common
-
 module Raw = X86_reg.Raw
 module Class = X86_reg.Class
 
@@ -107,8 +106,7 @@ let run_sat
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
-    |> List.filter ~f:(fun state ->
-      Class.equal (class_of_var state.var) class_)
+    |> List.filter ~f:(fun state -> Class.equal (class_of_var state.var) class_)
   in
   let var_ids_list = List.map var_states ~f:Reg_numbering.id in
   let var_ids = Array.of_list var_ids_list in
@@ -123,9 +121,7 @@ let run_sat
     let backout_sat_var var =
       let var_id = (var - 1) / sat_vars_per_var_id in
       let reg = (var - 1) mod sat_vars_per_var_id in
-      if reg = 0
-      then var_id, `Spill
-      else var_id, `Assignment reg_pool.(reg - 1)
+      if reg = 0 then var_id, `Spill else var_id, `Assignment reg_pool.(reg - 1)
     in
     let all_reg_assignments var_id =
       Array.init (Array.length reg_pool) ~f:(reg_sat var_id)
@@ -152,7 +148,8 @@ let run_sat
       Array.append exactly_one_reg_per_var interferences
     in
     if dump_crap
-    then print_s [%message "SAT constraints" (sat_constraints : int array array)];
+    then
+      print_s [%message "SAT constraints" (sat_constraints : int array array)];
     let pror = Pror.create_with_problem sat_constraints in
     let to_spill =
       var_states
@@ -198,7 +195,10 @@ let run_sat
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            update_assignment ~assignments ~var ~to_:reg
+            (* Only update if variable doesn't already have an assignment.
+               Variables with forced assignments are handled by initialize_assignments. *)
+            if not (Hashtbl.mem assignments var)
+            then update_assignment ~assignments ~var ~to_:reg
           | `Assignment _ | `Spill -> ())
     in
     run ())
@@ -247,7 +247,9 @@ let replace_regs
       | Raw.Unallocated v ->
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
-           let offset = fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8) in
+           let offset =
+             fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
+           in
            Mem (Reg.rbp, offset)
          | Some (Assignment.Reg phys) -> Reg phys
          | None -> Reg reg)
@@ -302,7 +304,9 @@ let run ?(dump_crap = false) (fn : Function.t) =
     Hashtbl.find var_classes var |> Option.value ~default:Class.I64
   in
   let reg_numbering = Reg_numbering.create fn.root in
-  let (module Calc_liveness) = Calc_liveness.var ~treat_block_args_as_defs:false ~reg_numbering in
+  let (module Calc_liveness) =
+    Calc_liveness.var ~treat_block_args_as_defs:false ~reg_numbering
+  in
   let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
   let interference_graph =
     Interference_graph.create

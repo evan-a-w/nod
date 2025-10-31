@@ -4,8 +4,8 @@ open! Common
 
 let default_clobbers =
   let callee_saved =
-    (Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.I64
-     @ Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.F64)
+    Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.I64
+    @ Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.F64
     |> Reg.Set.of_list
   in
   Array.fold Reg.all_physical ~init:Reg.Set.empty ~f:(fun acc reg ->
@@ -75,7 +75,8 @@ let save_and_restore_in_prologue_and_epilogue
     let () =
       (* change epilogue *)
       if List.is_empty to_restore
-      then Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)))
+      then
+        Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)))
       else
         List.map
           ~f:Ir.x86

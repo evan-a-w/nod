@@ -19,12 +19,12 @@ module For_testing = struct
 
   let print_selected_instructions (functions : Function.t String.Map.t) =
     (* select_instructions *)
-    Map.map
-    functions
-    ~f:Instruction_selection.For_testing.run_deebg
+    Map.map functions ~f:Instruction_selection.For_testing.run_deebg
     |> Map.iteri ~f:(fun ~key:_name ~data:fn ->
       let reg_numbering = Reg_numbering.create fn.root in
-      let (module Calc_liveness) = Calc_liveness.var ~treat_block_args_as_defs:true ~reg_numbering in
+      let (module Calc_liveness) =
+        Calc_liveness.var ~treat_block_args_as_defs:true ~reg_numbering
+      in
       let open Calc_liveness in
       let liveness_state = Liveness_state.create ~root:fn.root in
       Block.to_list fn.root

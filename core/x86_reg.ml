@@ -124,9 +124,22 @@ let raw t = t.reg
 let class_ t = t.class_
 
 let rec default_class = function
-  | Raw.XMM0 | Raw.XMM1 | Raw.XMM2 | Raw.XMM3 | Raw.XMM4 | Raw.XMM5 | Raw.XMM6
-  | Raw.XMM7 | Raw.XMM8 | Raw.XMM9 | Raw.XMM10 | Raw.XMM11 | Raw.XMM12 | Raw.XMM13
-  | Raw.XMM14 | Raw.XMM15 -> Class.F64
+  | Raw.XMM0
+  | Raw.XMM1
+  | Raw.XMM2
+  | Raw.XMM3
+  | Raw.XMM4
+  | Raw.XMM5
+  | Raw.XMM6
+  | Raw.XMM7
+  | Raw.XMM8
+  | Raw.XMM9
+  | Raw.XMM10
+  | Raw.XMM11
+  | Raw.XMM12
+  | Raw.XMM13
+  | Raw.XMM14
+  | Raw.XMM15 -> Class.F64
   | Raw.Allocated (_, Some forced) -> default_class forced
   | _ -> Class.I64
 ;;
@@ -137,10 +150,8 @@ let make ?class_ reg =
 ;;
 
 let physical ?class_ reg = make ?class_ reg
-
 let is_physical t = Raw.is_physical t.reg
 let should_save t = Raw.should_save t.reg
-
 let with_class t class_ = { t with class_ }
 let with_raw t reg = { reg; class_ = t.class_ }
 
@@ -172,10 +183,8 @@ let callee_saved ?(call_conv = Call_conv.default) class_ =
 ;;
 
 let all_physical = Array.map Raw.all_physical ~f:make
-
 let gp raw = physical ~class_:Class.I64 raw
 let xmm raw = physical ~class_:Class.F64 raw
-
 let rbp = gp Raw.RBP
 let rsp = gp Raw.RSP
 let rax = gp Raw.RAX
@@ -192,7 +201,6 @@ let r12 = gp Raw.R12
 let r13 = gp Raw.R13
 let r14 = gp Raw.R14
 let r15 = gp Raw.R15
-
 let xmm0 = xmm Raw.XMM0
 let xmm1 = xmm Raw.XMM1
 let xmm2 = xmm Raw.XMM2

@@ -283,27 +283,27 @@ module Opt = struct
         else
           { cb with
             args =
-              (List.filteri cb.args ~f:(fun i var ->
-                    let id = Var.name var in
-                    match i = idx, active_var t id with
-                    | false, _ -> true
-                    | true, None -> false
-                    | true, Some opt_var ->
-                      (* kill the tang *)
-                      Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
-                        match loc.Loc.where with
-                        | Loc.Block_arg _ -> true
-                        | Instr instr -> not (phys_equal instr parent.terminal));
-                      Queue.enqueue found opt_var;
-                      false))
+              List.filteri cb.args ~f:(fun i var ->
+                let id = Var.name var in
+                match i = idx, active_var t id with
+                | false, _ -> true
+                | true, None -> false
+                | true, Some opt_var ->
+                  (* kill the tang *)
+                  Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
+                    match loc.Loc.where with
+                    | Loc.Block_arg _ -> true
+                    | Instr instr -> not (phys_equal instr parent.terminal));
+                  Queue.enqueue found opt_var;
+                  false)
           })
     in
     parent.Block.terminal <- new_;
     let loc = { Loc.where = Instr new_; block = parent } in
-    Queue.iter found ~f:(fun (opt_var : Opt_var.t) -> 
-        Hash_set.add opt_var.uses loc);
-    Queue.iter found ~f:(fun (opt_var : Opt_var.t) -> 
-        try_kill_var t ~id:opt_var.id)
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
+      Hash_set.add opt_var.uses loc);
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
+      try_kill_var t ~id:opt_var.id)
 
   and remove_arg t ~block ~arg =
     let idx =

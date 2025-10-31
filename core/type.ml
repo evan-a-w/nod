@@ -43,4 +43,3 @@ let is_float = function
 ;;
 
 let is_numeric t = is_integer t || is_float t
-;;

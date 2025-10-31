@@ -55,6 +55,7 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   | Ok functions ->
     let asm = X86_backend.compile_to_asm functions in
     print_endline asm
+;;
 
 let borked = Examples.Textual.f
 
@@ -172,8 +173,10 @@ let%expect_test "borked" =
     |}]
 ;;
 
-let%expect_test "debug borked opt ssa" = test_ssa ~don't_opt:() borked;
-  [%expect {|
+let%expect_test "debug borked opt ssa" =
+  test_ssa ~don't_opt:() borked;
+  [%expect
+    {|
     (start
      (instrs
       ((Move ((name n) (type_ I64)) (Lit 7))
@@ -431,7 +434,7 @@ let%expect_test "debug borked opt ssa" = test_ssa ~don't_opt:() borked;
        ((name partial%4) (type_ I64))))
      (instrs ((Return (Var ((name total%2) (type_ I64)))))))
     |}]
-
+;;
 
 let%expect_test "debug borked" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
@@ -735,7 +738,6 @@ let%expect_test "debug borked" =
       +--------------------------------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
       |}]
 ;;
-
 
 let%expect_test "debug borked opt" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.default borked with
