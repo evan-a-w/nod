@@ -367,7 +367,6 @@ let%expect_test "call chains - no opt vs opt" =
     |}]
 ;;
 
-
 (* High Register Pressure Tests *)
 
 (* Test 1: Many live variables in a single computation

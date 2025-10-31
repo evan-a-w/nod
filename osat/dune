@@ -1,0 +1,17 @@
+(library
+ (name osat)
+ (modules osat)
+ (preprocess
+  (pps ppx_jane))
+ (inline_tests)
+ (libraries core core_unix vec pror))
+
+(executable
+ (name test_osat)
+ (modules test_osat)
+ (libraries osat core))
+
+(executable
+ (name debug_test)
+ (modules debug_test)
+ (libraries osat core))
