@@ -24,10 +24,10 @@ let%expect_test "super triv lowers to assembly" =
       add rbp, 24
       jmp root__a
     root__a:
-      mov r15, 10
-      mov r14, 20
-      sub r14, r15
-      mov rax, r14
+      mov r14, 10
+      mov r15, 20
+      sub r15, r14
+      mov rax, r15
       jmp root__root__epilogue
     root__root__epilogue:
       mov rsp, rbp
@@ -55,14 +55,13 @@ let%expect_test "branches lower with labels" =
       add rbp, 24
       jmp root__a
     root__a:
-      mov r15, 10
-      mov r14, 20
-      sub r14, r15
+      mov r14, 10
+      mov r15, 20
+      sub r15, r14
       jmp root__intermediate_a_to_b
     root__intermediate_a_to_b:
       jmp root__b
     root__b:
-      mov r15, r14
       add r15, 5
       jmp root__intermediate_b_to_end0
     root__intermediate_b_to_end0:
@@ -101,10 +100,11 @@ let%expect_test "recursive fib" =
     .globl fib
     fib:
       push rbp
+      push r13
       push r14
       push r15
       mov rbp, rsp
-      add rbp, 24
+      add rbp, 32
       mov r14, rdi
       jmp fib___root
     fib___root:
@@ -114,44 +114,44 @@ let%expect_test "recursive fib" =
     fib__intermediate__root_to_check1_:
       jmp fib__check1_
     fib__check1_:
-      sub r14, 1
-      cmp r14, 0
+      mov r15, r14
+      sub r15, 1
+      cmp r15, 0
       jne fib__intermediate_check1__to_rec
       jmp fib__intermediate_check1__to_ret_1
     fib__intermediate_check1__to_rec:
       jmp fib__rec
     fib__rec:
       push rax
-      mov rdi, r14
+      mov rdi, r15
       call fib
-      mov r15, rax
+      mov r13, rax
       pop rax
-      sub r14, 1
+      sub r15, 1
       push rax
-      mov rdi, r14
+      mov rdi, r15
       call fib
       mov r14, rax
       pop rax
+      mov r15, r13
       add r15, r14
       mov rax, r15
       jmp fib__fib__epilogue
     fib__fib__epilogue:
       mov rsp, rbp
-      sub rsp, 24
+      sub rsp, 32
       pop r15
       pop r14
+      pop r13
       pop rbp
       ret
     fib__intermediate_check1__to_ret_1:
-      mov r15, r14
-      mov r14, r15
       jmp fib__ret_1
     fib__ret_1:
       mov r15, 1
       mov rax, r15
       jmp fib__fib__epilogue
     fib__intermediate__root_to_ret_1:
-      mov r14, r15
       jmp fib__ret_1
     .section .note.GNU-stack,"",@progbits
     |}]
@@ -178,10 +178,10 @@ ret %result
       add rbp, 16
       jmp root___root
     root___root:
-      mov xmm14, 3
-      mov xmm15, 7
-      addsd xmm14, xmm15
-      cvttsd2si r15, xmm14
+      mov xmm15, 3
+      mov xmm14, 7
+      addsd xmm15, xmm14
+      cvttsd2si r15, xmm15
       mov rax, r15
       jmp root__root__epilogue
     root__root__epilogue:
@@ -228,25 +228,29 @@ done:
       add rbp, 120
       jmp root___root
     root___root:
-      mov r15, [rbp]
+      mov r11, [rbp]
       mov r14, 0
-      mov r13, 0
+      mov r15, 0
+      mov r12, r14
+      mov r13, r15
       jmp root__loop
     root__loop:
-      mov r12, 8
-      mov rax, r14
-      imul r12
-      mov r12, rax
-      mov r11, r15
-      add r11, r12
-      add r13, r14
+      mov r15, 8
+      mov rax, r12
+      imul r15
+      mov r14, rax
+      mov r15, r11
+      add r15, r14
+      add r13, r12
+      mov r14, r12
       add r14, 1
-      mov r12, r14
-      sub r12, 10
-      cmp r12, 0
+      mov r15, r14
+      sub r15, 10
+      cmp r15, 0
       jne root__intermediate_loop_to_loop
       jmp root__intermediate_loop_to_done
     root__intermediate_loop_to_loop:
+      mov r12, r14
       jmp root__loop
     root__intermediate_loop_to_done:
       jmp root__done
