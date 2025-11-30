@@ -201,7 +201,13 @@ let run_sat
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            update_assignment ~assignments ~var ~to_:reg
+            (* Skip if variable is already pre-allocated (e.g., tmp_rax, tmp_rdx) *)
+            if not (Hashtbl.mem assignments var) then
+              update_assignment ~assignments ~var ~to_:reg
+          | `Spill when b ->
+            (* Record spill decision, unless variable is pre-allocated *)
+            if not (Hashtbl.mem assignments var) then
+              Hashtbl.set assignments ~key:var ~data:Assignment.Spill
           | `Assignment _ | `Spill -> ())
     in
     run ())

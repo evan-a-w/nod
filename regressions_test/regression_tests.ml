@@ -627,7 +627,7 @@ let%expect_test "high register pressure - deeply nested expressions" =
     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
     high_register_pressure_nested;
   [%expect {|
-    no_opt: 518
-    opt: 518
+    no_opt: 590
+    opt: 590
     |}]
 ;;

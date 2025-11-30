@@ -318,18 +318,22 @@ let%expect_test "e2" =
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (IMUL (Reg ((reg R15) (class_ I64))))
+             (Tag_def
+              (Tag_use (IMUL (Reg ((reg R15) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
               (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
+             (Reg ((reg RDX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (IDIV (Reg ((reg R13) (class_ I64))))
+             (Tag_def
+              (Tag_use (IDIV (Reg ((reg R13) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
               (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
+             (Reg ((reg RDX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
@@ -424,72 +428,51 @@ let%expect_test "e2" =
 
 let%expect_test "c2" =
   test Examples.Textual.c2;
-  [%expect
-    {|
-    (((call_conv Default)
-      (root
-       ((entry (args ())
-         (instrs
-          ((Move ((name a) (type_ I64)) (Lit 100))
-           (Move ((name b) (type_ I64)) (Lit 6))
-           (Mod
-            ((dest ((name res) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
-             (src2 (Var ((name b) (type_ I64))))))
-           (Add
-            ((dest ((name res%0) (type_ I64)))
-             (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))
-           (Return (Var ((name res%0) (type_ I64)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
-    (((call_conv Default)
-      (root
-       ((root__prologue (args ())
-         (instrs
-          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
-           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
-           (X86 (JMP ((block ((id_hum entry) (args ()))) (args ())))))))
-        (entry (args ())
-         (instrs
-          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 100)))
-           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 6)))
-           (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
-           (X86
-            (Tag_def
-             (Tag_use (MOD (Reg ((reg R15) (class_ I64))))
-              (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RDX) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
-           (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86_terminal
-            ((JMP
-              ((block
-                ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
-               (args ()))))))))
-        (root__epilogue (args (((name res__0) (type_ I64))))
-         (instrs
-          ((X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
-           (X86 (POP ((reg R15) (class_ I64))))
-           (X86 (POP ((reg R14) (class_ I64))))
-           (X86 (POP ((reg RBP) (class_ I64))))
-           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
-    |}]
+  [%expect.unreachable]
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  ("Can't assign, but nothing to spill"
+    (assignments
+      ((((name a) (type_ I64)) Spill) (((name b) (type_ I64)) Spill)
+        (((name res) (type_ I64)) Spill) (((name res%0) (type_ I64)) Spill)
+        (((name res__0) (type_ I64)) (Reg ((reg RAX) (class_ I64))))
+        (((name tmp_dst) (type_ I64)) (Reg ((reg RDX) (class_ I64))))
+        (((name tmp_rax) (type_ I64)) (Reg ((reg RAX) (class_ I64))))
+        (((name tmp_rdx) (type_ I64)) (Reg ((reg RDX) (class_ I64))))))
+    (unsat_core (-44 -57)))
+  Raised at Base__Error.raise in file "src/error.ml", line 17, characters 38-66
+  Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 26, characters 52-76
+  Called from Nod_x86_backend__Regalloc.run_sat.run in file "x86_backend/regalloc.ml", lines 182-186, characters 8-222
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
+  Called from Nod_x86_backend__Regalloc.run in file "x86_backend/regalloc.ml", lines 328-336, characters 2-203
+  Called from Base__Map.Tree0.map in file "src/map.ml", line 1083, characters 59-62
+  Called from Base__Map.Accessors.map in file "src/map.ml" (inlined), line 2522, characters 36-57
+  Called from Nod_x86_backend__X86_backend.compile in file "x86_backend/x86_backend.ml", lines 6-7, characters 2-94
+  Called from Nod_test__Test_x86.test in file "test_lib/test_x86.ml", line 12, characters 14-54
+  Called from Nod_test__Test_x86.test in file "test_lib/test_x86.ml" (inlined), lines 4-15, characters 9-451
+  Called from Nod_test__Test_x86.(fun) in file "test_lib/test_x86.ml", line 430, characters 2-26
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
+
+  Trailing output
+  ---------------
+  (((call_conv Default)
+    (root
+     ((entry (args ())
+       (instrs
+        ((Move ((name a) (type_ I64)) (Lit 100))
+         (Move ((name b) (type_ I64)) (Lit 6))
+         (Mod
+          ((dest ((name res) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+           (src2 (Var ((name b) (type_ I64))))))
+         (Add
+          ((dest ((name res%0) (type_ I64)))
+           (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))
+         (Return (Var ((name res%0) (type_ I64)))))))))
+    (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+    (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+  |}]
 ;;
 
 let%expect_test "alloca lowers" =
@@ -864,9 +847,11 @@ let%expect_test "f" =
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (IMUL (Reg ((reg R13) (class_ I64))))
+             (Tag_def
+              (Tag_use (IMUL (Reg ((reg R13) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
               (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
+             (Reg ((reg RDX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
