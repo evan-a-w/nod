@@ -1,7 +1,6 @@
 open! Core
 open! Import
 open! Common
-
 module Raw = X86_reg.Raw
 module Class = X86_reg.Class
 
@@ -111,8 +110,7 @@ let run_sat
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
-    |> List.filter ~f:(fun state ->
-      Class.equal (class_of_var state.var) class_)
+    |> List.filter ~f:(fun state -> Class.equal (class_of_var state.var) class_)
   in
   let var_ids_list = List.map var_states ~f:Reg_numbering.id in
   let var_ids = Array.of_list var_ids_list in
@@ -127,9 +125,7 @@ let run_sat
     let backout_sat_var var =
       let var_id = (var - 1) / sat_vars_per_var_id in
       let reg = (var - 1) mod sat_vars_per_var_id in
-      if reg = 0
-      then var_id, `Spill
-      else var_id, `Assignment reg_pool.(reg - 1)
+      if reg = 0 then var_id, `Spill else var_id, `Assignment reg_pool.(reg - 1)
     in
     let all_reg_assignments var_id =
       Array.init (Array.length reg_pool) ~f:(reg_sat var_id)
@@ -138,9 +134,10 @@ let run_sat
       let open Pror.Logic in
       let exactly_one_reg_per_var =
         Array.concat_map var_ids ~f:(fun var_id ->
-          Array.map
-            (exactly_one (all_reg_assignments var_id))
-            ~f:(fun arr -> Array.append [| spill var_id |] arr))
+          let options =
+            Array.append [| spill var_id |] (all_reg_assignments var_id)
+          in
+          exactly_one options)
       in
       let interferences =
         Interference_graph.edges interference_graph
@@ -156,8 +153,9 @@ let run_sat
       Array.append exactly_one_reg_per_var interferences
     in
     if dump_crap
-    then print_s [%message "SAT constraints" (sat_constraints : int array array)];
-    let pror = Pror.create_with_problem sat_constraints in
+    then
+      print_s [%message "SAT constraints" (sat_constraints : int array array)];
+    let solver = Feel.Solver.create_with_formula sat_constraints in
     let to_spill =
       var_states
       |> List.filter ~f:(fun { var; _ } ->
@@ -183,19 +181,24 @@ let run_sat
     let rec run () =
       let assumptions = assumptions () in
       if dump_crap then print_s [%message "LOOP" (assumptions : int array)];
-      match Pror.run_with_assumptions pror assumptions, !to_spill with
-      | UnsatCore core, [] ->
+      match Feel.Solver.solve solver ~assumptions, !to_spill with
+      | Unsat { unsat_core }, [] ->
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
               (assignments : Assignment.t Var.Table.t)
-              (core : int array)]
-      | ( UnsatCore _
-        , ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill ) ->
+              ~unsat_core:(Feel.Clause.to_int_array unsat_core : int array)]
+      | Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
+        ->
         to_spill := rest_to_spill;
         Hashtbl.add_exn assignments ~key ~data:Spill;
         run ()
-      | Sat res, _ ->
+      | Sat { assignments = res }, _ ->
+        let res =
+          Feel.Clause.to_int_array res
+          |> Array.to_list
+          |> List.map ~f:(fun literal -> Int.abs literal, literal > 0)
+        in
         if dump_crap then print_s [%message (res : (int * bool) list)];
         List.iter res ~f:(fun (sat_var, b) ->
           let var_id, x = backout_sat_var sat_var in
@@ -251,7 +254,9 @@ let replace_regs
       | Raw.Unallocated v ->
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
-           let offset = fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8) in
+           let offset =
+             fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
+           in
            Mem (Reg.rbp, offset)
          | Some (Assignment.Reg phys) -> Reg phys
          | None -> Reg reg)
