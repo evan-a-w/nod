@@ -134,9 +134,10 @@ let run_sat
       let open Pror.Logic in
       let exactly_one_reg_per_var =
         Array.concat_map var_ids ~f:(fun var_id ->
-          Array.map
-            (exactly_one (all_reg_assignments var_id))
-            ~f:(fun arr -> Array.append [| spill var_id |] arr))
+          let options =
+            Array.append [| spill var_id |] (all_reg_assignments var_id)
+          in
+          exactly_one options)
       in
       let interferences =
         Interference_graph.edges interference_graph
