@@ -150,7 +150,7 @@ let run_sat
     if dump_crap
     then
       print_s [%message "SAT constraints" (sat_constraints : int array array)];
-    let pror = Pror.create_with_problem sat_constraints in
+    let solver = Feel.Solver.create_with_formula sat_constraints in
     let to_spill =
       var_states
       |> List.filter ~f:(fun { var; _ } ->
@@ -176,26 +176,32 @@ let run_sat
     let rec run () =
       let assumptions = assumptions () in
       if dump_crap then print_s [%message "LOOP" (assumptions : int array)];
-      match Pror.run_with_assumptions pror assumptions, !to_spill with
-      | UnsatCore core, [] ->
+      match Feel.Solver.solve solver ~assumptions, !to_spill with
+      | Unsat { unsat_core }, [] ->
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
               (assignments : Assignment.t Var.Table.t)
-              (core : int array)]
-      | ( UnsatCore _
-        , ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill ) ->
+              ~unsat_core:(Feel.Clause.to_int_array unsat_core : int array)]
+      | Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
+        ->
         to_spill := rest_to_spill;
         Hashtbl.add_exn assignments ~key ~data:Spill;
         run ()
-      | Sat res, _ ->
+      | Sat { assignments = res }, _ ->
+        let res =
+          Feel.Clause.to_int_array res
+          |> Array.map ~f:(fun literal -> Int.abs literal, literal > 0)
+          |> Array.to_list
+        in
         if dump_crap then print_s [%message (res : (int * bool) list)];
         List.iter res ~f:(fun (sat_var, b) ->
           let var_id, x = backout_sat_var sat_var in
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            if not (Hashtbl.mem assignments var) then update_assignment ~assignments ~var ~to_:reg
+            if not (Hashtbl.mem assignments var)
+            then update_assignment ~assignments ~var ~to_:reg
           | `Assignment _ | `Spill -> ())
     in
     run ())
