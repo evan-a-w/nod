@@ -15,17 +15,11 @@
 
 (documentation https://url/to/documentation)
 
-(pin
- (package
-  (name feel)
-  (version 2.0))
-  (url git+https://github.com/evan-a-w/oxsat))
-
 (package
  (name nod)
  (synopsis "A short synopsis")
  (description "A longer description")
- (depends ocaml dune core feel)
+ (depends ocaml dune core)
  (tags
   (topics "to describe" your project)))
 
