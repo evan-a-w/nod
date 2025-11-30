@@ -130,9 +130,10 @@ let run_sat
       let open Pror.Logic in
       let exactly_one_reg_per_var =
         Array.concat_map var_ids ~f:(fun var_id ->
-          Array.map
-            (exactly_one (all_reg_assignments var_id))
-            ~f:(fun arr -> Array.append [| spill var_id |] arr))
+          let options =
+            Array.append [| spill var_id |] (all_reg_assignments var_id)
+          in
+          exactly_one options)
       in
       let interferences =
         Interference_graph.edges interference_graph
@@ -191,8 +192,8 @@ let run_sat
       | Sat { assignments = res }, _ ->
         let res =
           Feel.Clause.to_int_array res
-          |> Array.map ~f:(fun literal -> Int.abs literal, literal > 0)
           |> Array.to_list
+          |> List.map ~f:(fun literal -> Int.abs literal, literal > 0)
         in
         if dump_crap then print_s [%message (res : (int * bool) list)];
         List.iter res ~f:(fun (sat_var, b) ->
@@ -200,8 +201,7 @@ let run_sat
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
           | `Assignment reg when b ->
-            if not (Hashtbl.mem assignments var)
-            then update_assignment ~assignments ~var ~to_:reg
+            update_assignment ~assignments ~var ~to_:reg
           | `Assignment _ | `Spill -> ())
     in
     run ())
@@ -248,13 +248,14 @@ let replace_regs
     let map_reg (reg : Reg.t) =
       match reg.reg with
       | Raw.Unallocated v ->
-        (match Hashtbl.find_exn assignments v with
-         | Assignment.Spill ->
+        (match Hashtbl.find assignments v with
+         | Some Assignment.Spill ->
            let offset =
              fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
            Mem (Reg.rbp, offset)
-         | Assignment.Reg phys -> Reg phys)
+         | Some (Assignment.Reg phys) -> Reg phys
+         | None -> Reg reg)
       | Raw.Allocated (v, _) ->
         let phys =
           Hashtbl.find_exn assignments v
