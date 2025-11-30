@@ -1,0 +1,3 @@
+[submodule "oxsat"]
+	path = oxsat
+	url = git@github.com:/evan-a-w/oxsat
