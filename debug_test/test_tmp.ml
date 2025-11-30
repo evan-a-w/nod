@@ -75,25 +75,32 @@ let%expect_test "borked" =
       mov rbp, rsp
       add rbp, 40
     root__start:
-      mov r14, 7
-      mov r13, 0
+      mov r8, 7
       mov r15, 0
+      mov r9, 0
     root__intermediate_start_to_outercheck:
+      mov r10, r15
+      mov r15, r13
+      mov r13, r15
+      mov r15, r14
+      mov r14, r15
       jmp root__outercheck
     root__intermediate_start_to_exit:
-      mov r14, r11
-      mov r14, r12
+      mov r15, r13
+      mov r15, r14
+      mov r15, r9
       jmp root__exit
     root__outercheck:
-      mov r10, r13
-      sub r10, r14
-      cmp r10, 0
+      mov r15, r10
+      sub r15, r8
+      cmp r15, 0
       je root__intermediate_outercheck_to_exit
     root__intermediate_outercheck_to_outerbody:
       jmp root__outerbody
     root__intermediate_outercheck_to_exit:
-      mov r14, r11
-      mov r14, r12
+      mov r15, r13
+      mov r15, r14
+      mov r15, r9
     root__exit:
       mov rax, r15
     root__root__epilogue:
@@ -109,65 +116,75 @@ let%expect_test "borked" =
       mov r11, 0
       mov r12, 0
     root__intermediate_outerbody_to_innercheck:
-      mov r10, r11
-      mov r9, r12
+      mov r13, r11
+      mov r14, r12
       jmp root__innercheck
     root__intermediate_outerbody_to_outerinc:
-      mov r10, r15
+      mov r15, r9
       jmp root__outerinc
     root__innercheck:
-      mov r8, r10
-      sub r8, 3
-      cmp r8, 0
+      mov r15, r13
+      sub r15, 3
+      cmp r15, 0
       je root__intermediate_innercheck_to_innerexit
     root__intermediate_innercheck_to_innerbody:
       jmp root__innerbody
     root__intermediate_innercheck_to_innerexit:
-      mov r8, r9
+      mov r15, r13
+      mov r13, r14
       jmp root__innerexit
     root__outerinc:
-      add r13, 1
+      mov r15, r10
+      add r15, 1
+      mov r10, r15
+      mov r13, r11
+      mov r14, r12
       jmp root__outercheck
     root__innerbody:
-      mov r8, r10
-      and r8, 1
-      sub r8, 0
-      cmp r8, 0
+      mov r15, r13
+      and r15, 1
+      sub r15, 0
+      cmp r15, 0
       je root__intermediate_innerbody_to_skipeven
     root__intermediate_innerbody_to_dowork:
       jmp root__dowork
     root__intermediate_innerbody_to_skipeven:
       jmp root__skipeven
     root__innerexit:
-      mov r9, r15
-      add r9, r8
+      mov r14, r9
+      add r14, r13
     root__intermediate_innerexit_to_outerinc:
-      mov r10, r9
+      mov r15, r14
       jmp root__outerinc
     root__intermediate_innerexit_to_exit:
-      mov r14, r10
-      mov r14, r8
-      mov r15, r9
+      mov r15, r13
+      mov r15, r14
       jmp root__exit
     root__dowork:
-      mov rax, r13
-      imul r10
-      mov r8, rax
-      add r9, r8
-      add r10, 1
+      mov rax, r10
+      imul r13
+      mov r15, rax
+      add r14, r15
+      mov r15, r13
+      add r15, 1
       jmp root__intermediate_dowork_to_innercheck
     root__skipeven:
-      add r10, 1
+      mov r15, r13
+      add r15, 1
       jmp root__intermediate_skipeven_to_innercheck
     root__intermediate_dowork_to_innercheck:
+      mov r13, r15
       jmp root__innercheck
     root__intermediate_dowork_to_innerexit:
-      mov r8, r9
+      mov r13, r14
       jmp root__innerexit
     root__intermediate_skipeven_to_innercheck:
+      mov r13, r15
+      mov r15, r14
+      mov r14, r15
       jmp root__innercheck
     root__intermediate_skipeven_to_innerexit:
-      mov r8, r9
+      mov r13, r14
       jmp root__innerexit
     .section .note.GNU-stack,"",@progbits
     |}]

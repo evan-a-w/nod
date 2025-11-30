@@ -69,6 +69,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let tmp_rax =
       Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_rax") (Some Reg.rax)
     in
+    let tmp_rdx =
+      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_rdx") (Some Reg.rdx)
+    in
     let tmp_dst =
       Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_dst") (Some take_reg)
     in
@@ -86,7 +89,10 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     extra_mov
     @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
-      ; tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst)
+      ; (* IMUL/IDIV/MOD clobber both RAX and RDX, so mark both as defined *)
+        tag_def
+          (tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst))
+          (Reg tmp_rdx)
       ; mov (reg dest) (Reg tmp_dst)
       ]
   in

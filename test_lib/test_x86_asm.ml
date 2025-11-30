@@ -23,10 +23,10 @@ let%expect_test "super triv lowers to assembly" =
       mov rbp, rsp
       add rbp, 24
     root__a:
-      mov r15, 10
-      mov r14, 20
-      sub r14, r15
-      mov rax, r14
+      mov r14, 10
+      mov r15, 20
+      sub r15, r14
+      mov rax, r15
     root__root__epilogue:
       mov rsp, rbp
       sub rsp, 24
@@ -52,15 +52,14 @@ let%expect_test "branches lower with labels" =
       mov rbp, rsp
       add rbp, 24
     root__a:
-      mov r15, 10
-      mov r14, 20
-      sub r14, r15
+      mov r14, 10
+      mov r15, 20
+      sub r15, r14
     root__intermediate_a_to_b:
       jmp root__b
     root__intermediate_a_to_c:
       jmp root__c
     root__b:
-      mov r15, r14
       add r15, 5
       jmp root__intermediate_b_to_end0
     root__c:
@@ -95,10 +94,11 @@ let%expect_test "recursive fib" =
     .globl fib
     fib:
       push rbp
+      push r13
       push r14
       push r15
       mov rbp, rsp
-      add rbp, 24
+      add rbp, 32
       mov r14, rdi
     fib___root:
       cmp r14, 0
@@ -108,36 +108,38 @@ let%expect_test "recursive fib" =
     fib__intermediate__root_to_ret_1:
       jmp fib__ret_1
     fib__check1_:
-      sub r14, 1
-      cmp r14, 0
+      mov r15, r14
+      sub r15, 1
+      cmp r15, 0
       je fib__intermediate_check1__to_ret_1
     fib__intermediate_check1__to_rec:
       jmp fib__rec
     fib__intermediate_check1__to_ret_1:
-      mov r15, r14
     fib__ret_1:
       mov r15, 1
       mov rax, r15
       jmp fib__fib__epilogue
     fib__rec:
       push rax
-      mov rdi, r14
+      mov rdi, r15
       call fib
-      mov r15, rax
+      mov r13, rax
       pop rax
-      sub r14, 1
+      sub r15, 1
       push rax
-      mov rdi, r14
+      mov rdi, r15
       call fib
       mov r14, rax
       pop rax
+      mov r15, r13
       add r15, r14
       mov rax, r15
     fib__fib__epilogue:
       mov rsp, rbp
-      sub rsp, 24
+      sub rsp, 32
       pop r15
       pop r14
+      pop r13
       pop rbp
       ret
     .section .note.GNU-stack,"",@progbits
@@ -164,10 +166,10 @@ ret %result
       mov rbp, rsp
       add rbp, 16
     root___root:
-      mov xmm14, 3
-      mov xmm15, 7
-      addsd xmm14, xmm15
-      cvttsd2si r15, xmm14
+      mov xmm15, 3
+      mov xmm14, 7
+      addsd xmm15, xmm14
+      cvttsd2si r15, xmm15
       mov rax, r15
     root__root__epilogue:
       mov rsp, rbp
