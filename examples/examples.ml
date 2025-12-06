@@ -423,4 +423,40 @@ exit:
   ;;
 
   let all = [ a; b; c; d; e; c2; e2 ]
+
+  let regalloc_hard =
+    {|
+sum() {
+    mov %a:i64, 1
+    mov %b:i64, 2
+    mov %c:i64, 3
+    mov %d:i64, 4
+    mov %e:i64, 5
+    mov %f:i64, 6
+    mov %g:i64, 7
+    mov %h:i64, 8
+    mov %i:i64, 9
+    mov %j:i64, 10
+    mov %k:i64, 11
+    mov %l:i64, 12
+    mov %m:i64, 13
+
+    add %s1:i64, %a, %b
+    add %s2:i64, %s1, %c
+    add %s3:i64, %s2, %d
+    add %s4:i64, %s3, %e
+    add %s5:i64, %s4, %f
+    add %s6:i64, %s5, %g
+    add %s7:i64, %s6, %h
+    add %s8:i64, %s7, %i
+    add %s9:i64, %s8, %j
+    add %s10:i64, %s9, %k
+    add %s11:i64, %s10, %l
+    add %s12:i64, %s11, %m
+
+    ret %s12
+}
+
+|}
+  ;;
 end
