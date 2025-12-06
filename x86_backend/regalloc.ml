@@ -3,6 +3,7 @@ open! Import
 open! Common
 module Raw = X86_reg.Raw
 module Class = X86_reg.Class
+module Solver = Pror.Feel_solver
 
 let note_var_class table var class_ =
   match Hashtbl.find table var with
@@ -151,7 +152,7 @@ let run_sat
     if dump_crap
     then
       print_s [%message "SAT constraints" (sat_constraints : int array array)];
-    let solver = Feel.Solver.create_with_formula sat_constraints in
+    let solver = Solver.create_with_formula sat_constraints in
     let to_spill =
       var_states
       |> List.filter ~f:(fun { var; _ } ->
@@ -177,22 +178,21 @@ let run_sat
     let rec run () =
       let assumptions = assumptions () in
       if dump_crap then print_s [%message "LOOP" (assumptions : int array)];
-      match Feel.Solver.solve solver ~assumptions, !to_spill with
-      | Unsat { unsat_core }, [] ->
+      match Solver.solve solver ~assumptions, !to_spill with
+      | `Unsat unsat_core, [] ->
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
               (assignments : Assignment.t Var.Table.t)
-              ~unsat_core:(Feel.Clause.to_int_array unsat_core : int array)]
-      | Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
+              (unsat_core : int array)]
+      | `Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
         ->
         to_spill := rest_to_spill;
         Hashtbl.add_exn assignments ~key ~data:Spill;
         run ()
-      | Sat { assignments = res }, _ ->
+      | `Sat res, _ ->
         let res =
-          Feel.Clause.to_int_array res
-          |> Array.to_list
+          Array.to_list res
           |> List.map ~f:(fun literal -> Int.abs literal, literal > 0)
         in
         if dump_crap then print_s [%message (res : (int * bool) list)];

@@ -16,7 +16,7 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core)
+ (libraries core feel)
  (foreign_archives pror_rs)
  (c_library_flags
   (-lpthread -lc -lm))
