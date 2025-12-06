@@ -63,7 +63,8 @@ let%expect_test "run" =
   let output = compile_and_execute ~opt_flags:Eir.Opt_flags.no_opt borked in
   print_endline output;
   [%expect.unreachable]
-[@@expect.uncaught_exn {|
+[@@expect.uncaught_exn
+  {|
   (* CR expect_test_collector: This test expectation appears to contain a backtrace.
      This is strongly discouraged as backtraces are fragile.
      Please change this test to not include a backtrace. *)
@@ -86,6 +87,35 @@ let%expect_test "run" =
   Called from Nod_x86_backend__X86_backend.compile_to_asm in file "x86_backend/x86_backend.ml", line 12, characters 2-30
   Called from Nod.compile_and_execute in file "lib/nod.ml", line 98, characters 14-50
   Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 63, characters 15-73
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
+  |}]
+;;
+
+let%expect_test "borked regaloc" =
+  match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
+  | Error e -> Nod_error.to_string e |> print_endline
+  | Ok functions ->
+    X86_backend.For_testing.print_assignments functions;
+    [%expect.unreachable]
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  ("Want to assign phys reg but already found"
+    (a (Reg ((reg RAX) (class_ I64)))) (to_ ((reg R15) (class_ I64))))
+  Raised at Base__Error.raise in file "src/error.ml", line 17, characters 38-66
+  Called from Base__Error.raise_s in file "src/error.ml" (inlined), line 26, characters 52-76
+  Called from Nod_x86_backend__Regalloc.update_assignment.(fun) in file "x86_backend/regalloc.ml", lines 73-77, characters 6-149
+  Called from Base__Hashtbl.update_and_return in file "src/hashtbl.ml" (inlined), line 607, characters 13-40
+  Called from Base__Hashtbl.update in file "src/hashtbl.ml" (inlined), line 613, characters 17-56
+  Called from Nod_x86_backend__Regalloc.update_assignment in file "x86_backend/regalloc.ml", lines 69-77, characters 2-310
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
+  Called from Nod_x86_backend__Regalloc.run_sat.run in file "x86_backend/regalloc.ml" (inlined), lines 199-205, characters 8-323
+  Called from Nod_x86_backend__Regalloc.run_sat.run in file "x86_backend/regalloc.ml", lines 199-205, characters 8-323
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
+  Called from Nod_x86_backend__X86_backend.For_testing.compute_assignments in file "x86_backend/x86_backend.ml", lines 99-107, characters 4-252
+  Called from Nod_x86_backend__X86_backend.For_testing.print_assignments.(fun) in file "x86_backend/x86_backend.ml", line 114, characters 30-52
+  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 98, characters 4-55
   Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
   |}]
 ;;
@@ -116,7 +146,7 @@ let%expect_test "borked" =
   Called from Nod_x86_backend__X86_backend.compile_to_asm in file "x86_backend/x86_backend.ml", line 12, characters 2-30
   Called from Nod_debug_test__Test_tmp.compile_and_lower in file "debug_test/test_tmp.ml", line 56, characters 14-50
   Called from Nod_debug_test__Test_tmp.compile_and_lower in file "debug_test/test_tmp.ml" (inlined), lines 52-57, characters 22-261
-  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 94, characters 2-58
+  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 103, characters 2-58
   Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
   |}]
 ;;
