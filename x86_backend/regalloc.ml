@@ -236,9 +236,12 @@ let replace_regs
     let closed = Set.diff live_in live_out in
     Set.iter opened ~f:(fun var_id ->
       let var = Reg_numbering.id_var reg_numbering var_id in
-      if Hashtbl.mem spill_slot_by_var var
-      then ()
-      else Hashtbl.add_exn spill_slot_by_var ~key:var ~data:(get_spill_slot ()));
+      match Hashtbl.find_exn assignments var with
+      | Assignment.Reg _ -> ()
+      | Spill ->
+        ignore
+          (Hashtbl.add spill_slot_by_var ~key:var ~data:(get_spill_slot ())
+           : [ `Ok | `Duplicate ]));
     Set.iter closed ~f:(fun var_id ->
       let var = Reg_numbering.id_var reg_numbering var_id in
       Hashtbl.find_and_remove spill_slot_by_var var
@@ -295,8 +298,8 @@ let replace_regs
   let spill_slots_used =
     match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with
     | None, None -> 0
-    | Some a, Some b -> Int.max a b
-    | Some a, None | None, Some a -> a
+    | Some a, Some b -> Int.max a b + 1
+    | Some a, None | None, Some a -> a + 1
   in
   spill_slots_used
 ;;

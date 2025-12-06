@@ -70,6 +70,12 @@ let string_of_operand = function
   | Mem (reg, disp) -> string_of_mem reg disp
 ;;
 
+let string_of_operand_with_size ~size_for_mem operand =
+  match operand with
+  | Mem (reg, disp) -> sprintf "%s %s" size_for_mem (string_of_mem reg disp)
+  | _ -> string_of_operand operand
+;;
+
 let is_valid_move_dest = function
   | Reg _ | Mem _ -> true
   | Imm _ -> false
@@ -117,7 +123,14 @@ let order_blocks root =
 ;;
 
 let emit_binary_instr op dst src =
-  sprintf "%s %s, %s" op (string_of_operand dst) (string_of_operand src)
+  match dst, src with
+  | Mem _, Imm _ ->
+    sprintf
+      "%s %s, %s"
+      op
+      (string_of_operand_with_size ~size_for_mem:"qword ptr" dst)
+      (string_of_operand src)
+  | _ -> sprintf "%s %s, %s" op (string_of_operand dst) (string_of_operand src)
 ;;
 
 let is_next_block ~idx_by_block ~current_idx target_block =
