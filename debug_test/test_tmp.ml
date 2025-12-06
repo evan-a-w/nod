@@ -116,7 +116,7 @@ let%expect_test "borked" =
   Called from Nod_x86_backend__X86_backend.compile_to_asm in file "x86_backend/x86_backend.ml", line 12, characters 2-30
   Called from Nod_debug_test__Test_tmp.compile_and_lower in file "debug_test/test_tmp.ml", line 56, characters 14-50
   Called from Nod_debug_test__Test_tmp.compile_and_lower in file "debug_test/test_tmp.ml" (inlined), lines 52-57, characters 22-261
-  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 95, characters 2-58
+  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", line 94, characters 2-58
   Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
   |}]
 ;;
