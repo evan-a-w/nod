@@ -426,7 +426,7 @@ exit:
 
   let regalloc_hard =
     {|
-sum() {
+root() {
     mov %a:i64, 1
     mov %b:i64, 2
     mov %c:i64, 3
@@ -455,6 +455,24 @@ sum() {
     add %s12:i64, %s11, %m
 
     ret %s12
+}
+
+|}
+  ;;
+
+  let regalloc_ez =
+    {|
+root() {
+    mov %a:i64, 1
+    mov %b:i64, 2
+    mov %c:i64, 3
+    mov %d:i64, 4
+
+    add %s1:i64, %a, %b
+    add %s2:i64, %s1, %c
+    add %s3:i64, %s2, %d
+
+    ret %s3
 }
 
 |}
