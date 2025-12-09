@@ -104,6 +104,7 @@ let run_sat
   ~class_of_var
   ~class_
   =
+  let dump_crap = dump_crap || true in
   let reg_pool = reg_pool_for_class class_ in
   let var_states =
     Reg_numbering.vars reg_numbering
@@ -166,7 +167,13 @@ let run_sat
     in
     let assumptions () =
       Array.map var_state_arr ~f:(fun { var; id; _ } ->
-        match (Hashtbl.find assignments var : Assignment.t option) with
+        let assignment = Hashtbl.find assignments var in
+        if dump_crap
+        then
+          print_s
+            [%message
+              "assumptions" (var : Var.t) (assignment : Assignment.t option)];
+        match assignment with
         | Some Spill -> spill id
         | Some (Reg reg) ->
           (match
@@ -178,7 +185,21 @@ let run_sat
     in
     let rec run () =
       let assumptions = assumptions () in
-      if dump_crap then print_s [%message "LOOP" (assumptions : int array)];
+      if dump_crap
+      then (
+        let assumptions =
+          Array.map
+            ~f:(fun x ->
+              let b = x > 0 in
+              let var_id, ass = backout_sat_var (Int.abs x) in
+              Reg_numbering.id_var reg_numbering var_id, ass, b)
+            assumptions
+        in
+        print_s
+          [%message
+            "LOOP"
+              (assumptions
+               : (Var.t * [ `Spill | `Assignment of Reg.t ] * bool) array)]);
       match Solver.solve solver ~assumptions, !to_spill with
       | `Unsat unsat_core, [] ->
         Error.raise_s
@@ -194,17 +215,25 @@ let run_sat
       | `Sat res, _ ->
         let res =
           Array.to_list res
-          |> List.map ~f:(fun literal -> Int.abs literal, literal > 0)
+          |> List.filter_map ~f:(fun literal ->
+            if literal < 0 then None else Some literal)
         in
-        if dump_crap then print_s [%message (res : (int * bool) list)];
-        List.iter res ~f:(fun (sat_var, b) ->
+        if dump_crap
+        then (
+          let res =
+            List.filter_map res ~f:(fun x ->
+              let var_id, ass = backout_sat_var x in
+              Some (Reg_numbering.id_var reg_numbering var_id, ass))
+          in
+          print_s
+            [%message (res : (Var.t * [ `Spill | `Assignment of Reg.t ]) list)]);
+        List.iter res ~f:(fun sat_var ->
           let var_id, x = backout_sat_var sat_var in
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
-          | `Spill when b -> update_assignment ~assignments ~var ~to_:Spill
-          | `Assignment reg when b ->
-            update_assignment ~assignments ~var ~to_:(Reg reg)
-          | `Assignment _ | `Spill -> ())
+          | `Spill -> update_assignment ~assignments ~var ~to_:Spill
+          | `Assignment reg ->
+            update_assignment ~assignments ~var ~to_:(Reg reg))
     in
     run ())
 ;;
