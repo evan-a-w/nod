@@ -105,13 +105,15 @@ module For_testing = struct
         ~don't_spill
         ~class_of_var
         ~class_);
-    assignments
+    ~assignments, ~interference_graph
   ;;
 
   let print_assignments (functions : Function.t String.Map.t) =
     Map.iteri functions ~f:(fun ~key:function_name ~data:fn ->
       let fn = Instruction_selection.run fn in
-      let assignments_table = compute_assignments fn in
+      let ~assignments:assignments_table, ~interference_graph =
+        compute_assignments fn
+      in
       let assignments =
         assignments_table
         |> Hashtbl.to_alist
@@ -123,6 +125,7 @@ module For_testing = struct
         [%message
           ""
             ~function_name:(function_name : string)
-            (assignments : (Var.t * Assignment.t) list)])
+            (assignments : (Var.t * Assignment.t) list)];
+      Interference_graph.print interference_graph)
   ;;
 end

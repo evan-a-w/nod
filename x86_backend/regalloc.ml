@@ -45,6 +45,7 @@ let reg_pool_for_class = function
      ; Reg.r14
      ; Reg.r15
     |]
+    (* [| Reg.rax; Reg.rbx; Reg.rcx |] *)
   | Class.F64 ->
     [| Reg.xmm0
      ; Reg.xmm1
@@ -67,14 +68,14 @@ let reg_pool_for_class = function
 
 let update_assignment ~assignments ~var ~to_ =
   Hashtbl.update assignments var ~f:(function
-    | None -> Assignment.reg to_
-    | Some (Assignment.Reg to' as x) when Reg.equal to' to_ -> x
+    | None -> to_
+    | Some assignment when Assignment.equal assignment to_ -> assignment
     | Some a ->
       Error.raise_s
         [%message
           "Want to assign phys reg but already found"
             (a : Assignment.t)
-            (to_ : Reg.t)])
+            (to_ : Assignment.t)])
 ;;
 
 let initialize_assignments root =
@@ -88,7 +89,7 @@ let initialize_assignments root =
       | Raw.Allocated (_, Some (Raw.Unallocated _)) -> failwith "bug"
       | Raw.Allocated (var, Some forced_raw) ->
         let forced = Reg.physical ~class_:reg.class_ forced_raw in
-        update_assignment ~assignments ~var ~to_:forced
+        update_assignment ~assignments ~var ~to_:(Reg forced)
       | Raw.Allocated (var, None) -> Hash_set.add don't_spill var
       | _ -> ()));
   ~assignments, ~don't_spill
@@ -200,8 +201,9 @@ let run_sat
           let var_id, x = backout_sat_var sat_var in
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
+          | `Spill when b -> update_assignment ~assignments ~var ~to_:Spill
           | `Assignment reg when b ->
-            update_assignment ~assignments ~var ~to_:reg
+            update_assignment ~assignments ~var ~to_:(Reg reg)
           | `Assignment _ | `Spill -> ())
     in
     run ())
@@ -231,21 +233,32 @@ let replace_regs
     free_spill_slots := Set.add !free_spill_slots spill_slot
   in
   let prev_liveness = ref None in
-  let update_slots ({ live_in; live_out } : Liveness.t) =
+  let update_slots ~which ({ live_in; live_out } : Liveness.t) =
     let opened = Set.diff live_out live_in in
     let closed = Set.diff live_in live_out in
-    Set.iter opened ~f:(fun var_id ->
-      let var = Reg_numbering.id_var reg_numbering var_id in
-      match Hashtbl.find_exn assignments var with
-      | Assignment.Reg _ -> ()
-      | Spill ->
-        ignore
-          (Hashtbl.add spill_slot_by_var ~key:var ~data:(get_spill_slot ())
-           : [ `Ok | `Duplicate ]));
-    Set.iter closed ~f:(fun var_id ->
-      let var = Reg_numbering.id_var reg_numbering var_id in
-      Hashtbl.find_and_remove spill_slot_by_var var
-      |> Option.iter ~f:free_spill_slot)
+    (match which with
+     | `Close -> ()
+     | `Open | `Both ->
+       Set.iter opened ~f:(fun var_id ->
+         let var = Reg_numbering.id_var reg_numbering var_id in
+         let assn = Hashtbl.find_exn assignments var in
+         match assn with
+         | Assignment.Reg _ -> ()
+         | Spill ->
+           (match Hashtbl.mem spill_slot_by_var var with
+            | true -> ()
+            | false ->
+              Hashtbl.add_exn
+                spill_slot_by_var
+                ~key:var
+                ~data:(get_spill_slot ()))));
+    match which with
+    | `Open -> ()
+    | `Close | `Both ->
+      Set.iter closed ~f:(fun var_id ->
+        let var = Reg_numbering.id_var reg_numbering var_id in
+        Hashtbl.find_and_remove spill_slot_by_var var
+        |> Option.iter ~f:free_spill_slot)
   in
   let map_ir ir =
     let map_reg (reg : Reg.t) =
@@ -254,7 +267,7 @@ let replace_regs
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
            let offset =
-             fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
+             fn.bytes_alloca'd + ((Hashtbl.find_exn spill_slot_by_var v + 1) * 8)
            in
            Mem (Reg.rbp, offset)
          | Some (Assignment.Reg phys) -> Reg phys
@@ -284,15 +297,18 @@ let replace_regs
      | None -> ()
      | Some ({ live_out; _ } : Liveness.t) ->
        update_slots
+         ~which:`Both
          { live_in = live_out; live_out = block_liveness.overall.live_in });
     let new_instructions =
       Vec.zip_exn block.instructions block_liveness.instructions
       |> Vec.map ~f:(fun (instruction, liveness) ->
-        update_slots liveness;
-        map_ir instruction)
+        update_slots ~which:`Open liveness;
+        let ir = map_ir instruction in
+        update_slots ~which:`Close liveness;
+        ir)
     in
     block.instructions <- new_instructions;
-    update_slots block_liveness.terminal;
+    update_slots ~which:`Both block_liveness.terminal;
     block.terminal <- map_ir block.terminal;
     prev_liveness := Some block_liveness.terminal);
   let spill_slots_used =
