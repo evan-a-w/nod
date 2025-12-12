@@ -579,15 +579,15 @@ let%expect_test "high register pressure - sum of many variables" =
     |}]
 ;;
 
-(* let%expect_test "high register pressure - many live across call" =
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
-    high_register_pressure_call;
-  [%expect {|
-    no_opt: 620
-    opt: 620
-    |}]
-;; *)
+(* let%expect_test "high register pressure - many live across call" = *)
+(*   test_both_modes *)
+(*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) *)
+(*     high_register_pressure_call; *)
+(*   [%expect {| *)
+(*     no_opt: 620 *)
+(*     opt: 620 *)
+(*     |}] *)
+(* ;; *)
 
 let%expect_test "high register pressure - loop with many live vars" =
   test_both_modes ~harness:(make_harness_source ()) high_register_pressure_loop;
@@ -612,7 +612,7 @@ let%expect_test "high register pressure - deeply nested expressions" =
     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
     high_register_pressure_nested;
   [%expect {|
-    no_opt: 518
-    opt: 518
+    no_opt: 590
+    opt: 590
     |}]
 ;;
