@@ -73,14 +73,14 @@ let%expect_test "trivi" =
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 10)))
-           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 20)))
+          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 10)))
+           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 20)))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (SUB (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (SUB (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -161,12 +161,12 @@ let%expect_test "a" =
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 10)))
-           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 20)))
+          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 10)))
+           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 20)))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (SUB (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (SUB (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE ((block ((id_hum intermediate_a_to_b) (args ()))) (args ()))
@@ -176,7 +176,7 @@ let%expect_test "a" =
         (b (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 5)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
@@ -311,29 +311,33 @@ let%expect_test "e2" =
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R13) (class_ I64))) (Imm 7)))
-           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 2)))
-           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 3)))
-           (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
-           (X86
-            (Tag_def
-             (Tag_use (IMUL (Reg ((reg R14) (class_ I64))))
-              (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 7)))
+           (X86 (MOV (Reg ((reg R13) (class_ I64))) (Imm 2)))
+           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 3)))
            (X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (IDIV (Reg ((reg R15) (class_ I64))))
+             (Tag_def
+              (Tag_use (IMUL (Reg ((reg R15) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
               (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
+             (Reg ((reg RDX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_def
+              (Tag_use (IDIV (Reg ((reg R13) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RDX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 2)))
            (X86_terminal
             ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
@@ -461,9 +465,11 @@ let%expect_test "c2" =
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (MOD (Reg ((reg R15) (class_ I64))))
-              (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RDX) (class_ I64)))))
+             (Tag_def
+              (Tag_use (MOD (Reg ((reg R15) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
+              (Reg ((reg RDX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
            (X86
@@ -528,15 +534,15 @@ ret %dyn
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 24)))
+          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 24)))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86
-            (SUB (Reg ((reg RSP) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (SUB (Reg ((reg RSP) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -753,9 +759,9 @@ let%expect_test "f" =
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
          (instrs
-          ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 7)))
-           (X86 (MOV (Reg ((reg R13) (class_ I64))) (Imm 0)))
+          ((X86 (MOV (Reg ((reg R8) (class_ I64))) (Imm 7)))
            (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 0)))
+           (X86 (MOV (Reg ((reg R9) (class_ I64))) (Imm 0)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -766,15 +772,15 @@ let%expect_test "f" =
         (intermediate_start_to_outerCheck (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R11) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R11) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -789,11 +795,11 @@ let%expect_test "f" =
            ((name partial) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
            (X86
-            (SUB (Reg ((reg R10) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (SUB (Reg ((reg R15) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
            (X86_terminal
-            ((CMP (Reg ((reg R10) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_outerCheck_to_outerBody) (args ())))
                (args ()))
@@ -816,9 +822,9 @@ let%expect_test "f" =
         (intermediate_outerBody_to_innerCheck (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -829,10 +835,10 @@ let%expect_test "f" =
          (args (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R8) (class_ I64))) (Imm 3)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 3)))
            (X86_terminal
-            ((CMP (Reg ((reg R8) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_innerCheck_to_innerBody) (args ())))
                (args ()))
@@ -844,13 +850,13 @@ let%expect_test "f" =
         (innerBody (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
-           (X86 (AND (Reg ((reg R8) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86 (AND (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R8) (class_ I64))) (Imm 0)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 0)))
            (X86_terminal
-            ((CMP (Reg ((reg R8) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_innerBody_to_doWork) (args ())))
                (args ()))
@@ -861,21 +867,23 @@ let%expect_test "f" =
         (doWork (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
            (X86
             (Tag_def
-             (Tag_use (IMUL (Reg ((reg R10) (class_ I64))))
+             (Tag_def
+              (Tag_use (IMUL (Reg ((reg R13) (class_ I64))))
+               (Reg ((reg RAX) (class_ I64))))
               (Reg ((reg RAX) (class_ I64))))
-             (Reg ((reg RAX) (class_ I64)))))
+             (Reg ((reg RDX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R9) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
+            (ADD (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
-           (X86 (ADD (Reg ((reg R10) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -886,9 +894,9 @@ let%expect_test "f" =
         (intermediate_doWork_to_innerCheck (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -898,9 +906,9 @@ let%expect_test "f" =
         (intermediate_doWork_to_innerExit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -911,9 +919,9 @@ let%expect_test "f" =
          (args (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R9) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
+            (ADD (Reg ((reg R14) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -924,7 +932,7 @@ let%expect_test "f" =
         (intermediate_innerExit_to_outerInc (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block ((id_hum outerInc) (args (((name total%1) (type_ I64))))))
@@ -932,14 +940,14 @@ let%expect_test "f" =
         (outerInc (args (((name total%1) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
-           (X86 (ADD (Reg ((reg R13) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R11) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -951,11 +959,11 @@ let%expect_test "f" =
         (intermediate_innerExit_to_exit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -994,8 +1002,8 @@ let%expect_test "f" =
         (skipEven (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
-           (X86 (ADD (Reg ((reg R10) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
              (JNE
@@ -1006,11 +1014,11 @@ let%expect_test "f" =
         (intermediate_skipEven_to_innerCheck (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1020,9 +1028,9 @@ let%expect_test "f" =
         (intermediate_skipEven_to_innerExit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1032,9 +1040,9 @@ let%expect_test "f" =
         (intermediate_innerCheck_to_innerExit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1044,7 +1052,7 @@ let%expect_test "f" =
         (intermediate_outerBody_to_outerInc (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
            (X86
             (JMP
              ((block ((id_hum outerInc) (args (((name total%1) (type_ I64))))))
@@ -1052,11 +1060,11 @@ let%expect_test "f" =
         (intermediate_outerCheck_to_exit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1068,11 +1076,11 @@ let%expect_test "f" =
         (intermediate_start_to_exit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1133,11 +1141,12 @@ let%expect_test "fib_rec" =
        ((fib__prologue (args (((name arg1) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1161,10 +1170,10 @@ let%expect_test "fib_rec" =
         (check1_ (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R14) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86_terminal
-            ((CMP (Reg ((reg R14) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_check1__to_rec) (args ())))
                (args ()))
@@ -1176,27 +1185,27 @@ let%expect_test "fib_rec" =
          (instrs
           ((X86 (PUSH (Reg ((reg RAX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (CALL (fn fib) (results (((reg R15) (class_ I64))))
-             (args ((Reg ((reg R14) (class_ I64)))))))
+            (CALL (fn fib) (results (((reg R13) (class_ I64))))
+             (args ((Reg ((reg R15) (class_ I64)))))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86 (POP ((reg RAX) (class_ I64))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R14) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86 (PUSH (Reg ((reg RAX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (CALL (fn fib) (results (((reg R14) (class_ I64))))
-             (args ((Reg ((reg R14) (class_ I64)))))))
+             (args ((Reg ((reg R15) (class_ I64)))))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86 (POP ((reg RAX) (class_ I64))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
             (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
@@ -1212,15 +1221,16 @@ let%expect_test "fib_rec" =
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 32)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg R13) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))
         (intermediate_check1__to_ret_1 (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (JMP
              ((block ((id_hum ret_1) (args (((name m1) (type_ I64))))))
@@ -1246,7 +1256,7 @@ let%expect_test "fib_rec" =
              ((block ((id_hum ret_1) (args (((name m1) (type_ I64))))))
               (args ())))))))))
       (args (((name arg) (type_ I64)))) (name fib) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
+      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
     |}]
 ;;
 
@@ -1340,24 +1350,24 @@ let%expect_test "call_chains" =
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86
             (JMP
              ((block ((id_hum %root) (args (((name x) (type_ I64)))))) (args ())))))))
         (%root (args (((name x) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86 (ADD (Reg ((reg R14) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86 (PUSH (Reg ((reg RAX) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (CALL (fn fourth) (results (((reg R15) (class_ I64))))
              (args
-              ((Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))))
+              ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86 (POP ((reg RAX) (class_ I64))))
@@ -1500,16 +1510,7 @@ let%expect_test "call_chains" =
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (CALL (fn first) (results (((reg R15) (class_ I64))))
-             (args ((Reg ((reg R15) (class_ I64)))))))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
-           (X86 (POP ((reg RAX) (class_ I64))))
-           (X86 (PUSH (Reg ((reg RAX) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (CALL (fn second) (results (((reg R14) (class_ I64))))
+            (CALL (fn first) (results (((reg R14) (class_ I64))))
              (args ((Reg ((reg R15) (class_ I64)))))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
@@ -1518,11 +1519,20 @@ let%expect_test "call_chains" =
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (CALL (fn second) (results (((reg R15) (class_ I64))))
+             (args ((Reg ((reg R14) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (POP ((reg RAX) (class_ I64))))
+           (X86 (PUSH (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
             (CALL (fn third) (results (((reg R15) (class_ I64))))
              (args
-              ((Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))))
+              ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86 (POP ((reg RAX) (class_ I64))))
@@ -1743,15 +1753,15 @@ let%expect_test "fib" =
         (fib_start (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 1)))
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 0)))
+           (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -1766,7 +1776,7 @@ let%expect_test "fib" =
            ((name a%0) (type_ I64))))
          (instrs
           ((X86_terminal
-            ((CMP (Reg ((reg R13) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R12) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_fib_check_to_fib_body) (args ())))
                (args ()))
@@ -1777,22 +1787,22 @@ let%expect_test "fib" =
         (fib_body (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R12) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86
             (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R13) (class_ I64))) (Imm 1)))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -1806,7 +1816,7 @@ let%expect_test "fib" =
         (fib_exit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86_terminal
             ((JMP
               ((block
@@ -1917,7 +1927,7 @@ let%expect_test "sum 100" =
         (intermediate_start_to_check (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
@@ -1929,10 +1939,10 @@ let%expect_test "sum 100" =
         (check (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))
          (instrs
           ((X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86 (SUB (Reg ((reg R13) (class_ I64))) (Imm 100)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86 (SUB (Reg ((reg R15) (class_ I64))) (Imm 100)))
            (X86_terminal
-            ((CMP (Reg ((reg R13) (class_ I64))) (Imm 0))
+            ((CMP (Reg ((reg R15) (class_ I64))) (Imm 0))
              (JNE
               ((block ((id_hum intermediate_check_to_body) (args ()))) (args ()))
               (((block ((id_hum intermediate_check_to_exit) (args ())))
@@ -1944,9 +1954,9 @@ let%expect_test "sum 100" =
           ((X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (ADD (Reg ((reg R14) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
            (X86_terminal
             ((CMP (Imm 1) (Imm 0))
@@ -1956,7 +1966,7 @@ let%expect_test "sum 100" =
         (intermediate_body_to_check (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
@@ -2001,7 +2011,7 @@ let%expect_test "sum 100" =
         (intermediate_check_to_exit (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
