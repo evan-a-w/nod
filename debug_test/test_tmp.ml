@@ -57,6 +57,16 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
     print_endline asm
 ;;
 
+let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
+  match Eir.compile ~opt_flags s with
+  | Error e -> Nod_error.to_string e |> print_endline
+  | Ok functions ->
+    let x86 = X86_backend.compile ?dump_crap functions in
+    print_s
+      [%sexp
+        (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
+;;
+
 let borked =
   (* Examples.Textual. *)
   {|
@@ -561,6 +571,167 @@ let%expect_test "debug borked opt ssa" =
         ((dest ((name result) (type_ I64))) (src1 (Var ((name q1) (type_ I64))))
          (src2 (Var ((name p3) (type_ I64))))))
        (Return (Var ((name result) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "debug borked opt x86" =
+  test ~opt_flags:Eir.Opt_flags.no_opt borked;
+  [%expect
+    {|
+    (((call_conv Default)
+      (root
+       ((root__prologue (args (((name x11) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R12) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 40)))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDX) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block ((id_hum %root) (args (((name x) (type_ I64)))))) (args ())))))))
+        (%root (args (((name x) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R8) (class_ I64))) (Imm 1)))
+           (X86
+            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R9) (class_ I64))) (Imm 2)))
+           (X86
+            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R10) (class_ I64))) (Imm 3)))
+           (X86
+            (MOV (Reg ((reg R11) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R11) (class_ I64))) (Imm 4)))
+           (X86
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R12) (class_ I64))) (Imm 5)))
+           (X86
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R13) (class_ I64))) (Imm 6)))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R14) (class_ I64))) (Imm 7)))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 8)))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R9) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R8) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R11) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R9) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R13) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R10) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R15) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R11) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R12) (class_ I64))) (Imm 9)))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R14) (class_ I64))) (Imm 10)))
+           (X86
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R13) (class_ I64))) (Imm 11)))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 12)))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R14) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86
+            (Tag_def
+             (Tag_use (IMUL (Reg ((reg R15) (class_ I64))))
+              (Reg ((reg RAX) (class_ I64))))
+             (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R12) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R8) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R9) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R13) (class_ I64))) (Reg ((reg R11) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R14) (class_ I64))) (Reg ((reg R12) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (root__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 40)))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg R13) (class_ I64))))
+           (X86 (POP ((reg R12) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name x) (type_ I64)))) (name root) (prologue ()) (epilogue ())
+      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 40)))
     |}]
 ;;
 
