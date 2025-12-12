@@ -72,6 +72,13 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let tmp_dst =
       Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_dst") (Some take_reg)
     in
+    let other_reg = if Reg.equal take_reg Reg.rax then Reg.rdx else Reg.rax in
+    let tmp_other =
+      Reg.allocated
+        ~class_:Class.I64
+        (fresh_var t "tmp_clobber")
+        (Some other_reg)
+    in
     (* IMUL/IDIV only accept register or memory operands, not immediates.
        If src2 is a literal, we need to load it into a register first. *)
     let src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
@@ -86,7 +93,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     extra_mov
     @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
-      ; tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst)
+      ; tag_def
+          (tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst))
+          (Reg tmp_other)
       ; mov (reg dest) (Reg tmp_dst)
       ]
   in
