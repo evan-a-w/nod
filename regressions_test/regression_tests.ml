@@ -2,8 +2,6 @@ open! Core
 open! Import
 module Std = Stdlib
 
-(* Harness utilities copied from test_x86_execution *)
-
 let make_harness_source
   ?(fn_name = "root")
   ?(fn_arg_type = "void")
@@ -367,7 +365,6 @@ let%expect_test "call chains - no opt vs opt" =
     |}]
 ;;
 
-
 (* High Register Pressure Tests *)
 
 (* Test 1: Many live variables in a single computation
@@ -573,18 +570,6 @@ root(%x:i64) {
 }
 |}
 ;;
-
-(* Regression test suite for high register pressure *)
-
-(* NOTE: These first two tests expose a register allocator bug where it tries to
-   assign a physical register to a variable that already has one. Uncomment once
-   the bug is fixed in x86_backend/regalloc.ml:73-77 *)
-
-(* TODO: These tests currently generate invalid assembly with unallocated variables.
-   The register allocator fix in regalloc.ml:197-201 resolved the "Want to assign phys reg
-   but already found" error, but there's still an issue where some variables remain
-   unallocated and get printed as bare identifiers (e.g., "mov v1, 1") instead of being
-   assigned to registers or spill slots. *)
 
 let%expect_test "high register pressure - sum of many variables" =
   test_both_modes ~harness:(make_harness_source ()) high_register_pressure_sum;
