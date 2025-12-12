@@ -70,11 +70,12 @@ let update_assignment ~assignments ~var ~to_ =
   Hashtbl.update assignments var ~f:(function
     | None -> to_
     | Some assignment when Assignment.equal assignment to_ -> assignment
-    | Some a ->
+    | Some from ->
       Error.raise_s
         [%message
           "Want to assign phys reg but already found"
-            (a : Assignment.t)
+            (var : Var.t)
+            (from : Assignment.t)
             (to_ : Assignment.t)])
 ;;
 
@@ -104,13 +105,21 @@ let run_sat
   ~class_of_var
   ~class_
   =
-  let dump_crap = dump_crap || true in
   let reg_pool = reg_pool_for_class class_ in
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
     |> List.filter ~f:(fun state -> Class.equal (class_of_var state.var) class_)
   in
+  let sat_vars_per_var_id = Array.length reg_pool + 1 in
+  (* if dump_crap *)
+  (* then ( *)
+  (*   let var_to_id = *)
+  (*     List.map var_states ~f:(fun var -> *)
+  (*       var.var, Reg_numbering.var_id reg_numbering var.var) *)
+  (*   in *)
+  (*   print_s *)
+  (*     [%message (sat_vars_per_var_id : int) (var_to_id : (Var.t * int) list)]); *)
   let var_ids_list = List.map var_states ~f:Reg_numbering.id in
   let var_ids = Array.of_list var_ids_list in
   if Array.is_empty var_ids
@@ -118,7 +127,6 @@ let run_sat
   else (
     let var_state_arr = Array.of_list var_states in
     let var_id_set = Int.Hash_set.of_list var_ids_list in
-    let sat_vars_per_var_id = Array.length reg_pool + 1 in
     let spill var_id = (var_id * sat_vars_per_var_id) + 1 in
     let reg_sat var_id idx = spill var_id + idx + 1 in
     let backout_sat_var var =
@@ -167,14 +175,8 @@ let run_sat
     in
     let assumptions () =
       Array.map var_state_arr ~f:(fun { var; id; _ } ->
-        let assignment = Hashtbl.find assignments var in
-        if dump_crap
-        then
-          print_s
-            [%message
-              "assumptions" (var : Var.t) (assignment : Assignment.t option)];
-        match assignment with
-        | Some Spill -> spill id
+        match Hashtbl.find assignments var with
+        | Some Assignment.Spill -> spill id
         | Some (Reg reg) ->
           (match
              Array.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
@@ -187,19 +189,21 @@ let run_sat
       let assumptions = assumptions () in
       if dump_crap
       then (
+        let raw = assumptions in
         let assumptions =
           Array.map
             ~f:(fun x ->
               let b = x > 0 in
               let var_id, ass = backout_sat_var (Int.abs x) in
-              Reg_numbering.id_var reg_numbering var_id, ass, b)
+              Reg_numbering.id_var reg_numbering var_id, ass, x, b)
             assumptions
         in
         print_s
           [%message
             "LOOP"
               (assumptions
-               : (Var.t * [ `Spill | `Assignment of Reg.t ] * bool) array)]);
+               : (Var.t * [ `Spill | `Assignment of Reg.t ] * int * bool) array)
+              (raw : int array)]);
       match Solver.solve solver ~assumptions, !to_spill with
       | `Unsat unsat_core, [] ->
         Error.raise_s
@@ -213,6 +217,7 @@ let run_sat
         Hashtbl.add_exn assignments ~key ~data:Spill;
         run ()
       | `Sat res, _ ->
+        let raw = Array.to_list res in
         let res =
           Array.to_list res
           |> List.filter_map ~f:(fun literal ->
@@ -221,12 +226,14 @@ let run_sat
         if dump_crap
         then (
           let res =
-            List.filter_map res ~f:(fun x ->
+            List.map res ~f:(fun x ->
               let var_id, ass = backout_sat_var x in
-              Some (Reg_numbering.id_var reg_numbering var_id, ass))
+              Reg_numbering.id_var reg_numbering var_id, ass, x)
           in
           print_s
-            [%message (res : (Var.t * [ `Spill | `Assignment of Reg.t ]) list)]);
+            [%message
+              (res : (Var.t * [ `Spill | `Assignment of Reg.t ] * int) list)
+                (raw : int list)]);
         List.iter res ~f:(fun sat_var ->
           let var_id, x = backout_sat_var sat_var in
           let var = Reg_numbering.id_var reg_numbering var_id in
