@@ -133,6 +133,34 @@ let emit_binary_instr op dst src =
   | _ -> sprintf "%s %s, %s" op (string_of_operand dst) (string_of_operand src)
 ;;
 
+let lower_mem_mem_binop ~op ~dst ~src =
+  let scratch = Reg Reg.r11 in
+  [ sprintf "push %s" (string_of_reg Reg.r11)
+  ; emit_binary_instr "mov" scratch dst
+  ; emit_binary_instr op scratch src
+  ; emit_binary_instr "mov" dst scratch
+  ; sprintf "pop %s" (string_of_reg Reg.r11)
+  ]
+;;
+
+let lower_mem_mem_cmp ~lhs ~rhs =
+  let scratch = Reg Reg.r11 in
+  [ sprintf "push %s" (string_of_reg Reg.r11)
+  ; emit_binary_instr "mov" scratch lhs
+  ; emit_binary_instr "cmp" scratch rhs
+  ; sprintf "pop %s" (string_of_reg Reg.r11)
+  ]
+;;
+
+let lower_mem_mem_mov ~dst ~src =
+  let scratch = Reg Reg.r11 in
+  [ sprintf "push %s" (string_of_reg Reg.r11)
+  ; emit_binary_instr "mov" scratch src
+  ; emit_binary_instr "mov" dst scratch
+  ; sprintf "pop %s" (string_of_reg Reg.r11)
+  ]
+;;
+
 let is_next_block ~idx_by_block ~current_idx target_block =
   match Hashtbl.find idx_by_block target_block with
   | None -> false
@@ -199,7 +227,10 @@ let run (functions : Function.t String.Map.t) =
         `Emit
           (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
            then []
-           else [ emit_binary_instr s dst src ])
+           else (
+             match dst, src with
+             | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
+             | _ -> [ emit_binary_instr s dst src ]))
       in
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
@@ -210,18 +241,38 @@ let run (functions : Function.t String.Map.t) =
         | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
         | CVTSI2SD (dst, src) -> lower_move ~dst ~src "cvtsi2sd"
         | CVTTSD2SI (dst, src) -> lower_move ~dst ~src "cvttsd2si"
-        | ADD (dst, src) -> `Emit [ emit_binary_instr "add" dst src ]
-        | SUB (dst, src) -> `Emit [ emit_binary_instr "sub" dst src ]
+        | ADD (dst, src) ->
+          `Emit
+            (match dst, src with
+             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"add" ~dst ~src
+             | _ -> [ emit_binary_instr "add" dst src ])
+        | SUB (dst, src) ->
+          `Emit
+            (match dst, src with
+             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
+             | _ -> [ emit_binary_instr "sub" dst src ])
         | ADDSD (dst, src) -> `Emit [ emit_binary_instr "addsd" dst src ]
         | SUBSD (dst, src) -> `Emit [ emit_binary_instr "subsd" dst src ]
         | MULSD (dst, src) -> `Emit [ emit_binary_instr "mulsd" dst src ]
         | DIVSD (dst, src) -> `Emit [ emit_binary_instr "divsd" dst src ]
-        | AND (dst, src) -> `Emit [ emit_binary_instr "and" dst src ]
-        | OR (dst, src) -> `Emit [ emit_binary_instr "or" dst src ]
+        | AND (dst, src) ->
+          `Emit
+            (match dst, src with
+             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"and" ~dst ~src
+             | _ -> [ emit_binary_instr "and" dst src ])
+        | OR (dst, src) ->
+          `Emit
+            (match dst, src with
+             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"or" ~dst ~src
+             | _ -> [ emit_binary_instr "or" dst src ])
         | IMUL op -> `Emit [ sprintf "imul %s" (string_of_operand op) ]
         | IDIV op | MOD op -> `Emit [ sprintf "idiv %s" (string_of_operand op) ]
         | CMP (Imm a, Imm b) -> `Set_pending (Some (a, b))
-        | CMP (a, b) -> `Emit [ emit_binary_instr "cmp" a b ]
+        | CMP (a, b) ->
+          `Emit
+            (match a, b with
+             | Mem _, Mem _ -> lower_mem_mem_cmp ~lhs:a ~rhs:b
+             | _ -> [ emit_binary_instr "cmp" a b ])
         | CALL { fn = callee; _ } ->
           let callee = sanitize_identifier callee in
           `Emit [ sprintf "call %s" callee ]

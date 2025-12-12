@@ -124,35 +124,7 @@ let%expect_test "run" =
       borked
   in
   print_endline output;
-  [%expect.unreachable]
-[@@expect.uncaught_exn
-  {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Failure
-    "command failed (1): cd 'nod-exec.tmp.1trAha' && 'gcc' '-Wall' '-Werror' '-O0' 'main.c' 'program.s' '-o' 'program'")
-  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
-  Called from Nod.run_command_exn in file "lib/nod.ml", line 75, characters 12-69
-  Called from Nod.compile_and_execute.(fun) in file "lib/nod.ml", lines 106-109, characters 8-143
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 59, characters 8-11
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
-  Called from Nod.compile_and_execute in file "lib/nod.ml", lines 100-121, characters 4-870
-  Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 35, characters 2-50
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 66, characters 13-49
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
-  Called from Nod.compile_and_execute in file "lib/nod.ml", lines 100-121, characters 4-870
-  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", lines 120-124, characters 4-170
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
-
-  Trailing output
-  ---------------
-  program.s: Assembler messages:
-  program.s:59: Error: too many memory references for `add'
-  program.s:63: Error: too many memory references for `add'
-  program.s:68: Error: too many memory references for `add'
-  program.s:75: Error: too many memory references for `add'
-  |}]
+  [%expect {| 210 |}]
 ;;
 
 let%expect_test "borked regaloc" =
@@ -591,7 +563,7 @@ let%expect_test "borked" =
     .text
     .globl root
     root:
-      sub rsp, 8
+      sub rsp, 80
       push rbp
       push rbx
       push r12
@@ -599,7 +571,7 @@ let%expect_test "borked" =
       push r14
       push r15
       mov rbp, rsp
-      add rbp, 56
+      add rbp, 48
     root___root:
       mov r11, 1
       add r11, 0
@@ -609,8 +581,8 @@ let%expect_test "borked" =
       add r12, 0
       mov r13, 4
       add r13, 0
-      mov qword ptr [rbp + 8], 5
-      add qword ptr [rbp + 8], 0
+      mov qword ptr [rbp], 5
+      add qword ptr [rbp], 0
       mov rdx, 6
       add rdx, 0
       mov qword ptr [rbp + 8], 7
@@ -619,68 +591,96 @@ let%expect_test "borked" =
       add rax, 0
       mov rcx, 9
       add rcx, 0
-      mov qword ptr [rbp + 8], 10
-      add qword ptr [rbp + 8], 0
-      mov qword ptr [rbp + 8], 11
-      add qword ptr [rbp + 8], 0
+      mov qword ptr [rbp + 16], 10
+      add qword ptr [rbp + 16], 0
+      mov qword ptr [rbp + 24], 11
+      add qword ptr [rbp + 24], 0
       mov r9, 12
       add r9, 0
-      mov qword ptr [rbp + 8], 13
-      add qword ptr [rbp + 8], 0
+      mov qword ptr [rbp + 32], 13
+      add qword ptr [rbp + 32], 0
       mov r15, 14
       add r15, 0
-      mov qword ptr [rbp + 8], 15
-      add qword ptr [rbp + 8], 0
+      mov qword ptr [rbp + 40], 15
+      add qword ptr [rbp + 40], 0
       mov r10, 16
       add r10, 0
       mov r8, 17
       add r8, 0
-      mov qword ptr [rbp + 8], 18
-      add qword ptr [rbp + 8], 0
-      mov qword ptr [rbp + 8], 19
-      add qword ptr [rbp + 8], 0
+      mov qword ptr [rbp + 48], 18
+      add qword ptr [rbp + 48], 0
+      mov qword ptr [rbp + 56], 19
+      add qword ptr [rbp + 56], 0
       mov r14, 20
       add r14, 0
       add r11, rbx
-      mov [rbp + 8], r11
-      add [rbp + 8], r12
-      add [rbp + 8], r13
-      add [rbp + 8], [rbp + 8]
-      mov r13, [rbp + 8]
+      mov [rbp + 64], r11
+      add [rbp + 64], r12
+      push r11
+      mov r11, [rbp + 64]
+      mov [rbp + 72], r11
+      pop r11
+      add [rbp + 72], r13
+      push r11
+      mov r11, [rbp + 72]
+      mov [rbp + 64], r11
+      pop r11
+      push r11
+      mov r11, [rbp + 64]
+      add r11, [rbp]
+      mov [rbp + 64], r11
+      pop r11
+      mov r13, [rbp + 64]
       add r13, rdx
-      mov [rbp + 8], r13
-      add [rbp + 8], [rbp + 8]
-      mov r13, [rbp + 8]
+      mov [rbp], r13
+      push r11
+      mov r11, [rbp]
+      add r11, [rbp + 8]
+      mov [rbp], r11
+      pop r11
+      mov r13, [rbp]
       add r13, rax
       add r13, rcx
-      mov [rbp + 8], r13
-      add [rbp + 8], [rbp + 8]
-      mov r13, [rbp + 8]
-      add r13, [rbp + 8]
+      mov [rbp], r13
+      push r11
+      mov r11, [rbp]
+      add r11, [rbp + 16]
+      mov [rbp], r11
+      pop r11
+      mov r13, [rbp]
+      add r13, [rbp + 24]
       add r13, r9
-      add r13, [rbp + 8]
-      mov [rbp + 8], r13
-      add [rbp + 8], r15
-      add [rbp + 8], [rbp + 8]
+      add r13, [rbp + 32]
+      mov [rbp], r13
+      add [rbp], r15
+      push r11
+      mov r11, [rbp]
+      mov [rbp + 8], r11
+      pop r11
+      push r11
+      mov r11, [rbp + 8]
+      add r11, [rbp + 40]
+      mov [rbp + 8], r11
+      pop r11
       mov r15, [rbp + 8]
       add r15, r10
-      mov [rbp + 8], r15
-      add [rbp + 8], r8
-      mov r15, [rbp + 8]
-      add r15, [rbp + 8]
-      add r15, [rbp + 8]
+      mov [rbp], r15
+      add [rbp], r8
+      mov r15, [rbp]
+      add r15, [rbp + 48]
+      add r15, [rbp + 56]
       add r15, r14
       mov rax, r15
     root__root__epilogue:
       mov rsp, rbp
-      sub rsp, 56
+      sub rsp, 48
       pop r15
       pop r14
       pop r13
       pop r12
       pop rbx
       pop rbp
-      add rsp, 8
+      add rsp, 80
       ret
     .section .note.GNU-stack,"",@progbits
     |}]
@@ -862,7 +862,7 @@ let%expect_test "debug borked opt x86" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
+          ((X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 80)))
            (X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg RBX) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R12) (class_ I64)))))
@@ -871,7 +871,7 @@ let%expect_test "debug borked opt x86" =
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 56)))
+           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 48)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
@@ -884,8 +884,8 @@ let%expect_test "debug borked opt x86" =
            (X86 (ADD (Reg ((reg R12) (class_ I64))) (Imm 0)))
            (X86 (MOV (Reg ((reg R13) (class_ I64))) (Imm 4)))
            (X86 (ADD (Reg ((reg R13) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 5)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 0) (Imm 5)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 0) (Imm 0)))
            (X86 (MOV (Reg ((reg RDX) (class_ I64))) (Imm 6)))
            (X86 (ADD (Reg ((reg RDX) (class_ I64))) (Imm 0)))
            (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 7)))
@@ -894,26 +894,26 @@ let%expect_test "debug borked opt x86" =
            (X86 (ADD (Reg ((reg RAX) (class_ I64))) (Imm 0)))
            (X86 (MOV (Reg ((reg RCX) (class_ I64))) (Imm 9)))
            (X86 (ADD (Reg ((reg RCX) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 10)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 11)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 16) (Imm 10)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 16) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 24) (Imm 11)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 24) (Imm 0)))
            (X86 (MOV (Reg ((reg R9) (class_ I64))) (Imm 12)))
            (X86 (ADD (Reg ((reg R9) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 13)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 32) (Imm 13)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 32) (Imm 0)))
            (X86 (MOV (Reg ((reg R15) (class_ I64))) (Imm 14)))
            (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 15)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 40) (Imm 15)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 40) (Imm 0)))
            (X86 (MOV (Reg ((reg R10) (class_ I64))) (Imm 16)))
            (X86 (ADD (Reg ((reg R10) (class_ I64))) (Imm 0)))
            (X86 (MOV (Reg ((reg R8) (class_ I64))) (Imm 17)))
            (X86 (ADD (Reg ((reg R8) (class_ I64))) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 18)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
-           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 8) (Imm 19)))
-           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 8) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 48) (Imm 18)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 48) (Imm 0)))
+           (X86 (MOV (Mem ((reg RBP) (class_ I64)) 56) (Imm 19)))
+           (X86 (ADD (Mem ((reg RBP) (class_ I64)) 56) (Imm 0)))
            (X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 20)))
            (X86 (ADD (Reg ((reg R14) (class_ I64))) (Imm 0)))
            (X86
@@ -921,31 +921,35 @@ let%expect_test "debug borked opt x86" =
            (X86
             (ADD (Reg ((reg R11) (class_ I64))) (Reg ((reg RBX) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R11) (class_ I64)))))
+            (MOV (Mem ((reg RBP) (class_ I64)) 64)
+             (Reg ((reg R11) (class_ I64)))))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R12) (class_ I64)))))
+            (ADD (Mem ((reg RBP) (class_ I64)) 64)
+             (Reg ((reg R12) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Mem ((reg RBP) (class_ I64)) 72)
+             (Mem ((reg RBP) (class_ I64)) 64)))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R13) (class_ I64)))))
+            (ADD (Mem ((reg RBP) (class_ I64)) 72)
+             (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Mem ((reg RBP) (class_ I64)) 64)
+             (Mem ((reg RBP) (class_ I64)) 72)))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Mem ((reg RBP) (class_ I64)) 64)
+             (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Reg ((reg R13) (class_ I64)))
+             (Mem ((reg RBP) (class_ I64)) 64)))
            (X86
             (ADD (Reg ((reg R13) (class_ I64))) (Reg ((reg RDX) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8)
+            (ADD (Mem ((reg RBP) (class_ I64)) 0)
              (Mem ((reg RBP) (class_ I64)) 8)))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
             (ADD (Reg ((reg R13) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
@@ -953,14 +957,15 @@ let%expect_test "debug borked opt x86" =
            (X86
             (ADD (Reg ((reg R13) (class_ I64))) (Reg ((reg RCX) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Mem ((reg RBP) (class_ I64)) 0)
+             (Mem ((reg RBP) (class_ I64)) 16)))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
-            (ADD (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Reg ((reg R13) (class_ I64)))
+             (Mem ((reg RBP) (class_ I64)) 24)))
            (X86
             (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
@@ -968,33 +973,36 @@ let%expect_test "debug borked opt x86" =
            (X86
             (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R13) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Reg ((reg R13) (class_ I64)))
+             (Mem ((reg RBP) (class_ I64)) 32)))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R13) (class_ I64)))))
+            (MOV (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R15) (class_ I64)))))
+            (ADD (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+             (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
             (ADD (Mem ((reg RBP) (class_ I64)) 8)
-             (Mem ((reg RBP) (class_ I64)) 8)))
+             (Mem ((reg RBP) (class_ I64)) 40)))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
            (X86
             (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R10) (class_ I64)))))
            (X86
-            (MOV (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R15) (class_ I64)))))
+            (MOV (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (ADD (Mem ((reg RBP) (class_ I64)) 8) (Reg ((reg R8) (class_ I64)))))
+            (ADD (Mem ((reg RBP) (class_ I64)) 0) (Reg ((reg R8) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (MOV (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
            (X86
-            (ADD (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Reg ((reg R15) (class_ I64)))
+             (Mem ((reg RBP) (class_ I64)) 48)))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
-            (ADD (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 8)))
+            (ADD (Reg ((reg R15) (class_ I64)))
+             (Mem ((reg RBP) (class_ I64)) 56)))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
@@ -1012,17 +1020,17 @@ let%expect_test "debug borked opt x86" =
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 56)))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 48)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
            (X86 (POP ((reg R12) (class_ I64))))
            (X86 (POP ((reg RBX) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
-           (X86 (ADD (Reg ((reg RSP) (class_ I64))) (Imm 8)))
+           (X86 (ADD (Reg ((reg RSP) (class_ I64))) (Imm 80)))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 8) (bytes_for_clobber_saves 48)))
+      (bytes_for_spills 80) (bytes_for_clobber_saves 48)))
     |}]
 ;;
 

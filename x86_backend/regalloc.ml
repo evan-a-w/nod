@@ -261,9 +261,13 @@ let replace_regs
   let used_spill_slots = ref Int.Set.empty in
   let get_spill_slot () =
     match Set.min_elt !free_spill_slots with
-    | None -> Set.length !used_spill_slots
+    | None ->
+      let spill_slot = Set.length !used_spill_slots in
+      used_spill_slots := Set.add !used_spill_slots spill_slot;
+      spill_slot
     | Some x ->
       free_spill_slots := Set.remove !free_spill_slots x;
+      used_spill_slots := Set.add !used_spill_slots x;
       x
   in
   let free_spill_slot spill_slot =
@@ -304,7 +308,7 @@ let replace_regs
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
            let offset =
-             fn.bytes_alloca'd + ((Hashtbl.find_exn spill_slot_by_var v + 1) * 8)
+             fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
            Mem (Reg.rbp, offset)
          | Some (Assignment.Reg phys) -> Reg phys
