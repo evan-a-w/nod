@@ -105,6 +105,7 @@ let run_sat
   ~class_of_var
   ~class_
   =
+  (* let dump_crap = dump_crap || true in *)
   let reg_pool = reg_pool_for_class class_ in
   let var_states =
     Reg_numbering.vars reg_numbering
@@ -238,7 +239,7 @@ let run_sat
           let var_id, x = backout_sat_var sat_var in
           let var = Reg_numbering.id_var reg_numbering var_id in
           match x with
-          | `Spill -> update_assignment ~assignments ~var ~to_:Spill
+          | `Spill -> ()
           | `Assignment reg ->
             update_assignment ~assignments ~var ~to_:(Reg reg))
     in
