@@ -1,3 +1,4 @@
-include Nod_core
 include Nod_common
-include Nod
+
+module Omm_cst = Nod_omm_frontend.Omm_cst
+module Omm_parser = Nod_omm_frontend.Omm_parser

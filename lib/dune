@@ -7,6 +7,7 @@
   core
   core_unix
   nod_frontend
+  nod_omm_frontend
   nod_core
   vec
   pror
