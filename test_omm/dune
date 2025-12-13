@@ -1,0 +1,8 @@
+(library
+ (name omm_test)
+ (preprocess
+  (pps ppx_jane))
+ (inline_tests)
+ (libraries core core_unix vec nod nod_core)
+ (flags
+  (:standard -extension-universe beta)))

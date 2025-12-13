@@ -99,7 +99,7 @@ let lit_or_var () =
   match%bind peek () with
   | Some (Token.Int _, _) ->
     let%map i = lit () in
-    Ir.Lit_or_var.Lit (Int64.of_int i)
+    Ir.Lit_or_var.Lit i
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     Ir.Lit_or_var.Var v
@@ -111,7 +111,7 @@ let lit_or_var_or_ident () =
   match%bind peek () with
   | Some (Token.Int _, _) ->
     let%map i = lit () in
-    `Lit_or_var (Ir.Lit_or_var.Lit (Int64.of_int i))
+    `Lit_or_var (Ir.Lit_or_var.Lit i)
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     `Lit_or_var (Ir.Lit_or_var.Var v)
