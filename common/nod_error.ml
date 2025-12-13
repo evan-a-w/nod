@@ -3,6 +3,7 @@ open! Core
 type t =
   [ `Duplicate_label of string
   | `Expected_digit of char
+  | `Invalid_number_literal of string
   | `Unexpected_character of char
   | `Unexpected_end_of_input
   | `Unexpected_end_of_input
@@ -19,6 +20,8 @@ let rec to_string : t -> string = function
   | `Duplicate_label s -> Printf.sprintf "Error: duplicate label '%s'\n" s
   | `Expected_digit c ->
     Printf.sprintf "Error: expected a digit but got '%c'\n" c
+  | `Invalid_number_literal s ->
+    Printf.sprintf "Error: invalid number literal '%s'\n" s
   | `Unexpected_character c ->
     Printf.sprintf "Error: unexpected character '%c'\n" c
   | `Unexpected_end_of_input ->
