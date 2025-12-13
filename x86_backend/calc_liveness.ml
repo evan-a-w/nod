@@ -3,7 +3,7 @@ open! Import
 open! Common
 
 module type Arg = sig
-  type t
+  type t [@@deriving sexp]
 
   val treat_block_args_as_defs : bool
   val uses_of_ir : Ir.t -> t list
@@ -210,7 +210,7 @@ end
 
 let var ~treat_block_args_as_defs ~reg_numbering =
   (module Make (struct
-      type t = Var.t
+      type t = Var.t [@@deriving sexp]
 
       let treat_block_args_as_defs = treat_block_args_as_defs
       let uses_of_ir = Ir.uses
@@ -224,7 +224,7 @@ let var ~treat_block_args_as_defs ~reg_numbering =
 
 let phys ~reg_numbering =
   (module Make (struct
-      type t = Reg.t
+      type t = Reg.t [@@deriving sexp]
 
       let treat_block_args_as_defs = false
       let filter_physical set = Set.filter set ~f:Reg.is_physical |> Set.to_list

@@ -120,17 +120,13 @@ let%expect_test "recursive fib" =
       mov rax, r15
       jmp fib__fib__epilogue
     fib__rec:
-      push rax
       mov rdi, r15
       call fib
       mov r13, rax
-      pop rax
       sub r15, 1
-      push rax
       mov rdi, r15
       call fib
       mov r14, rax
-      pop rax
       mov r15, r13
       add r15, r14
       mov rax, r15

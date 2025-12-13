@@ -94,7 +94,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     extra_mov
     @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
       ; tag_def
-          (tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst))
+          (tag_def
+             (tag_use (make_instr src2_final) (Reg tmp_rax))
+             (Reg tmp_dst))
           (Reg tmp_other)
       ; mov (reg dest) (Reg tmp_dst)
       ]
@@ -231,7 +233,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results Class.I64 in
-    let post_moves =
+    let post_moves, results_with_physical =
       Sequence.zip_full
         (Sequence.of_list results)
         (Sequence.of_list gp_result_regs)
@@ -239,10 +241,22 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         | `Right _ -> None
         | `Left _ -> failwith "impossible"
         | `Both (res, reg) ->
-          let instr = mov (Reg (Reg.unallocated res)) (Reg reg) in
-          Some instr)
+          let force_physical =
+            Reg.allocated
+              ~class_:Class.I64
+              (fresh_var t "tmp_force_physical")
+              (Some reg)
+          in
+          let instr = mov (Reg (Reg.unallocated res)) (Reg force_physical) in
+          Some (instr, force_physical))
       |> Sequence.to_list
+      |> List.unzip
     in
+    let results_on_stack =
+      List.drop results (List.length results_with_physical)
+      |> List.map ~f:Reg.unallocated
+    in
+    let updated_results = results_with_physical @ results_on_stack in
     let post_pop =
       if num_stack_args = 0
       then []
@@ -252,7 +266,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     @ pre_moves
     @ [ CALL
           { fn
-          ; results = List.map results ~f:Reg.unallocated
+          ; results = updated_results
           ; args = List.map args ~f:(operand_of_lit_or_var t ~class_:Class.I64)
           }
       ]
