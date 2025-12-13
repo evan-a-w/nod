@@ -433,7 +433,8 @@ let%expect_test "all float operations" =
 (* Cast instruction tests for type conversions *)
 
 let%expect_test "cast i64 to f64" =
-  test {|
+  test
+    {|
     mov %i:i64, 42
     cast %f:f64, %i
     cast %result:i64, %f

@@ -5,4 +5,4 @@ open! Common
 type t =
   | Spill
   | Reg of Reg.t
-[@@deriving sexp, compare, hash, variants]
+[@@deriving sexp, compare, hash, variants, equal]

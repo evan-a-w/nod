@@ -136,6 +136,8 @@ module Branch = struct
         ; Call_block.uses if_true
         ; Call_block.uses if_false
         ]
+      |> Var.Set.of_list
+      |> Set.to_list
     | Uncond call -> Call_block.uses call
   ;;
 
@@ -288,6 +290,8 @@ let defs = function
   | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
+    |> Var.Set.of_list
+    |> Set.to_list
   | Alloca a -> [ a.dest ]
   | And a
   | Or a
@@ -333,6 +337,8 @@ let uses = function
   | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
+    |> Var.Set.of_list
+    |> Set.to_list
   | Alloca a -> Lit_or_var.vars a.size
   | Add a
   | Sub a
@@ -348,7 +354,8 @@ let uses = function
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
   | Load (_, b) -> Mem.vars b
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
-  | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
+  | Call { args; _ } ->
+    List.concat_map args ~f:Lit_or_var.vars |> Var.Set.of_list |> Set.to_list
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
   | Unreachable | Noop -> []

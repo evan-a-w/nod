@@ -9,8 +9,8 @@ module Make3' (X : Monad.Basic3) = struct
     let open Let_syntax in
     let%map l =
       List.fold l ~init:(return []) ~f:(fun acc x ->
-        let%bind acc = acc in
-        let%map x = x in
+        let%bind acc in
+        let%map x in
         x :: acc)
     in
     List.rev l
@@ -32,8 +32,8 @@ module Make3' (X : Monad.Basic3) = struct
     =
     let open Let_syntax in
     Map.fold m ~init:(return M.empty) ~f:(fun ~(key : a) ~data acc ->
-      let%bind acc = acc in
-      let%map data = data in
+      let%bind acc in
+      let%map data in
       Map.set acc ~key ~data)
   ;;
 
@@ -42,7 +42,7 @@ module Make3' (X : Monad.Basic3) = struct
     match x with
     | None -> return None
     | Some x ->
-      let%map x = x in
+      let%map x in
       Some x
   ;;
 
@@ -55,7 +55,7 @@ module Make3' (X : Monad.Basic3) = struct
     ;;
 
     let ( << ) x y =
-      let%bind x = x in
+      let%bind x in
       y >> return x
     ;;
   end

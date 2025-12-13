@@ -3,6 +3,6 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix nod_common nod_core feel)
- (flags (:standard -extension-universe beta))
-)
+ (libraries core core_unix nod_common nod_core feel ds)
+ (flags
+  (:standard -extension-universe beta)))
