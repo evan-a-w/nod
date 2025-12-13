@@ -1,6 +1,6 @@
 open! Core
 open! Import
-module Parser_comb = Parser_comb.Make (Token)
+module Parser_comb = Nod_frontend.Parser_comb.Make (Token)
 open Parser_comb
 
 module Cst = Omm_cst
@@ -626,7 +626,7 @@ let item () =
 let program () = exhaust (item ())
 
 let parse_string ?(file = "") s =
-  match Lexer.tokens ~keywords ~file s with
+  match Nod_frontend.Lexer.tokens ~keywords ~file s with
   | Error _ as e -> e
   | Ok tokens ->
     (match program () (tokens, State.create ()) with

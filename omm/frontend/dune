@@ -1,0 +1,6 @@
+(library
+ (name nod_omm_frontend)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core nod_common nod_frontend))
+
