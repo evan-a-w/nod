@@ -210,26 +210,22 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
     let gp_arg_regs = Reg.arguments Class.I64 in
-    let num_stack_args =
-      Int.max 0 (List.length args - List.length gp_arg_regs)
+    let reg_args, stack_args = List.split_n args (List.length gp_arg_regs) in
+    let stack_arg_pushes =
+      List.rev stack_args
+      |> List.map ~f:(fun arg ->
+        push (operand_of_lit_or_var t ~class_:Class.I64 arg))
     in
-    let pre_moves =
-      Sequence.zip_full (Sequence.of_list args) (Sequence.of_list gp_arg_regs)
-      |> Sequence.filter_map ~f:(function
-        | `Right _ -> None
-        | `Left x -> Some (push (operand_of_lit_or_var t ~class_:Class.I64 x))
-        | `Both (arg, reg) ->
-          let force_physical =
-            Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
-          in
-          let instr =
-            mov
-              (Reg force_physical)
-              (operand_of_lit_or_var t ~class_:Class.I64 arg)
-          in
-          Some instr)
-      |> Sequence.to_list
+    let reg_arg_moves =
+      List.zip_with_remainder reg_args gp_arg_regs
+      |> fst
+      |> List.map ~f:(fun (arg, reg) ->
+        let force_physical =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
+        in
+        mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 arg))
     in
+    let pre_moves = stack_arg_pushes @ reg_arg_moves in
     (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results Class.I64 in
@@ -258,9 +254,10 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     let updated_results = results_with_physical @ results_on_stack in
     let post_pop =
-      if num_stack_args = 0
+      if List.is_empty stack_args
       then []
-      else [ sub (Reg Reg.rsp) (Imm (Int64.of_int (num_stack_args * 8))) ]
+      else
+        [ add (Reg Reg.rsp) (Imm (Int64.of_int (List.length stack_args * 8))) ]
     in
     [ save_clobbers ]
     @ pre_moves
@@ -335,13 +332,10 @@ let make_prologue t =
       mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
   in
   let stack_arg_moves =
-    List.rev args_on_stack
+    args_on_stack
     |> List.mapi ~f:(fun i arg ->
-      let stack_offset =
-        (* go to front of this reg, and we also need to skip the ret addr *)
-        -((i + 2) * 8)
-      in
-      mov (Reg (Reg.unallocated arg)) (Mem (Reg.rsp, stack_offset)))
+      let stack_offset = (i + 1) * 8 in
+      mov (Reg (Reg.unallocated arg)) (Mem (Reg.rbp, stack_offset)))
   in
   let block =
     Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))

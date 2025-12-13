@@ -334,3 +334,60 @@ ret %result
   print_endline output;
   [%expect {| 75 |}]
 ;;
+
+let%expect_test "float division truncates toward zero" =
+  let output =
+    compile_and_execute
+      {|
+cast %x:f64, 7
+cast %y:f64, 2
+fdiv %quot:f64, %x, %y
+cast %result:i64, %quot
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| 3 |}]
+;;
+
+let%expect_test "float division truncates toward zero (negative)" =
+  let output =
+    compile_and_execute
+      {|
+cast %zero:f64, 0
+cast %seven:f64, 7
+fsub %neg_seven:f64, %zero, %seven
+cast %two:f64, 2
+fdiv %quot:f64, %neg_seven, %two
+cast %result:i64, %quot
+ret %result
+|}
+  in
+  print_endline output;
+  [%expect {| -3 |}]
+;;
+
+let%expect_test "call with stack arguments" =
+  let output =
+    compile_and_execute
+      {|
+sum8(%a:i64, %b:i64, %c:i64, %d:i64, %e:i64, %f:i64, %g:i64, %h:i64) {
+  add %t0:i64, %a, %b
+  add %t1:i64, %t0, %c
+  add %t2:i64, %t1, %d
+  add %t3:i64, %t2, %e
+  add %t4:i64, %t3, %f
+  add %t5:i64, %t4, %g
+  add %t6:i64, %t5, %h
+  ret %t6
+}
+
+root() {
+  call sum8(1, 2, 3, 4, 5, 6, 7, 8) -> %res:i64
+  ret %res
+}
+|}
+  in
+  print_endline output;
+  [%expect {| 36 |}]
+;;
