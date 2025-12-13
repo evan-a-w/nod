@@ -544,12 +544,16 @@ let par_moves t ~dst_to_src =
       in
       if not emitted_any
       then (
-        let _dst, src = Map.min_elt_exn !pending in
-        let tmp = temp src.class_ in
-        emit tmp src;
+        (* Break a dependency cycle by saving one destination, performing its move,
+           and rewriting remaining uses of that destination to use the temp. *)
+        let dst, src = Map.min_elt_exn !pending in
+        let tmp = temp dst.class_ in
+        emit tmp dst;
+        emit dst src;
+        pending := Map.remove !pending dst;
         pending
         := Map.map !pending ~f:(fun src' ->
-             if Reg.equal src' src then tmp else src'));
+             if Reg.equal src' dst then tmp else src'));
       go ())
   in
   go ();
