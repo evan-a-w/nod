@@ -194,6 +194,58 @@ end:
 |}
   ;;
 
+  let f_but_simple =
+    {|
+(* --- Program: nested-loops with conditionals --------------------------------- *)
+
+start:
+  mov %n:i64,    7          (* outer loop upper-bound  (change to taste) *)
+  mov %i:i64,    0
+  mov %total:i64, 0
+  b outerCheck
+
+(* ---------- outer loop ------------------------------------------------------- *)
+
+outerCheck:
+  sub %condOuter:i64, %i, %n            (* condOuter = i - n *)
+  branch %condOuter, outerBody, exit  (* if i < n → body, else exit *)
+
+outerBody:
+  mov %j:i64,      0
+  mov %partial:i64, 0
+  b innerCheck
+
+(* ---------- inner loop ------------------------------------------------------- *)
+
+innerCheck:
+  sub %condInner:i64, %j, 3             (* run while j < 3 *)
+  branch %condInner, innerBody, innerExit
+
+(* -- inner loop body (may jump to skipEven) ----------------------------------- *)
+
+innerBody:
+  mul %tmp:i64, %i, %j                  (* tmp = i * j *)
+  add %partial:i64, %partial, %tmp      (* accumulate into partial *)
+  add %j:i64, %j, 1
+  b innerCheck
+
+(* ---------- after inner loop ------------------------------------------------- *)
+
+innerExit:
+  add %total:i64, %total, %partial      (* fold inner result into total *)
+
+outerInc:
+  add %i:i64, %i, 1
+  b outerCheck
+
+(* ---------- program end ------------------------------------------------------ *)
+
+exit:
+  return %total
+
+|}
+  ;;
+
   let f =
     {|
 (* --- Program: nested-loops with conditionals --------------------------------- *)
@@ -371,4 +423,58 @@ exit:
   ;;
 
   let all = [ a; b; c; d; e; c2; e2 ]
+
+  let regalloc_hard =
+    {|
+root() {
+    mov %a:i64, 1
+    mov %b:i64, 2
+    mov %c:i64, 3
+    mov %d:i64, 4
+    mov %e:i64, 5
+    mov %f:i64, 6
+    mov %g:i64, 7
+    mov %h:i64, 8
+    mov %i:i64, 9
+    mov %j:i64, 10
+    mov %k:i64, 11
+    mov %l:i64, 12
+    mov %m:i64, 13
+
+    add %s1:i64, %a, %b
+    add %s2:i64, %s1, %c
+    add %s3:i64, %s2, %d
+    add %s4:i64, %s3, %e
+    add %s5:i64, %s4, %f
+    add %s6:i64, %s5, %g
+    add %s7:i64, %s6, %h
+    add %s8:i64, %s7, %i
+    add %s9:i64, %s8, %j
+    add %s10:i64, %s9, %k
+    add %s11:i64, %s10, %l
+    add %s12:i64, %s11, %m
+
+    ret %s12
+}
+
+|}
+  ;;
+
+  let regalloc_ez =
+    {|
+root() {
+    mov %a:i64, 1
+    mov %b:i64, 2
+    mov %c:i64, 3
+    mov %d:i64, 4
+
+    add %s1:i64, %a, %b
+    add %s2:i64, %s1, %c
+    add %s3:i64, %s2, %d
+
+    ret %s3
+}
+
+|}
+  ;;
 end

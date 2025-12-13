@@ -1,7 +1,6 @@
 open! Core
 open! Import
 open! Common
-
 module Raw = X86_reg.Raw
 
 let phys_reg_limit = Array.length Raw.all_physical
@@ -69,7 +68,8 @@ let reg_id t (reg : Reg.t) =
   | Raw.XMM13 -> 29
   | Raw.XMM14 -> 30
   | Raw.XMM15 -> 31
-  | Raw.Unallocated var | Raw.Allocated (var, _) -> phys_reg_limit + var_id t var
+  | Raw.Unallocated var | Raw.Allocated (var, _) ->
+    phys_reg_limit + var_id t var
 ;;
 
 let id_reg t id : Reg.t =
