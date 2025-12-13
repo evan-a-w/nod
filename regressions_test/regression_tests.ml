@@ -365,11 +365,6 @@ let%expect_test "call chains - no opt vs opt" =
     |}]
 ;;
 
-(* High Register Pressure Tests *)
-
-(* Test 1: Many live variables in a single computation
-   This creates 20 variables that all stay live and are used in a final sum.
-   With only 14 general-purpose registers available, this forces spilling. *)
 let high_register_pressure_sum =
   {|
 root() {
@@ -417,9 +412,6 @@ root() {
 |}
 ;;
 
-(* Test 2: Many live variables across a function call
-   Function calls clobber caller-saved registers, forcing register allocator
-   to handle spilling before/after the call. *)
 let high_register_pressure_call =
   {|
 root(%x:i64) {
@@ -464,8 +456,6 @@ helper(%x:i64) {
 |}
 ;;
 
-(* Test 3: Loop with high register pressure
-   Many live variables across loop iterations forces careful register allocation. *)
 let high_register_pressure_loop =
   {|
 root() {
@@ -509,8 +499,6 @@ loop_done:
 |}
 ;;
 
-(* Test 4: Complex expression tree with many temporaries
-   Creates a wide expression tree that requires many registers simultaneously. *)
 let high_register_pressure_expr_tree =
   {|
 root(%x:i64) {
@@ -542,8 +530,6 @@ root(%x:i64) {
 |}
 ;;
 
-(* Test 5: Deeply nested expressions
-   Tests register pressure from deep expression nesting. *)
 let high_register_pressure_nested =
   {|
 root(%x:i64) {
@@ -583,10 +569,10 @@ let%expect_test "high register pressure - sum of many variables" =
 (*   test_both_modes *)
 (*     ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ()) *)
 (*     high_register_pressure_call; *)
-(*   [%expect {| *)
-(*     no_opt: 620 *)
-(*     opt: 620 *)
-(*     |}] *)
+(*   [%expect {|  *)
+(*      no_opt: 620  *)
+(*      opt: 620  *)
+(*      |}] *)
 (* ;; *)
 
 let%expect_test "high register pressure - loop with many live vars" =
