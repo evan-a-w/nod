@@ -535,8 +535,8 @@ ret %dyn
         (%root (args ())
          (instrs
           ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 24)))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Mem ((reg RBP) (class_ I64)) 0)))
+           (X86_terminal
+            ((MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RBP) (class_ I64))))))
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86
