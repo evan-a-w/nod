@@ -293,8 +293,23 @@ let assume_root () =
     [ Function.create ~name:"root" ~root:(~instrs_by_label, ~labels) ~args:[] ]
 ;;
 
+let function_parser_with_reset () =
+  let%bind func = function_parser () in
+  (* Reset state after parsing each function for the next one *)
+  let%bind () =
+    set_state
+      { State.instrs_by_label = String.Map.empty
+      ; State.labels = Vec.create ()
+      ; State.current_block = "%root"
+      ; State.current_instrs = Vec.create ()
+      ; State.var_types = String.Table.create ()
+      }
+  in
+  return func
+;;
+
 let program_parser () =
-  exhaust (function_parser ())
+  exhaust (function_parser_with_reset ())
   >>| String.Map.of_list_with_key_exn ~get_key:Function.name
 ;;
 

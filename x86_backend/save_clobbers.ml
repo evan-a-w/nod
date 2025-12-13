@@ -4,8 +4,8 @@ open! Common
 
 let default_clobbers =
   let callee_saved =
-    (Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.I64
-     @ Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.F64)
+    Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.I64
+    @ Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.F64
     |> Reg.Set.of_list
   in
   Array.fold Reg.all_physical ~init:Reg.Set.empty ~f:(fun acc reg ->
@@ -61,28 +61,29 @@ let save_and_restore_in_prologue_and_epilogue
       List.iter to_restore ~f:(fun reg ->
         Vec.push new_prologue (X86 (push (Reg reg))));
       Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)));
-      if Function.stack_header_bytes fn > 0
+      if fn.bytes_for_clobber_saves > 0
       then
         Vec.push
           new_prologue
           (X86
              (add
                 (Reg Reg.rbp)
-                (Imm (Function.stack_header_bytes fn |> Int64.of_int))));
+                (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
       Vec.append new_prologue prologue.instructions;
       prologue.instructions <- new_prologue
     in
     let () =
       (* change epilogue *)
       if List.is_empty to_restore
-      then Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)))
+      then
+        Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)))
       else
         List.map
           ~f:Ir.x86
           ([ mov (Reg Reg.rsp) (Reg Reg.rbp)
            ; sub
                (Reg Reg.rsp)
-               (Imm (Function.stack_header_bytes fn |> Int64.of_int))
+               (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))
            ]
            @ List.map (List.rev to_restore) ~f:pop
            @

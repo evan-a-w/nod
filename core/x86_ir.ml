@@ -151,8 +151,10 @@ let rec map_var_operands ins ~f =
   | DIVSD (dst, src) -> DIVSD (map_var_operand dst ~f, map_var_operand src ~f)
   | MOVSD (dst, src) -> MOVSD (map_var_operand dst ~f, map_var_operand src ~f)
   | MOVQ (dst, src) -> MOVQ (map_var_operand dst ~f, map_var_operand src ~f)
-  | CVTSI2SD (dst, src) -> CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
-  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTSI2SD (dst, src) ->
+    CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
+  | CVTTSD2SI (dst, src) ->
+    CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
   | IDIV op -> IDIV (map_var_operand op ~f)
   | IMUL op -> IMUL (map_var_operand op ~f)
   | MOD op -> MOD (map_var_operand op ~f)
@@ -234,8 +236,11 @@ let rec reg_defs ins : Reg.Set.t =
   | Save_clobbers | Restore_clobbers -> Reg.Set.empty
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
-  | MOV (dst, _) | MOVQ (dst, _) | MOVSD (dst, _)
-  | CVTSI2SD (dst, _) | CVTTSD2SI (dst, _) -> regs_of_operand dst
+  | MOV (dst, _)
+  | MOVQ (dst, _)
+  | MOVSD (dst, _)
+  | CVTSI2SD (dst, _)
+  | CVTTSD2SI (dst, _) -> regs_of_operand dst
   | ALLOCA (dst, _)
   | AND (dst, _)
   | OR (dst, _)
@@ -260,8 +265,11 @@ let rec reg_uses ins : Reg.Set.t =
   | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
-  | MOV (_, src) | MOVQ (_, src) | MOVSD (_, src)
-  | CVTSI2SD (_, src) | CVTTSD2SI (_, src) -> regs_of_operand src
+  | MOV (_, src)
+  | MOVQ (_, src)
+  | MOVSD (_, src)
+  | CVTSI2SD (_, src)
+  | CVTTSD2SI (_, src) -> regs_of_operand src
   | ADD (dst, src)
   | SUB (dst, src)
   | AND (dst, src)
@@ -277,7 +285,13 @@ let rec reg_uses ins : Reg.Set.t =
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
-  | ALLOCA _ | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
+  | JE (a, b) | JNE (a, b) ->
+    Call_block.uses a
+    @ (Option.map b ~f:Call_block.uses |> Option.value ~default:[])
+    |> List.map ~f:Reg.unallocated
+    |> Reg.Set.of_list
+  | JMP a -> Call_block.uses a |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
+  | ALLOCA _ | NOOP | LABEL _ -> Reg.Set.empty
 ;;
 
 let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
@@ -438,7 +452,6 @@ let rec map_uses t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | ALLOCA (a, b) -> ALLOCA (map_op a, b)
   | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
   | MOV (dst, src) -> MOV (dst, map_op src)
@@ -467,7 +480,7 @@ let rec map_uses t ~f =
   | JNE (lbl, next) ->
     JNE (map_call_block lbl, Option.map next ~f:map_call_block)
   | JMP lbl -> JMP (map_call_block lbl)
-  | NOOP | LABEL _ -> t
+  | NOOP | LABEL _ | ALLOCA _ -> t
 ;;
 
 let rec map_operands t ~f =

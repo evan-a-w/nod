@@ -188,7 +188,11 @@ module Type_check = struct
       else (
         (* Regular integer arithmetic: all operands must match *)
         let%bind () =
-          ensure_operand_matches src1 ~expected_type:dest_type ~op ~position:"lhs"
+          ensure_operand_matches
+            src1
+            ~expected_type:dest_type
+            ~op
+            ~position:"lhs"
         in
         ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs")
     | _ ->
