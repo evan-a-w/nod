@@ -1,5 +1,5 @@
 open! Core
-open Nod
+open Import
 
 let read_program source =
   Or_error.try_with (fun () ->
@@ -64,6 +64,14 @@ let run_emit_asm config =
   write_output ~destination:config.output asm
 ;;
 
+let run_run config =
+  let opt_flags =
+    if config.no_opt then Eir.Opt_flags.no_opt else Eir.Opt_flags.default
+  in
+  let%map.Or_error program = read_program config.input in
+  Nod.compile_and_execute ~opt_flags program
+;;
+
 let usage =
   "Usage: nod emit-asm [--no-opt] [--dump-crap] [-o FILE] <program|->\n"
 ;;
@@ -76,6 +84,13 @@ let () =
   | [] | [ _ ] ->
     print_usage ();
     exit 1
+  | _ :: "deebg" :: _ ->
+    (match
+       Nod.compile ~opt_flags:Eir.Opt_flags.default Examples.Textual.sum_100
+     with
+     | Error e -> Nod_error.to_string e |> print_endline
+     | Ok functions ->
+       X86_backend.For_testing.print_selected_instructions functions)
   | _ :: "emit-asm" :: args ->
     (match
        parse_emit_asm
@@ -88,6 +103,29 @@ let () =
      | Ok config ->
        (match run_emit_asm config with
         | Ok () -> ()
+        | Error err ->
+          Out_channel.output_string
+            Out_channel.stderr
+            (sprintf "nod: %s\n" (Error.to_string_hum err));
+          exit 1)
+     | Error err ->
+       Out_channel.output_string
+         Out_channel.stderr
+         (sprintf "nod: %s\n" (Error.to_string_hum err));
+       print_usage ();
+       exit 1)
+  | _ :: "run" :: args ->
+    (match
+       parse_emit_asm
+         args
+         ~input:None
+         ~output:None
+         ~no_opt:false
+         ~dump_crap:false
+     with
+     | Ok config ->
+       (match run_run config with
+        | Ok s -> print_string s
         | Error err ->
           Out_channel.output_string
             Out_channel.stderr

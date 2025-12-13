@@ -351,8 +351,6 @@ let rename t =
     <- Vec.map block.instructions ~f:(fun instr ->
          instr |> replace_uses |> replace_defs);
     Block.terminal block |> replace_uses |> Block.set_terminal block;
-    Vec.iter block.Block.children ~f:(fun block' ->
-      block'.args <- Vec.map block'.args ~f:replace_use);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:

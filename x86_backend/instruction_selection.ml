@@ -57,7 +57,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
 let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let make_arith f ({ dest; src1; src2 } : Ir.arith) =
-    List.iter [ dest ] ~f:(fun var -> require_class t var Class.I64);
+    require_class t dest Class.I64;
     let dest_op = Reg (reg_of_var t dest) in
     [ mov dest_op (operand_of_lit_or_var t ~class_:Class.I64 src1)
     ; f dest_op (operand_of_lit_or_var t ~class_:Class.I64 src2)
@@ -71,6 +71,13 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     let tmp_dst =
       Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_dst") (Some take_reg)
+    in
+    let other_reg = if Reg.equal take_reg Reg.rax then Reg.rdx else Reg.rax in
+    let tmp_other =
+      Reg.allocated
+        ~class_:Class.I64
+        (fresh_var t "tmp_clobber")
+        (Some other_reg)
     in
     (* IMUL/IDIV only accept register or memory operands, not immediates.
        If src2 is a literal, we need to load it into a register first. *)
@@ -86,7 +93,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     extra_mov
     @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
-      ; tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst)
+      ; tag_def
+          (tag_def (tag_use (make_instr src2_final) (Reg tmp_rax)) (Reg tmp_dst))
+          (Reg tmp_other)
       ; mov (reg dest) (Reg tmp_dst)
       ]
   in
@@ -153,15 +162,20 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           [ mov (Reg tmp_reg) src_operand
           ; cvtsi2sd (Reg (reg_of_var t dest)) (Reg tmp_reg)
           ]
-        | Reg _ | Mem _ ->
-          [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
+        | Reg _ | Mem _ -> [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
      | t1, t2 when Type.is_float t1 && Type.is_integer t2 ->
        (* Float to int conversion (with truncation) *)
-       [ cvttsd2si (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:src_class src) ]
+       [ cvttsd2si
+           (Reg (reg_of_var t dest))
+           (operand_of_lit_or_var t ~class_:src_class src)
+       ]
      | t1, t2 when Type.is_integer t1 && Type.is_integer t2 ->
        (* Int to int conversion (sign-extend or truncate) *)
        (* For now, just use mov - x86 will handle sign extension/truncation *)
-       [ mov (Reg (reg_of_var t dest)) (operand_of_lit_or_var t ~class_:Class.I64 src) ]
+       [ mov
+           (Reg (reg_of_var t dest))
+           (operand_of_lit_or_var t ~class_:Class.I64 src)
+       ]
      | _ ->
        (* Float to float or other conversions not yet supported *)
        failwithf
@@ -349,7 +363,7 @@ let make_epilogue t ~ret_shape =
     List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+      mov (Reg reg) (Reg (Reg.allocated arg (Some reg))))
   in
   let args' =
     List.zip_with_remainder args gp_res_regs
@@ -471,22 +485,22 @@ let par_moves t ~dst_to_src =
     List.map dst_to_src ~f:(fun (dst, src) ->
       reg_of_var t dst, reg_of_var t src)
   in
-  let all_dsts = List.map dst_src_regs ~f:fst in
-  let all_srcs = List.map dst_src_regs ~f:snd in
-  let pending =
-    Reg.Map.of_alist_exn dst_src_regs
-    |> Ref.create
-  in
+  let pending = Reg.Map.of_alist_exn dst_src_regs |> Ref.create in
   let temp class_ =
     Reg.unallocated
       ~class_
       (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
   let emitted = Vec.create () in
-  let emit dst src =
+  let emit (dst : Reg.t) src =
+    let mov' =
+      match dst.class_ with
+      | I64 -> mov
+      | F64 -> movsd
+    in
     if Reg.equal dst src
     then ()
-    else Vec.push emitted (Ir.x86 (mov (Reg dst) (Reg src)))
+    else Vec.push emitted (Ir.x86 (mov' (Reg dst) (Reg src)))
   in
   let rec go () =
     if Map.is_empty !pending
@@ -512,31 +526,7 @@ let par_moves t ~dst_to_src =
       go ())
   in
   go ();
-  (* Tag all destinations as defined and all sources as used to ensure proper interference.
-     To make destinations interfere with each other, we use a trick:
-     1. Before moves: Tag_use all sources (keeps them live)
-     2. Do the moves
-     3. After moves: Tag_use all destinations (keeps them live for next instruction)
-     This ensures when subsequent instructions define variables, all destinations are in live_out. *)
-  if Vec.length emitted = 0
-  then emitted
-  else (
-    let result = Vec.create () in
-    (* Tag_use all sources before the moves *)
-    let pre_instr =
-      List.fold all_srcs ~init:X86_ir.NOOP ~f:(fun acc src ->
-        X86_ir.Tag_use (acc, Reg src))
-    in
-    Vec.push result (Ir.x86 pre_instr);
-    (* Add the actual moves *)
-    Vec.iter emitted ~f:(Vec.push result);
-    (* Tag_use all destinations after the moves to keep them live *)
-    let post_instr =
-      List.fold all_dsts ~init:X86_ir.NOOP ~f:(fun acc dst ->
-        X86_ir.Tag_use (acc, Reg dst))
-    in
-    Vec.push result (Ir.x86 post_instr);
-    result)
+  emitted
 ;;
 
 let insert_par_moves t =
@@ -579,9 +569,8 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    block.terminal <- Ir.remove_block_args block.terminal;
-    (* Clear block args since phi moves have been inserted *)
-    Vec.clear block.args);
+    block.terminal <- Ir.remove_block_args block.terminal
+    (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
 
@@ -614,3 +603,15 @@ let run (fn : Function.t) =
   *)
   |> get_fn
 ;;
+
+module For_testing = struct
+  let run_deebg (fn : Function.t) =
+    fn
+    |> create
+    |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
+    |> split_blocks_and_add_prologue_and_epilogue
+    |> insert_par_moves
+    (* |> remove_call_block_args *)
+    |> get_fn
+  ;;
+end

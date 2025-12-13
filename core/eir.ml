@@ -193,22 +193,29 @@ module Opt = struct
 
   let create ~opt_flags ssa =
     let t = create ~opt_flags ssa in
+    let early_sets = Var.Table.create () in
+    let early_set var =
+      Hashtbl.find_or_add early_sets var ~default:Loc.Hash_set.create
+    in
     let define ~loc var =
       let id = Var.name var in
-      let opt_var =
-        { Opt_var.id
-        ; tags = Tags.empty
-        ; loc
-        ; uses = Loc.Hash_set.create ()
-        ; active = true
-        }
-      in
-      Hashtbl.set t.vars ~key:id ~data:opt_var;
-      t.active_vars <- Set.add t.active_vars id
+      if Hashtbl.mem t.vars id
+      then ()
+      else (
+        let opt_var =
+          { Opt_var.id
+          ; tags = Tags.empty
+          ; loc
+          ; uses = early_set var
+          ; active = true
+          }
+        in
+        Hashtbl.set t.vars ~key:id ~data:opt_var;
+        t.active_vars <- Set.add t.active_vars id)
     in
     let use ~loc var =
       match Hashtbl.find t.vars (Var.name var) with
-      | None -> ()
+      | None -> Hash_set.add (early_set var) loc
       | Some opt_var -> Hash_set.add opt_var.uses loc
     in
     iter t ~f:(fun block ->
@@ -268,36 +275,35 @@ module Opt = struct
     <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
 
   and remove_arg_from_parent t ~parent ~idx ~from_block =
-    let rec go () =
-      let current = parent.Block.terminal in
-      let new_ =
-        Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
-          if not (phys_equal cb.block from_block)
-          then cb
-          else
-            { cb with
-              args =
-                List.filteri cb.args ~f:(fun i var ->
-                  let id = Var.name var in
-                  match i = idx, active_var t id with
-                  | false, _ -> true
-                  | true, None -> false
-                  | true, Some opt_var ->
-                    (* kill the tang *)
-                    Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
-                      match loc.Loc.where with
-                      | Loc.Block_arg _ -> true
-                      | Instr instr -> not (phys_equal instr parent.terminal));
-                    try_kill_var t ~id;
-                    false)
-            })
-      in
-      (* can actually change during execution :() *)
-      if phys_equal current parent.Block.terminal
-      then parent.Block.terminal <- new_
-      else go ()
+    let found = Queue.create () in
+    let new_ =
+      Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
+        if not (phys_equal cb.block from_block)
+        then cb
+        else
+          { cb with
+            args =
+              List.filteri cb.args ~f:(fun i var ->
+                let id = Var.name var in
+                match i = idx, active_var t id with
+                | false, _ -> true
+                | true, None -> false
+                | true, Some opt_var ->
+                  (* kill the tang *)
+                  Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
+                    match loc.Loc.where with
+                    | Loc.Block_arg _ -> true
+                    | Instr instr -> not (phys_equal instr parent.terminal));
+                  Queue.enqueue found opt_var;
+                  false)
+          })
     in
-    go ()
+    parent.Block.terminal <- new_;
+    let loc = { Loc.where = Instr new_; block = parent } in
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
+      Hash_set.add opt_var.uses loc);
+    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
+      try_kill_var t ~id:opt_var.id)
 
   and remove_arg t ~block ~arg =
     let idx =
