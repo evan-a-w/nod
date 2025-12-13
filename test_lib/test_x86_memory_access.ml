@@ -28,24 +28,10 @@ let%expect_test "load/store select into x86 mem operands" =
           (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
        (%root (args ())
         (instrs
-         ((X86
-           (MOV
-            (Reg
-             ((reg (Allocated ((name tmp_force_physical) (type_ I64)) ()))
-              (class_ I64)))
-            (Imm 42)))
-          (X86 (MOV (Mem ((reg RBP) (class_ I64)) 0) (Imm 42)))
-          (X86
-           (MOV
-            (Reg
-             ((reg (Allocated ((name tmp_force_physical1) (type_ I64)) ()))
-              (class_ I64)))
-            (Mem ((reg RBP) (class_ I64)) 0)))
+         ((X86 (MOV (Mem ((reg RBP) (class_ I64)) 0) (Imm 42)))
           (X86
            (MOV (Reg ((reg (Unallocated ((name tmp) (type_ I64)))) (class_ I64)))
-            (Reg
-             ((reg (Allocated ((name tmp_force_physical1) (type_ I64)) ()))
-              (class_ I64)))))
+            (Mem ((reg RBP) (class_ I64)) 0)))
           (X86
            (MOV
             (Reg ((reg (Unallocated ((name res__0) (type_ I64)))) (class_ I64)))

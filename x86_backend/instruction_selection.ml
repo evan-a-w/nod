@@ -187,23 +187,34 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
          ())
   | Load (v, mem) ->
     require_class t v Class.I64;
-    let force_physical =
-      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
+    let pre, mem_op =
+      match mem with
+      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
+      | Ir.Mem.Lit_or_var (Var v) ->
+        let base = Reg.allocated ~class_:Class.I64 v None in
+        [], Mem (base, 0)
+      | Ir.Mem.Lit_or_var (Lit addr) ->
+        let tmp_addr =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+        in
+        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
     in
-    [ mov (Reg force_physical) (Ir.Mem.to_x86_ir_operand mem)
-    ; mov (reg v) (Reg force_physical)
-    ]
+    pre @ [ mov (reg v) mem_op ]
   | Store (lit_or_var, mem) ->
-    let force_physical =
-      Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_force_physical") None
+    let pre, mem_op =
+      match mem with
+      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
+      | Ir.Mem.Lit_or_var (Var v) ->
+        let base = Reg.allocated ~class_:Class.I64 v None in
+        [], Mem (base, 0)
+      | Ir.Mem.Lit_or_var (Lit addr) ->
+        let tmp_addr =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+        in
+        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
     in
-    [ mov
-        (Reg force_physical)
-        (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
-    ; mov
-        (Ir.Mem.to_x86_ir_operand mem)
-        (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var)
-    ]
+    pre
+    @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
@@ -419,9 +430,17 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     Vec.map_inplace block.instructions ~f:(function
       | X86 (ALLOCA (dest, i)) ->
-        let ir = mov dest (Mem (Reg.rbp, t.fn.bytes_alloca'd)) in
+        let offset = t.fn.bytes_alloca'd in
         t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
-        X86 ir
+        (match dest with
+         | Reg _ ->
+           X86_terminal
+             ([ mov dest (Reg Reg.rbp) ]
+              @
+              if offset = 0
+              then []
+              else [ add dest (Imm (Int64.of_int offset)) ])
+         | _ -> failwith "alloca dest must be a register")
       | ir -> ir);
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
