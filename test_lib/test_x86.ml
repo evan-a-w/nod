@@ -776,11 +776,7 @@ let%expect_test "f" =
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R13) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R13) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (JMP
              ((block
@@ -1018,8 +1014,6 @@ let%expect_test "f" =
            (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
            (X86
-            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86
             (JMP
              ((block
                ((id_hum innerCheck)
@@ -1244,8 +1238,6 @@ let%expect_test "fib_rec" =
         (intermediate_%root_to_ret_1 (args ())
          (instrs
           ((X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
-           (X86
             (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86
             (JMP

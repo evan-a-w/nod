@@ -172,3 +172,85 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
   print_endline output;
   [%expect {| 123 |}]
 ;;
+
+let%expect_test "call returning two values (RAX/RDX)" =
+  let callee_root =
+    Block.create
+      ~id_hum:"%root"
+      ~terminal:
+        (Ir.x86_terminal
+           [ X86_ir.mov (Reg X86_reg.rax) (Imm 11L)
+           ; X86_ir.mov (Reg X86_reg.rdx) (Imm 22L)
+           ; X86_ir.RET [ Reg X86_reg.rax; Reg X86_reg.rdx ]
+           ])
+  in
+  callee_root.dfs_id <- Some 0;
+  let callee = Function.create ~name:"two" ~args:[] ~root:callee_root in
+  let r0 = Var.create ~name:"r0" ~type_:Type.I64 in
+  let r1 = Var.create ~name:"r1" ~type_:Type.I64 in
+  let sum = Var.create ~name:"sum" ~type_:Type.I64 in
+  let root_root =
+    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var sum))
+  in
+  root_root.dfs_id <- Some 0;
+  Vec.push
+    root_root.instructions
+    (Ir.call ~fn:"two" ~results:[ r0; r1 ] ~args:[]);
+  Vec.push
+    root_root.instructions
+    (Ir.add
+       { dest = sum
+       ; src1 = Ir.Lit_or_var.Var r0
+       ; src2 = Ir.Lit_or_var.Var r1
+       });
+  let root = Function.create ~name:"root" ~args:[] ~root:root_root in
+  let output =
+    execute_functions (String.Map.of_alist_exn [ "root", root; "two", callee ])
+  in
+  print_endline output;
+  [%expect {| 33 |}]
+;;
+
+let%expect_test "phi/parallel-move cycle: swap two values across edge" =
+  let a = Var.create ~name:"a" ~type_:Type.I64 in
+  let b = Var.create ~name:"b" ~type_:Type.I64 in
+  let tmp10 = Var.create ~name:"tmp10" ~type_:Type.I64 in
+  let res = Var.create ~name:"res" ~type_:Type.I64 in
+  let swap_block =
+    Block.create
+      ~id_hum:"swap"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
+  in
+  swap_block.dfs_id <- Some 1;
+  swap_block.args <- Vec.of_list [ a; b ];
+  Vec.push
+    swap_block.instructions
+    (Ir.mul
+       { dest = tmp10
+       ; src1 = Ir.Lit_or_var.Var a
+       ; src2 = Ir.Lit_or_var.Lit 10L
+       });
+  Vec.push
+    swap_block.instructions
+    (Ir.add
+       { dest = res
+       ; src1 = Ir.Lit_or_var.Var tmp10
+       ; src2 = Ir.Lit_or_var.Var b
+       });
+  let start =
+    Block.create
+      ~id_hum:"%root"
+      ~terminal:
+        (Ir.branch
+           (Ir.Branch.Uncond { Call_block.block = swap_block; args = [ b; a ] }))
+  in
+  start.dfs_id <- Some 0;
+  Vec.push start.instructions (Ir.move a (Ir.Lit_or_var.Lit 1L));
+  Vec.push start.instructions (Ir.move b (Ir.Lit_or_var.Lit 2L));
+  Vec.push start.children swap_block;
+  Vec.push swap_block.parents start;
+  let fn = Function.create ~name:"root" ~args:[] ~root:start in
+  let output = execute_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  print_endline output;
+  [%expect {| 21 |}]
+;;
