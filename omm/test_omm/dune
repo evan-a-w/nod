@@ -3,6 +3,6 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core nod_common nod_omm_frontend)
+ (libraries core nod_common nod_omm_frontend nod_omm)
  (flags
   (:standard -extension-universe beta)))
