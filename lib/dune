@@ -9,7 +9,7 @@
   nod_frontend
   nod_core
   vec
-  pror
+  feel
   nod_x86_backend
   nod_examples)
  (flags
