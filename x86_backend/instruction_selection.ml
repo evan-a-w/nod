@@ -104,6 +104,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   match ir with
   | X86 x -> [ x ]
   | X86_terminal xs -> xs
+  | Arm64 _ | Arm64_terminal _ -> []
   | Noop | Unreachable -> []
   | And arith -> make_arith and_ arith
   | Or arith -> make_arith or_ arith
