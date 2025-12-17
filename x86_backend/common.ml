@@ -32,6 +32,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   match x86_block.terminal with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
+  | Arm64 _ | Arm64_terminal _ -> None
   | Noop
   | And _
   | Or _
@@ -60,6 +61,7 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
     <- X86_terminal
          (List.take terminals (List.length terminals - 1)
           @ [ new_true_terminal ])
+  | Arm64 _ | Arm64_terminal _ -> ()
   | Noop
   | And _
   | Or _
