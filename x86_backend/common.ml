@@ -24,18 +24,6 @@ let to_arch_irs (ir : Ir.t) =
   | _ -> []
 ;;
 
-let new_name map v =
-  let v' =
-    match Hashtbl.find map v with
-    | None -> v
-    | Some i -> v ^ Int.to_string i
-  in
-  Hashtbl.update map v ~f:(function
-    | None -> 0
-    | Some i -> i + 1);
-  v'
-;;
-
 (* CR-soon This should lookup smth *)
 let call_conv ~fn:_ = Call_conv.Default
 

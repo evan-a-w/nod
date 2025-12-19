@@ -39,11 +39,13 @@ let type_of_class = function
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
-  Var.create ~name:(new_name t.var_names base) ~type_
+  Var.create ~name:(Util.new_name t.var_names base) ~type_
 ;;
 
 let fresh_like_var t var =
-  Var.create ~name:(new_name t.var_names (Var.name var)) ~type_:(Var.type_ var)
+  Var.create
+    ~name:(Util.new_name t.var_names (Var.name var))
+    ~type_:(Var.type_ var)
 ;;
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
@@ -316,7 +318,7 @@ let mint_intermediate
   =
   let id_hum =
     "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
-    |> new_name t.block_names
+    |> Util.new_name t.block_names
   in
   let block = Block.create ~id_hum ~terminal:(X86 (X86_ir.jmp to_call_block)) in
   (* I can't be bothered to make this not confusing, but we want to set this
@@ -329,7 +331,7 @@ let mint_intermediate
 ;;
 
 let make_prologue t =
-  let id_hum = t.fn.name ^ "__prologue" |> new_name t.block_names in
+  let id_hum = t.fn.name ^ "__prologue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
@@ -371,7 +373,7 @@ let make_prologue t =
 ;;
 
 let make_epilogue t ~ret_shape =
-  let id_hum = t.fn.name ^ "__epilogue" |> new_name t.block_names in
+  let id_hum = t.fn.name ^ "__epilogue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
