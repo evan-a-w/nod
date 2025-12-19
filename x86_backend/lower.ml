@@ -183,13 +183,18 @@ let run (functions : Function.t String.Map.t) =
   match functions_alist with
   | [] -> ""
   | _ ->
+    let sysname =
+      String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+    in
+    let global_prefix = if String.equal sysname "darwin" then "_" else "" in
     let buffer = Buffer.create 1024 in
     add_line buffer ".intel_syntax noprefix";
     add_line buffer ".text";
     let used_labels = String.Hash_set.create () in
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
       if fn_index > 0 then Buffer.add_char buffer '\n';
-      let fn_label_base = sanitize_identifier name in
+      let sanitized_name = sanitize_identifier name in
+      let fn_label_base = global_prefix ^ sanitized_name in
       let ensure_unique label =
         let rec loop attempt =
           let candidate =
@@ -211,7 +216,8 @@ let run (functions : Function.t String.Map.t) =
         let base_label =
           if idx = 0
           then fn_label
-          else sanitize_identifier (sprintf "%s__%s" name block.Block.id_hum)
+          else
+            sanitize_identifier (sprintf "%s__%s" sanitized_name block.Block.id_hum)
         in
         let base_label =
           if idx = 0 then base_label else ensure_unique base_label
@@ -274,7 +280,7 @@ let run (functions : Function.t String.Map.t) =
              | Mem _, Mem _ -> lower_mem_mem_cmp ~lhs:a ~rhs:b
              | _ -> [ emit_binary_instr "cmp" a b ])
         | CALL { fn = callee; _ } ->
-          let callee = sanitize_identifier callee in
+          let callee = global_prefix ^ sanitize_identifier callee in
           `Emit [ sprintf "call %s" callee ]
         | PUSH op -> `Emit [ sprintf "push %s" (string_of_operand op) ]
         | POP reg -> `Emit [ sprintf "pop %s" (string_of_reg reg) ]
@@ -386,7 +392,10 @@ let run (functions : Function.t String.Map.t) =
           List.iter xs ~f:(process_instruction ~current_idx:idx)
         | Ir0.X86 x -> process_instruction ~current_idx:idx x
         | _ -> ()));
-    Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
-    Buffer.add_string buffer "\n";
+    (match sysname with
+     | "linux" ->
+       Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
+       Buffer.add_string buffer "\n"
+     | _ -> ());
     Buffer.contents buffer
 ;;
