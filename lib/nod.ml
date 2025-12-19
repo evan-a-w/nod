@@ -118,7 +118,7 @@ let compile_and_execute
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
   | Ok functions ->
-    let asm = X86_backend.compile_to_asm functions in
+    let asm = X86_backend.compile_to_asm ~system functions in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in
     let needs_x86 = Poly.(arch = `X86_64) in
     let use_rosetta =
@@ -150,10 +150,6 @@ let compile_and_execute
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
         Out_channel.write_all harness_path ~data:harness;
-        (match needs_x86, host_arch with
-         | true, _ when Poly.(host_arch <> `X86_64) && not use_rosetta ->
-           failwith "x86_64 execution is not supported on this host"
-         | _ -> ());
         run_shell_exn
           ~cwd:temp_dir
           (quote_command
