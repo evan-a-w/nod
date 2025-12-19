@@ -220,7 +220,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs = Reg.arguments Class.I64 in
+    let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
     let reg_args, stack_args = List.split_n args (List.length gp_arg_regs) in
     let stack_arg_pushes =
       List.rev stack_args
@@ -239,7 +239,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre_moves = stack_arg_pushes @ reg_arg_moves in
     (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
-    let gp_result_regs = Reg.results Class.I64 in
+    let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
     let post_moves, results_with_physical =
       Sequence.zip_full
         (Sequence.of_list results)
@@ -334,13 +334,15 @@ let make_prologue t =
        arg_n, arg_n+1, ..., return addr
   *)
   let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
-  let gp_arg_regs = Reg.arguments Class.I64 in
+  let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
     List.zip_with_remainder reg_args gp_arg_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+      mov
+        (Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
+        (Reg reg))
   in
   let stack_arg_moves =
     args_on_stack
@@ -377,17 +379,20 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       fresh_var t ("res__" ^ Int.to_string i))
   in
-  let gp_res_regs = Reg.results Class.I64 in
+  let gp_res_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_res_moves =
     List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg reg) (Reg (Reg.allocated arg (Some reg))))
+      mov
+        (Reg reg)
+        (Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg))))
   in
   let args' =
     List.zip_with_remainder args gp_res_regs
     |> fst
-    |> List.map ~f:(fun (arg, reg) -> Reg (Reg.allocated arg (Some reg)))
+    |> List.map ~f:(fun (arg, reg) ->
+      Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
   in
   let block = Block.create ~id_hum ~terminal:(X86 (RET args')) in
   assert (Call_conv.(equal t.fn.call_conv default));

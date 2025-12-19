@@ -9,7 +9,7 @@ let default_clobbers =
     |> Reg.Set.of_list
   in
   let all_physical =
-    List.concat_map Reg.all_physical ~f:Util.should_save |> Reg.Set.of_list
+    List.filter_map Reg.all_physical ~f:Util.should_save |> Reg.Set.of_list
   in
   Set.diff all_physical callee_saved
 ;;
