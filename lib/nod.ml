@@ -98,6 +98,7 @@ let run_shell_exn ?cwd command =
 ;;
 
 let compile_and_execute
+  ?(arch = `X86_64)
   ?(harness = harness_source)
   ?(opt_flags = Eir.Opt_flags.no_opt)
   program
@@ -114,17 +115,30 @@ let compile_and_execute
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
         Out_channel.write_all harness_path ~data:harness;
+        let arch_flags =
+          match arch with
+          | `X86_64 -> [ "-arch"; "x86_64" ]
+          | _ -> []
+        in
         run_command_exn
           ~cwd:temp_dir
           "gcc"
-          [ "-Wall"; "-Werror"; "-O0"; "main.c"; "program.s"; "-o"; "program" ];
+          ([ "-Wall"; "-Werror"; "-O0" ]
+           @ arch_flags
+           @ [ "main.c"; "program.s"; "-o"; "program" ]);
         let output_file = "stdout.txt" in
         let output_path = Filename.concat temp_dir output_file in
+        let host_arch = architecture () in
+        let runner_command =
+          match arch, host_arch with
+          | `X86_64, `Arm64 -> quote_command "arch" [ "-x86_64"; "./program" ]
+          | _ -> quote_command "./program" []
+        in
         run_shell_exn
           ~cwd:temp_dir
           (sprintf
              "%s > %s"
-             (quote_command "./program" [])
+             runner_command
              (Filename.quote output_file));
         In_channel.read_all output_path |> String.strip)
       ~finally:(fun () ->
