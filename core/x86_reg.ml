@@ -82,15 +82,15 @@ module Raw = struct
     ]
   ;;
 
-  let rec get_physical = function
-    | Allocated (_, None) | Unallocated _ -> []
-    | Allocated (_, Some reg) -> get_physical reg
-    | other -> [ other ]
+  let rec to_physical = function
+    | Allocated (_, None) | Unallocated _ -> None
+    | Allocated (_, Some reg) -> to_physical reg
+    | other -> Some other
   ;;
 
   let should_save = function
-    | RSP -> []
-    | other -> get_physical other
+    | RSP -> None
+    | other -> to_physical other
   ;;
 
   let phys_reg_limit = List.length all_physical

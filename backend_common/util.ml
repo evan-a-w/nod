@@ -18,15 +18,21 @@ module M (A : Arch.S) = struct
     A.to_arch_irs ir |> List.map ~f:Arch_ir.reg_uses |> Reg.Set.union_list
   ;;
 
-  let over_physical ~raw_to_raw_list reg =
-    Reg.raw reg
-    |> raw_to_raw_list
-    |> List.filter_map ~f:(fun raw ->
-      match A.Reg.Raw.class_ raw with
-      | `Variable -> None
-      | `Physical class_ -> Some (A.Reg.create ~class_ ~raw))
+  let over_physical ~raw_to_raw_opt reg =
+    match Reg.raw reg |> raw_to_raw_opt with
+    | None -> None
+    | Some raw ->
+      (match A.Reg.Raw.class_ raw with
+       | `Variable -> None
+       | `Physical class_ -> Some (A.Reg.create ~class_ ~raw))
   ;;
 
-  let get_physical = over_physical ~raw_to_raw_list:Reg.Raw.get_physical
-  let should_save = over_physical ~raw_to_raw_list:Reg.Raw.should_save
+  let of_raw_exn raw =
+    match Reg.Raw.class_ raw with
+    | `Variable -> failwith "[of_raw_exn] called on non physical register"
+    | `Physical class_ -> Reg.create ~raw ~class_
+  ;;
+
+  let to_physical = over_physical ~raw_to_raw_opt:Reg.Raw.to_physical
+  let should_save = over_physical ~raw_to_raw_opt:Reg.Raw.should_save
 end

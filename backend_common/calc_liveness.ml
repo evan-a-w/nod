@@ -227,7 +227,7 @@ module M (A : Arch.S) = struct
       with type Arg.t = Var.t)
   ;;
 
-  let phys ~class_ ~reg_numbering =
+  let phys ~reg_numbering =
     (module Make (struct
         type t = A.Reg.t [@@deriving sexp]
 
@@ -235,7 +235,7 @@ module M (A : Arch.S) = struct
 
         let filter_physical set =
           Set.to_list set
-          |> List.concat_map ~f:Util.get_physical
+          |> List.filter_map ~f:Util.to_physical
           |> List.dedup_and_sort ~compare:A.Reg.compare
         ;;
 
@@ -245,8 +245,7 @@ module M (A : Arch.S) = struct
         let id_of_t reg = Reg_numbering.reg_id reg_numbering (A.Reg.raw reg)
 
         let t_of_id id =
-          let raw = Reg_numbering.id_reg reg_numbering id in
-          A.Reg.create ~raw ~class_
+          Reg_numbering.id_reg reg_numbering id |> Util.of_raw_exn
         ;;
       end) : S
       with type Arg.t = A.Reg.t)
