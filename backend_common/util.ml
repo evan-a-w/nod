@@ -35,4 +35,16 @@ module M (A : Arch.S) = struct
 
   let to_physical = over_physical ~raw_to_raw_opt:Reg.Raw.to_physical
   let should_save = over_physical ~raw_to_raw_opt:Reg.Raw.should_save
+
+  let new_name map v =
+    let v' =
+      match Hashtbl.find map v with
+      | None -> v
+      | Some i -> v ^ Int.to_string i
+    in
+    Hashtbl.update map v ~f:(function
+      | None -> 0
+      | Some i -> i + 1);
+    v'
+  ;;
 end
