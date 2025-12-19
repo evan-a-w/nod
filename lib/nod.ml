@@ -109,36 +109,57 @@ let compile_and_execute
   | Ok functions ->
     let asm = X86_backend.compile_to_asm functions in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in
+    let host_arch = architecture () in
+    let host_sysname =
+      String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+    in
+    let needs_x86 = Poly.(arch = `X86_64) in
+    let use_rosetta =
+      needs_x86 && Poly.(host_arch = `Arm64) && String.equal host_sysname "darwin"
+    in
+    let compiler =
+      match host_sysname with
+      | "darwin" -> "clang"
+      | _ -> "gcc"
+    in
+    let arch_args =
+      match arch, host_sysname with
+      | `X86_64, "darwin" -> [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+      | _ -> []
+    in
+    let run_shell_runtime ?cwd command =
+      if use_rosetta then
+        let command =
+          quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
+        in
+        run_shell_exn ?cwd command
+      else
+        run_shell_exn ?cwd command
+    in
     Exn.protect
       ~f:(fun () ->
         let asm_path = Filename.concat temp_dir "program.s" in
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
         Out_channel.write_all harness_path ~data:harness;
-        let arch_flags =
-          match arch with
-          | `X86_64 -> [ "-arch"; "x86_64" ]
-          | _ -> []
-        in
-        run_command_exn
+        (match needs_x86, host_arch with
+         | true, _ when Poly.(host_arch <> `X86_64) && not use_rosetta ->
+           failwith "x86_64 execution is not supported on this host"
+         | _ -> ());
+        run_shell_exn
           ~cwd:temp_dir
-          "gcc"
-          ([ "-Wall"; "-Werror"; "-O0" ]
-           @ arch_flags
-           @ [ "main.c"; "program.s"; "-o"; "program" ]);
+          (quote_command
+             compiler
+             ([ "-Wall"; "-Werror"; "-O0" ]
+              @ arch_args
+              @ [ "main.c"; "program.s"; "-o"; "program" ]));
         let output_file = "stdout.txt" in
         let output_path = Filename.concat temp_dir output_file in
-        let host_arch = architecture () in
-        let runner_command =
-          match arch, host_arch with
-          | `X86_64, `Arm64 -> quote_command "arch" [ "-x86_64"; "./program" ]
-          | _ -> quote_command "./program" []
-        in
-        run_shell_exn
+        run_shell_runtime
           ~cwd:temp_dir
           (sprintf
              "%s > %s"
-             runner_command
+             (quote_command "./program" [])
              (Filename.quote output_file));
         In_channel.read_all output_path |> String.strip)
       ~finally:(fun () ->
