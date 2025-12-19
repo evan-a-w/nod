@@ -8,9 +8,10 @@ let default_clobbers =
     @ Reg.callee_saved ~call_conv:Call_conv.Default X86_reg.Class.F64
     |> Reg.Set.of_list
   in
-  Array.fold Reg.all_physical ~init:Reg.Set.empty ~f:(fun acc reg ->
-    if Reg.should_save reg then Set.add acc reg else acc)
-  |> fun all_physical -> Set.diff all_physical callee_saved
+  let all_physical =
+    List.concat_map Reg.all_physical ~f:Util.should_save |> Reg.Set.of_list
+  in
+  Set.diff all_physical callee_saved
 ;;
 
 let regs_to_save ~state ~call_fn ~live_out =
@@ -19,9 +20,8 @@ let regs_to_save ~state ~call_fn ~live_out =
     | Some (state : Calc_clobbers.t) -> state.clobbers
     | None -> default_clobbers
   in
-  Set.inter callee_clobbers live_out
-  |> Set.filter ~f:Reg.should_save
-  |> Set.to_list
+  (* TODO: I think this is fine to not filter for [should_save], because the phys calc liveness turns defs into the should save defs etc. This isn't that obvious though *)
+  Set.inter callee_clobbers live_out |> Set.to_list
 ;;
 
 let rec find_following_call ~start ~len ~instructions =

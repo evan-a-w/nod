@@ -214,8 +214,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         in
         [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
     in
-    pre
-    @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
+    pre @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
@@ -419,7 +418,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | Some _, Some _ -> failwith "diff ret shape"
       | None, Some _ -> r := this
     in
-    Block.iter_instructions t.fn.root ~f:(on_x86_irs ~f:update);
+    Block.iter_instructions t.fn.root ~f:(on_arch_irs ~f:update);
     !r
   in
   let prologue = make_prologue t in

@@ -1,20 +1,18 @@
 open! Core
 open! Import
 open! Common
-module Raw = X86_reg.Raw
-module Class = X86_reg.Class
 
 let note_var_class table var class_ =
   match Hashtbl.find table var with
   | None -> Hashtbl.set table ~key:var ~data:class_
-  | Some existing when Class.equal existing class_ -> ()
+  | Some existing when Reg.Class.equal existing class_ -> ()
   | Some existing ->
     Error.raise_s
       [%message
         "register class mismatch"
           (var : Var.t)
-          (existing : Class.t)
-          (class_ : Class.t)]
+          (existing : Reg.Class.t)
+          (class_ : Reg.Class.t)]
 ;;
 
 let collect_var_classes root =
@@ -30,7 +28,7 @@ let collect_var_classes root =
 ;;
 
 let reg_pool_for_class = function
-  | Class.I64 ->
+  | Reg.Class.I64 ->
     [| Reg.rax
      ; Reg.rbx
      ; Reg.rcx
@@ -45,7 +43,7 @@ let reg_pool_for_class = function
      ; Reg.r15
     |]
     (* [| Reg.rax; Reg.rbx; Reg.rcx |] *)
-  | Class.F64 ->
+  | Reg.Class.F64 ->
     [| Reg.xmm0
      ; Reg.xmm1
      ; Reg.xmm2
@@ -88,7 +86,7 @@ let initialize_assignments root =
       | Raw.Allocated (_, Some (Raw.Allocated _))
       | Raw.Allocated (_, Some (Raw.Unallocated _)) -> failwith "bug"
       | Raw.Allocated (var, Some forced_raw) ->
-        let forced = Reg.physical ~class_:reg.class_ forced_raw in
+        let forced = Reg.create ~class_:reg.class_ ~raw:forced_raw in
         update_assignment ~assignments ~var ~to_:(Reg forced)
       | Raw.Allocated (var, None) -> Hash_set.add don't_spill var
       | _ -> ()));
@@ -109,7 +107,8 @@ let run_sat
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
-    |> List.filter ~f:(fun state -> Class.equal (class_of_var state.var) class_)
+    |> List.filter ~f:(fun state ->
+      Reg.Class.equal (class_of_var state.var) class_)
   in
   let sat_vars_per_var_id = Array.length reg_pool + 1 in
   (* if dump_crap *)
@@ -363,9 +362,7 @@ let replace_regs
 
 let run ?(dump_crap = false) (fn : Function.t) =
   let var_classes = collect_var_classes fn.root in
-  let class_of_var var =
-    Hashtbl.find var_classes var |> Option.value ~default:Class.I64
-  in
+  let class_of_var var = Hashtbl.find_exn var_classes var in
   let reg_numbering = Reg_numbering.create fn.root in
   let (module Calc_liveness) =
     Calc_liveness.var ~treat_block_args_as_defs:false ~reg_numbering
@@ -379,7 +376,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
   in
   if dump_crap then Interference_graph.print interference_graph;
   let ~assignments, ~don't_spill = initialize_assignments fn.root in
-  List.iter [ Class.I64; Class.F64 ] ~f:(fun class_ ->
+  List.iter Reg.Class.all ~f:(fun class_ ->
     run_sat
       ~dump_crap
       ~reg_numbering

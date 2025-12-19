@@ -3,7 +3,6 @@ open! Import
 
 module M (A : Arch.S) = struct
   open A
-  module Raw = Reg.Raw
 
   type var_state =
     { mutable num_uses : int
@@ -33,8 +32,8 @@ module M (A : Arch.S) = struct
 
   let var_id t var = (var_state t var).id
   let id_var t id = Hashtbl.find_exn t.id_to_var id
-  let reg_id t (reg : Reg.t) = Reg.to_id ~var_id:(var_id t) reg
-  let id_reg t id : Reg.t = Reg.of_id ~id_var:(id_var t) id
+  let reg_id t (reg : Reg.Raw.t) = Reg.Raw.to_id ~var_id:(var_id t) reg
+  let id_reg t id : Reg.Raw.t = Reg.Raw.of_id ~id_var:(id_var t) id
 
   let create (root : Block.t) =
     let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
