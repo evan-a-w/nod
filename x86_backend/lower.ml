@@ -178,15 +178,16 @@ let invert_branch_kind = function
   | `Jne -> `Je
 ;;
 
-let run (functions : Function.t String.Map.t) =
+let run ~system (functions : Function.t String.Map.t) =
   let functions_alist = Map.to_alist functions in
   match functions_alist with
   | [] -> ""
   | _ ->
-    let sysname =
-      String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+    let global_prefix =
+      match system with
+      | `Darwin -> "_"
+      | `Linux | `Other -> ""
     in
-    let global_prefix = if String.equal sysname "darwin" then "_" else "" in
     let buffer = Buffer.create 1024 in
     add_line buffer ".intel_syntax noprefix";
     add_line buffer ".text";
@@ -217,7 +218,8 @@ let run (functions : Function.t String.Map.t) =
           if idx = 0
           then fn_label
           else
-            sanitize_identifier (sprintf "%s__%s" sanitized_name block.Block.id_hum)
+            sanitize_identifier
+              (sprintf "%s__%s" sanitized_name block.Block.id_hum)
         in
         let base_label =
           if idx = 0 then base_label else ensure_unique base_label
@@ -392,10 +394,10 @@ let run (functions : Function.t String.Map.t) =
           List.iter xs ~f:(process_instruction ~current_idx:idx)
         | Ir0.X86 x -> process_instruction ~current_idx:idx x
         | _ -> ()));
-    (match sysname with
-     | "linux" ->
+    (match system with
+     | `Linux ->
        Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
        Buffer.add_string buffer "\n"
-     | _ -> ());
+     | `Darwin | `Other -> ());
     Buffer.contents buffer
 ;;
