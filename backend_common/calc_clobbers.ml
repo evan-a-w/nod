@@ -26,8 +26,9 @@ module M (A : Arch.S) = struct
         ~key:function_.name
         ~data:(String.Hash_set.create ());
       Block.iter_instructions function_.root ~f:(fun ir ->
-        this_defs := Set.union !this_defs (arch_reg_defs ir |> Reg.Set.of_list);
-        on_arch_irs ir ~f:(fun ir ->
+        this_defs := Set.union !this_defs (arch_reg_defs ir);
+        to_arch_irs ir
+        |> List.iter ~f:(fun ir ->
           match Arch_ir.fn ir with
           | None -> ()
           | Some fn -> uses_fn function_.name fn));

@@ -3,6 +3,7 @@ open! Import
 
 module M (A : Arch.S) = struct
   module Reg_numbering = Reg_numbering.M (A)
+  module Util = Util.M (A)
 
   module type Arg = sig
     type t [@@deriving sexp]
@@ -226,27 +227,27 @@ module M (A : Arch.S) = struct
       with type Arg.t = Var.t)
   ;;
 
-  let phys ~reg_numbering =
+  let phys ~class_ ~reg_numbering =
     (module Make (struct
         type t = A.Reg.t [@@deriving sexp]
 
         let treat_block_args_as_defs = false
 
         let filter_physical set =
-          Set.filter set ~f:A.Reg.is_physical |> Set.to_list
+          Set.to_list set
+          |> List.concat_map ~f:Util.get_physical
+          |> List.dedup_and_sort ~compare:A.Reg.compare
         ;;
 
-        let defs_of_ir ir =
-          A.arch_reg_defs ir |> A.Reg.Set.of_list |> filter_physical
-        ;;
-
-        let uses_of_ir ir =
-          A.arch_reg_uses ir |> A.Reg.Set.of_list |> filter_physical
-        ;;
-
+        let defs_of_ir ir = Util.arch_reg_defs ir |> filter_physical
+        let uses_of_ir ir = Util.arch_reg_uses ir |> filter_physical
         let t_of_var = Fn.const None
-        let id_of_t = Reg_numbering.reg_id reg_numbering
-        let t_of_id = Reg_numbering.id_reg reg_numbering
+        let id_of_t reg = Reg_numbering.reg_id reg_numbering (A.Reg.raw reg)
+
+        let t_of_id id =
+          let raw = Reg_numbering.id_reg reg_numbering id in
+          A.Reg.create ~raw ~class_
+        ;;
       end) : S
       with type Arg.t = A.Reg.t)
   ;;

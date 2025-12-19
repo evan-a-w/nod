@@ -68,6 +68,33 @@ type 'block t =
   | ALLOCA of operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
 
+let fn = function
+  | CALL { fn; _ } -> Some fn
+  | NOOP
+  | Tag_use (_, _)
+  | Tag_def (_, _)
+  | AND (_, _)
+  | OR (_, _)
+  | MOV (_, _)
+  | ADD (_, _)
+  | SUB (_, _)
+  | IMUL _ | IDIV _ | MOD _
+  | ADDSD (_, _)
+  | SUBSD (_, _)
+  | MULSD (_, _)
+  | DIVSD (_, _)
+  | MOVSD (_, _)
+  | MOVQ (_, _)
+  | CVTSI2SD (_, _)
+  | CVTTSD2SI (_, _)
+  | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
+  | CMP (_, _)
+  | JE (_, _)
+  | JNE (_, _)
+  | JMP _ | RET _
+  | ALLOCA (_, _) -> None
+;;
+
 let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
@@ -109,8 +136,7 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw ->
-        Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) var forced
   | _ -> reg
@@ -207,8 +233,7 @@ let map_virtual_reg reg ~f =
   | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
   | Raw.Allocated (v, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw ->
-        Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
   | _ -> reg
