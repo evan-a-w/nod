@@ -31,9 +31,7 @@ let architecture () : [ `Arm64 | `X86_64 | `Other ] =
   | _ -> `Other
 ;;
 
-let only_on_arch arch f =
-  if Poly.(architecture () = arch) then f () else ()
-;;
+let only_on_arch arch f = if Poly.(architecture () = arch) then f () else ()
 
 module Eir = struct
   include Nod_core.Eir
@@ -97,8 +95,21 @@ let run_shell_exn ?cwd command =
   | code -> failwith (sprintf "command failed (%d): %s" code command)
 ;;
 
+let host_sysname =
+  lazy
+    (match
+       String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+     with
+     | "darwin" -> `Darwin
+     | "linux" -> `Linux
+     | _ -> `Other)
+;;
+
+let host_arch = lazy (architecture ())
+
 let compile_and_execute
-  ?(arch = `X86_64)
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
   ?(harness = harness_source)
   ?(opt_flags = Eir.Opt_flags.no_opt)
   program
@@ -109,32 +120,29 @@ let compile_and_execute
   | Ok functions ->
     let asm = X86_backend.compile_to_asm functions in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in
-    let host_arch = architecture () in
-    let host_sysname =
-      String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
-    in
     let needs_x86 = Poly.(arch = `X86_64) in
     let use_rosetta =
-      needs_x86 && Poly.(host_arch = `Arm64) && String.equal host_sysname "darwin"
+      needs_x86 && Poly.(arch = `Arm64) && Poly.(system = `Darwin)
     in
     let compiler =
-      match host_sysname with
-      | "darwin" -> "clang"
-      | _ -> "gcc"
+      match system with
+      | `Darwin -> "clang"
+      | `Linux | `Other -> "gcc"
     in
     let arch_args =
-      match arch, host_sysname with
-      | `X86_64, "darwin" -> [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+      match arch, system with
+      | `X86_64, `Darwin ->
+        [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
       | _ -> []
     in
     let run_shell_runtime ?cwd command =
-      if use_rosetta then
+      if use_rosetta
+      then (
         let command =
           quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
         in
-        run_shell_exn ?cwd command
-      else
-        run_shell_exn ?cwd command
+        run_shell_exn ?cwd command)
+      else run_shell_exn ?cwd command
     in
     Exn.protect
       ~f:(fun () ->
