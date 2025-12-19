@@ -113,15 +113,16 @@ helper(%x:i64) {
 ;;
 
 let%expect_test "run" =
-  let output =
-    compile_and_execute
-      ~harness:
-        (make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
-      ~opt_flags:Eir.Opt_flags.no_opt
-      borked
-  in
-  print_endline output;
-  [%expect {| 695 |}]
+  only_on_arch `X86_64 (fun () ->
+    let output =
+      compile_and_execute
+        ~harness:
+          (make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
+        ~opt_flags:Eir.Opt_flags.no_opt
+        borked
+    in
+        assert (String.equal output " 695 ")
+  )
 ;;
 
 let%expect_test "borked regaloc" =
