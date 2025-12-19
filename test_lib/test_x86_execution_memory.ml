@@ -27,7 +27,9 @@ let execute_functions
   ?(harness = Nod.make_harness_source ())
   functions
   =
-  let asm = X86_backend.compile_to_asm functions in
+  let asm =
+    X86_backend.compile_to_asm ~system:(Lazy.force Nod.host_system) functions
+  in
   let temp_dir = Core_unix.mkdtemp "nod-exec-ir" in
   let host_arch = architecture () in
   let host_sysname =
