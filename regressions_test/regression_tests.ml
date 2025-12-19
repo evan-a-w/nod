@@ -2,6 +2,15 @@ open! Core
 open! Import
 module Std = Stdlib
 
+let compile_and_execute ?harness ?opt_flags program =
+  Nod.compile_and_execute
+    ~arch:`X86_64
+    ~system:(Lazy.force Nod.host_system)
+    ?harness
+    ?opt_flags
+    program
+;;
+
 (* Helper to test both with and without optimizations *)
 let test_both_modes ~harness program =
   let no_opt_result =

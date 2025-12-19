@@ -53,8 +53,17 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Nod.compile ~opt_flags program with
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
-    let asm = X86_backend.compile_to_asm functions in
+    let asm = X86_backend.compile_to_asm ~system:`Linux functions in
     print_endline asm
+;;
+
+let compile_and_execute ?harness ?opt_flags program =
+  Nod.compile_and_execute
+    ~arch:`X86_64
+    ~system:(Lazy.force Nod.host_system)
+    ?harness
+    ?opt_flags
+    program
 ;;
 
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =

@@ -12,10 +12,11 @@ let compile_program ~opt_flags ~dump_crap program =
   match Eir.compile ~opt_flags program with
   | Error parse_error -> Or_error.error_string (Nod_error.to_string parse_error)
   | Ok functions ->
+    let system = Lazy.force Nod.host_system in
     let asm =
       if dump_crap
-      then X86_backend.compile_to_asm ~dump_crap:true functions
-      else X86_backend.compile_to_asm functions
+      then X86_backend.compile_to_asm ~system ~dump_crap:true functions
+      else X86_backend.compile_to_asm ~system functions
     in
     Or_error.return asm
 ;;
@@ -69,7 +70,11 @@ let run_run config =
     if config.no_opt then Eir.Opt_flags.no_opt else Eir.Opt_flags.default
   in
   let%map.Or_error program = read_program config.input in
-  Nod.compile_and_execute ~opt_flags program
+  Nod.compile_and_execute
+    ~arch:(Lazy.force Nod.host_arch)
+    ~system:(Lazy.force Nod.host_system)
+    ~opt_flags
+    program
 ;;
 
 let usage =

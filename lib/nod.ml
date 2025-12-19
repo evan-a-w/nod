@@ -95,7 +95,7 @@ let run_shell_exn ?cwd command =
   | code -> failwith (sprintf "command failed (%d): %s" code command)
 ;;
 
-let host_sysname =
+let host_system =
   lazy
     (match
        String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)

@@ -1,6 +1,15 @@
 open! Core
 open! Import
 
+let compile_and_execute ?harness ?opt_flags program =
+  Nod.compile_and_execute
+    ~arch:`X86_64
+    ~system:(Lazy.force Nod.host_system)
+    ?harness
+    ?opt_flags
+    program
+;;
+
 let%expect_test "simple execution" =
   let output =
     compile_and_execute
