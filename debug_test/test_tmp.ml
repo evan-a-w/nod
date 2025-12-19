@@ -53,8 +53,17 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Nod.compile ~opt_flags program with
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok functions ->
-    let asm = X86_backend.compile_to_asm functions in
+    let asm = X86_backend.compile_to_asm ~system:`Linux functions in
     print_endline asm
+;;
+
+let compile_and_execute ?harness ?opt_flags program =
+  Nod.compile_and_execute
+    ~arch:`X86_64
+    ~system:(Lazy.force Nod.host_system)
+    ?harness
+    ?opt_flags
+    program
 ;;
 
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
@@ -116,12 +125,15 @@ let%expect_test "run" =
   let output =
     compile_and_execute
       ~harness:
-        (make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
+        (make_harness_source
+           ~fn_name:"root"
+           ~fn_arg_type:"int"
+           ~fn_arg:"5"
+           ())
       ~opt_flags:Eir.Opt_flags.no_opt
       borked
   in
-  print_endline output;
-  [%expect {| 695 |}]
+  assert (String.equal output "695")
 ;;
 
 let%expect_test "borked regaloc" =
@@ -467,7 +479,8 @@ let%expect_test "borked regaloc" =
 
 let%expect_test "borked" =
   compile_and_lower ~opt_flags:Eir.Opt_flags.no_opt borked;
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .text
     .globl helper
@@ -833,7 +846,8 @@ let%expect_test "debug borked opt ssa" =
 
 let%expect_test "debug borked opt x86" =
   test ~opt_flags:Eir.Opt_flags.no_opt borked;
-  [%expect {|
+  [%expect
+    {|
     (((call_conv Default)
       (root
        ((helper__prologue (args (((name x0) (type_ I64))))

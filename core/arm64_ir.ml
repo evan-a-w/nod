@@ -1,6 +1,6 @@
 open Core
-module Reg = X86_reg
-module Raw = X86_reg.Raw
+module Reg = Arm64_reg
+module Raw = Arm64_reg.Raw
 
 module Symbol =
   String_id.Make
@@ -68,33 +68,6 @@ type 'block t =
   | ALLOCA of operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
 
-let fn = function
-  | CALL { fn; _ } -> Some fn
-  | NOOP
-  | Tag_use (_, _)
-  | Tag_def (_, _)
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | ADD (_, _)
-  | SUB (_, _)
-  | IMUL _ | IDIV _ | MOD _
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
-  | CMP (_, _)
-  | JE (_, _)
-  | JNE (_, _)
-  | JMP _ | RET _
-  | ALLOCA (_, _) -> None
-;;
-
 let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
@@ -124,10 +97,10 @@ let fold_operands ins ~f ~init =
     List.fold args ~init ~f:(fun acc op -> f acc op)
   | PUSH op ->
     let init = fold_operand op ~f ~init in
-    fold_operand (Reg Reg.rsp) ~f ~init
+    fold_operand (Reg Reg.sp) ~f ~init
   | POP reg ->
     let init = fold_operand (Reg reg) ~f ~init in
-    fold_operand (Reg Reg.rsp) ~f ~init
+    fold_operand (Reg Reg.sp) ~f ~init
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
@@ -136,7 +109,8 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
+      Option.map forced ~f:(fun raw ->
+        Reg.physical ~class_:(Reg.class_ reg) raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) var forced
   | _ -> reg
@@ -233,7 +207,8 @@ let map_virtual_reg reg ~f =
   | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
   | Raw.Allocated (v, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
+      Option.map forced ~f:(fun raw ->
+        Reg.physical ~class_:(Reg.class_ reg) raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
   | _ -> reg
@@ -275,10 +250,10 @@ let rec reg_defs ins : Reg.Set.t =
   | SUBSD (dst, _)
   | MULSD (dst, _)
   | DIVSD (dst, _) -> regs_of_operand dst
-  | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
+  | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.x0; Reg.x1 ]
   | CALL { results; _ } -> Reg.Set.of_list results
-  | PUSH _ -> Reg.Set.singleton Reg.rsp
-  | POP reg -> Reg.Set.of_list [ Reg.rsp; reg ]
+  | PUSH _ -> Reg.Set.singleton Reg.sp
+  | POP reg -> Reg.Set.of_list [ Reg.sp; reg ]
   | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
 ;;
 
@@ -288,8 +263,8 @@ let rec reg_uses ins : Reg.Set.t =
   | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
   | Tag_def (ins, _) -> reg_uses ins
   | IDIV op | MOD op ->
-    Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
-  | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
+    Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.x0; Reg.x1 ])
+  | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.x0 ])
   | MOV (_, src)
   | MOVQ (_, src)
   | MOVSD (_, src)
@@ -305,8 +280,8 @@ let rec reg_uses ins : Reg.Set.t =
   | DIVSD (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
-  | PUSH op -> Set.union (Reg.Set.singleton Reg.rsp) (regs_of_operand op)
-  | POP _ -> Reg.Set.of_list [ Reg.rsp ]
+  | PUSH op -> Set.union (Reg.Set.singleton Reg.sp) (regs_of_operand op)
+  | POP _ -> Reg.Set.of_list [ Reg.sp ]
   | CALL { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))

@@ -8,8 +8,8 @@ let compile ?dump_crap (functions : Function.t String.Map.t) =
   |> Save_clobbers.process
 ;;
 
-let compile_to_asm ?dump_crap functions =
-  compile ?dump_crap functions |> Lower.run
+let compile_to_asm ~system ?dump_crap functions =
+  compile ?dump_crap functions |> Lower.run ~system
 ;;
 
 module For_testing = struct

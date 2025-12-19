@@ -1,6 +1,15 @@
 open! Core
 open! Import
 
+let compile_and_execute ?harness ?opt_flags program =
+  Nod.compile_and_execute
+    ~arch:`X86_64
+    ~system:(Lazy.force Nod.host_system)
+    ?harness
+    ?opt_flags
+    program
+;;
+
 let%expect_test "simple execution" =
   let output =
     compile_and_execute
@@ -11,8 +20,7 @@ add %res:i64, %a, %b
 ret %res
 |}
   in
-  print_endline output;
-  [%expect {| 12 |}]
+  assert (String.equal output "12")
 ;;
 
 let%expect_test "branch execution" =
@@ -32,8 +40,7 @@ zero:
   ret %value
 |}
   in
-  print_endline output;
-  [%expect {|42|}]
+  assert (String.equal output "42")
 ;;
 
 let%expect_test "recursive fib" =
@@ -47,8 +54,7 @@ let%expect_test "recursive fib" =
            ())
       Examples.Textual.fib_recursive
   in
-  print_endline output;
-  [%expect {| 13 |}]
+  assert (String.equal output "13")
 ;;
 
 (* Pointer arithmetic tests *)
@@ -64,8 +70,7 @@ sub %result:i64, %ptr, %base
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 8 |}]
+  assert (String.equal output "8")
 ;;
 
 let%expect_test "pointer arithmetic - array indexing" =
@@ -80,8 +85,7 @@ sub %result:i64, %element_ptr, %array
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 24 |}]
+  assert (String.equal output "24")
 ;;
 
 let%expect_test "pointer arithmetic - multiple operations" =
@@ -96,8 +100,7 @@ sub %total_offset:i64, %p3, %buf
 ret %total_offset
 |}
   in
-  print_endline output;
-  [%expect {| 30 |}]
+  assert (String.equal output "30")
 ;;
 
 let%expect_test "pointer arithmetic in loop" =
@@ -120,8 +123,7 @@ done:
   ret %sum
 |}
   in
-  print_endline output;
-  [%expect {| 45 |}]
+  assert (String.equal output "45")
 ;;
 
 let%expect_test "pointer arithmetic - subtracting from pointer" =
@@ -135,8 +137,7 @@ sub %result:i64, %middle, %buf
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 25 |}]
+  assert (String.equal output "25")
 ;;
 
 let%expect_test "pointer arithmetic - complex calculation" =
@@ -154,8 +155,7 @@ sub %total:i64, %final_ptr, %data
 ret %total
 |}
   in
-  print_endline output;
-  [%expect {| 64 |}]
+  assert (String.equal output "64")
 ;;
 
 let%expect_test "alloca with dynamic size" =
@@ -169,8 +169,7 @@ sub %actual_size:i64, %end, %buf
 ret %actual_size
 |}
   in
-  print_endline output;
-  [%expect {| 32 |}]
+  assert (String.equal output "32")
 ;;
 
 let%expect_test "nested pointer arithmetic" =
@@ -188,8 +187,7 @@ sub %total_off:i64, %element, %outer
 ret %total_off
 |}
   in
-  print_endline output;
-  [%expect {| 56 |}]
+  assert (String.equal output "56")
 ;;
 
 let%expect_test "pointer arithmetic with mixed operations" =
@@ -207,8 +205,7 @@ sub %result:i64, %ptr2, %arr
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 20 |}]
+  assert (String.equal output "20")
 ;;
 
 let%expect_test "pointer arithmetic - boundary calculation" =
@@ -226,8 +223,7 @@ add %result:i64, %result, %range
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 64 |}]
+  assert (String.equal output "64")
 ;;
 
 (* Float arithmetic tests *)
@@ -243,8 +239,7 @@ cast %result:i64, %sum
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 10 |}]
+  assert (String.equal output "10")
 ;;
 
 let%expect_test "float subtraction" =
@@ -258,8 +253,7 @@ cast %result:i64, %diff
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 7 |}]
+  assert (String.equal output "7")
 ;;
 
 let%expect_test "float multiplication" =
@@ -273,8 +267,7 @@ cast %result:i64, %prod
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 12 |}]
+  assert (String.equal output "12")
 ;;
 
 let%expect_test "float division" =
@@ -288,8 +281,7 @@ cast %result:i64, %quot
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 5 |}]
+  assert (String.equal output "5")
 ;;
 
 let%expect_test "cast i64 to f64 and back" =
@@ -302,8 +294,7 @@ cast %result:i64, %f
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 42 |}]
+  assert (String.equal output "42")
 ;;
 
 let%expect_test "cast with float literal to i64" =
@@ -314,8 +305,7 @@ cast %i:i64, %f
 ret %i
 |}
   in
-  print_endline output;
-  [%expect {| 7 |}]
+  assert (String.equal output "7")
 ;;
 
 let%expect_test "complex float calculation" =
@@ -331,8 +321,7 @@ cast %result:i64, %product
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 75 |}]
+  assert (String.equal output "75")
 ;;
 
 let%expect_test "float division truncates toward zero" =
@@ -346,8 +335,7 @@ cast %result:i64, %quot
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| 3 |}]
+  assert (String.equal output "3")
 ;;
 
 let%expect_test "float division truncates toward zero (negative)" =
@@ -363,8 +351,7 @@ cast %result:i64, %quot
 ret %result
 |}
   in
-  print_endline output;
-  [%expect {| -3 |}]
+  assert (String.equal output "-3")
 ;;
 
 let%expect_test "call with stack arguments" =
@@ -388,6 +375,5 @@ root() {
 }
 |}
   in
-  print_endline output;
-  [%expect {| 36 |}]
+  assert (String.equal output "36")
 ;;

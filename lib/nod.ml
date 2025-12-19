@@ -24,6 +24,15 @@ module X86_ir = Nod_core.X86_ir
 module X86_backend = Nod_x86_backend.X86_backend
 module Examples = Nod_examples.Examples
 
+let architecture () : [ `Arm64 | `X86_64 | `Other ] =
+  match Core_unix.uname () |> Core_unix.Utsname.machine |> String.lowercase with
+  | "x86_64" | "amd64" -> `X86_64
+  | "arm64" | "aarch64" -> `Arm64
+  | _ -> `Other
+;;
+
+let only_on_arch arch f = if Poly.(architecture () = arch) then f () else ()
+
 module Eir = struct
   include Nod_core.Eir
 
@@ -86,7 +95,21 @@ let run_shell_exn ?cwd command =
   | code -> failwith (sprintf "command failed (%d): %s" code command)
 ;;
 
+let host_system =
+  lazy
+    (match
+       String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+     with
+     | "darwin" -> `Darwin
+     | "linux" -> `Linux
+     | _ -> `Other)
+;;
+
+let host_arch = lazy (architecture ())
+
 let compile_and_execute
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
   ?(harness = harness_source)
   ?(opt_flags = Eir.Opt_flags.no_opt)
   program
@@ -95,21 +118,48 @@ let compile_and_execute
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
   | Ok functions ->
-    let asm = X86_backend.compile_to_asm functions in
+    let asm = X86_backend.compile_to_asm ~system functions in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in
+    let needs_x86 = Poly.(arch = `X86_64) in
+    let use_rosetta =
+      needs_x86 && Poly.(arch = `Arm64) && Poly.(system = `Darwin)
+    in
+    let compiler =
+      match system with
+      | `Darwin -> "clang"
+      | `Linux | `Other -> "gcc"
+    in
+    let arch_args =
+      match arch, system with
+      | `X86_64, `Darwin ->
+        [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+      | _ -> []
+    in
+    let run_shell_runtime ?cwd command =
+      if use_rosetta
+      then (
+        let command =
+          quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
+        in
+        run_shell_exn ?cwd command)
+      else run_shell_exn ?cwd command
+    in
     Exn.protect
       ~f:(fun () ->
         let asm_path = Filename.concat temp_dir "program.s" in
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
         Out_channel.write_all harness_path ~data:harness;
-        run_command_exn
+        run_shell_exn
           ~cwd:temp_dir
-          "gcc"
-          [ "-Wall"; "-Werror"; "-O0"; "main.c"; "program.s"; "-o"; "program" ];
+          (quote_command
+             compiler
+             ([ "-Wall"; "-Werror"; "-O0" ]
+              @ arch_args
+              @ [ "main.c"; "program.s"; "-o"; "program" ]));
         let output_file = "stdout.txt" in
         let output_path = Filename.concat temp_dir output_file in
-        run_shell_exn
+        run_shell_runtime
           ~cwd:temp_dir
           (sprintf
              "%s > %s"

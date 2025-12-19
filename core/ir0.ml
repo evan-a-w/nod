@@ -213,6 +213,8 @@ type 'block t =
   *)
   | Branch of 'block Branch.t
   | Return of Lit_or_var.t
+  | Arm64 of 'block Arm64_ir.t
+  | Arm64_terminal of 'block Arm64_ir.t list
   | X86 of 'block X86_ir.t
   | X86_terminal of 'block X86_ir.t list
   | Unreachable
@@ -220,6 +222,9 @@ type 'block t =
 
 let filter_map_call_blocks t ~f =
   match t with
+  | Arm64 arm64_ir -> Arm64_ir.filter_map_call_blocks arm64_ir ~f
+  | Arm64_terminal arm64_irs ->
+    List.concat_map arm64_irs ~f:(Arm64_ir.filter_map_call_blocks ~f)
   | X86 x86_ir -> X86_ir.filter_map_call_blocks x86_ir ~f
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(X86_ir.filter_map_call_blocks ~f)
@@ -287,6 +292,11 @@ let constant = function
 ;;
 
 let defs = function
+  | Arm64 arm64_ir -> Arm64_ir.defs arm64_ir |> Set.to_list
+  | Arm64_terminal arm64_irs ->
+    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.defs)
+    |> Var.Set.of_list
+    |> Set.to_list
   | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
@@ -311,6 +321,8 @@ let defs = function
 ;;
 
 let blocks = function
+  | Arm64 arm64_ir -> Arm64_ir.blocks arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map ~f:Arm64_ir.blocks arm64_irs
   | X86 x86_ir -> X86_ir.blocks x86_ir
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.blocks x86_irs
   | Branch b -> Branch.blocks b
@@ -334,6 +346,11 @@ let blocks = function
 ;;
 
 let uses = function
+  | Arm64 arm64_ir -> Arm64_ir.uses arm64_ir |> Set.to_list
+  | Arm64_terminal arm64_irs ->
+    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.uses)
+    |> Var.Set.of_list
+    |> Set.to_list
   | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
   | X86_terminal x86_irs ->
     List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
@@ -383,6 +400,26 @@ let x86_reg_defs t =
   | _ -> []
 ;;
 
+let arm64_regs t =
+  match t with
+  | Arm64 arm64 -> Arm64_ir.regs arm64
+  | Arm64_terminal arm64s ->
+    List.map ~f:(Fn.compose Arm64_ir.Reg.Set.of_list Arm64_ir.regs) arm64s
+    |> Arm64_ir.Reg.Set.union_list
+    |> Set.to_list
+  | _ -> []
+;;
+
+let arm64_reg_defs t =
+  match t with
+  | Arm64 arm64 -> Arm64_ir.reg_defs arm64 |> Set.to_list
+  | Arm64_terminal arm64s ->
+    List.map ~f:Arm64_ir.reg_defs arm64s
+    |> Arm64_ir.Reg.Set.union_list
+    |> Set.to_list
+  | _ -> []
+;;
+
 let map_defs t ~f =
   match t with
   | Or a -> Or (map_arith_defs a ~f)
@@ -402,6 +439,9 @@ let map_defs t ~f =
   | Cast (var, b) -> Cast (f var, b)
   | Call { fn; results; args } ->
     Call { fn; results = List.map results ~f; args }
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_defs arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_defs ~f) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_defs ~f) x86_irs)
@@ -430,6 +470,9 @@ let map_uses t ~f =
   | Call { fn; results; args } ->
     Call { fn; results; args = List.map args ~f:(Lit_or_var.map_vars ~f) }
   | Branch b -> Branch (Branch.map_uses b ~f)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_uses arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_uses ~f) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_uses ~f) x86_irs)
@@ -437,6 +480,8 @@ let map_uses t ~f =
 ;;
 
 let is_terminal = function
+  | Arm64 arm64_ir -> Arm64_ir.is_terminal arm64_ir
+  | Arm64_terminal _ -> true
   | X86 x86_ir -> X86_ir.is_terminal x86_ir
   | X86_terminal _ -> true
   | Branch _ | Unreachable | Return _ -> true
@@ -463,6 +508,9 @@ let is_terminal = function
 let map_call_blocks t ~f =
   match t with
   | Branch b -> Branch (Branch.map_call_blocks b ~f)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_call_blocks arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_call_blocks ~f) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f) x86_irs)
@@ -491,6 +539,9 @@ let map_call_blocks t ~f =
 let iter_call_blocks t ~f =
   match t with
   | Branch b -> Branch.iter_call_blocks b ~f
+  | Arm64 arm64_ir -> Arm64_ir.iter_call_blocks arm64_ir ~f
+  | Arm64_terminal arm64_irs ->
+    List.iter ~f:(Arm64_ir.iter_call_blocks ~f) arm64_irs
   | X86 x86_ir -> X86_ir.iter_call_blocks x86_ir ~f
   | X86_terminal x86_irs -> List.iter ~f:(X86_ir.iter_call_blocks ~f) x86_irs
   | Alloca _
@@ -538,6 +589,9 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Noop -> Noop
   | Return var -> Return var
   | Unreachable -> Unreachable
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_blocks arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_blocks ~f) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_blocks x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_blocks ~f) x86_irs)
@@ -566,6 +620,9 @@ let map_lit_or_vars t ~f =
   | Return var -> Return (f var)
   | Noop -> Noop
   | Unreachable -> Unreachable
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_lit_or_vars arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_lit_or_vars ~f) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_lit_or_vars x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_lit_or_vars ~f) x86_irs)
@@ -596,6 +653,8 @@ let call_blocks = function
   | Noop
   | Return _
   | Call _ -> []
+  | Arm64 arm64_ir -> Arm64_ir.call_blocks arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map ~f:Arm64_ir.call_blocks arm64_irs
   | X86 x86_ir -> X86_ir.call_blocks x86_ir
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.call_blocks x86_irs
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
@@ -608,6 +667,14 @@ let map_x86_operands t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_operands x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_operands ~f) x86_irs)
+  | _ -> t
+;;
+
+let map_arm64_operands t ~f =
+  match t with
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_operands arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map ~f:(Arm64_ir.map_operands ~f) arm64_irs)
   | _ -> t
 ;;
 

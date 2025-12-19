@@ -3,4 +3,4 @@
  (preprocess
   (pps ppx_jane))
  (name main)
- (libraries nod core))
+ (libraries nod core core_unix))
