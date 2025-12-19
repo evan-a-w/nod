@@ -91,11 +91,10 @@ let test_both_modes ~harness program =
   let no_opt_result =
     compile_and_execute ~harness ~opt_flags:Eir.Opt_flags.no_opt program
   in
-  print_endline ("no_opt: " ^ no_opt_result);
   let opt_result =
     compile_and_execute ~harness ~opt_flags:Eir.Opt_flags.default program
   in
-  print_endline ("opt: " ^ opt_result)
+  no_opt_result, opt_result
 ;;
 
 (* Test Programs *)
@@ -240,129 +239,162 @@ ret_zero:
 (* Regression Tests *)
 
 let%expect_test "factorial 5 - no opt vs opt" =
-  test_both_modes
-    ~harness:
-      (make_harness_source
-         ~fn_name:"factorial"
-         ~fn_arg_type:"int64_t"
-         ~fn_arg:"5"
-         ())
-    factorial_recursive;
-  [%expect {|
-    no_opt: 120
-    opt: 120
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:
+        (make_harness_source
+           ~fn_name:"factorial"
+           ~fn_arg_type:"int64_t"
+           ~fn_arg:"5"
+           ())
+      factorial_recursive
+    in
+    assert (String.equal no_opt_result "120");
+    assert (String.equal opt_result "120")
+
+  )
 ;;
 
 let%expect_test "factorial 7 - no opt vs opt" =
-  test_both_modes
-    ~harness:
-      (make_harness_source
-         ~fn_name:"factorial"
-         ~fn_arg_type:"int64_t"
-         ~fn_arg:"7"
-         ())
-    factorial_recursive;
-  [%expect {|
-    no_opt: 5040
-    opt: 5040
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:
+        (make_harness_source
+           ~fn_name:"factorial"
+           ~fn_arg_type:"int64_t"
+           ~fn_arg:"7"
+           ())
+      factorial_recursive
+    in
+    assert (String.equal no_opt_result "5040");
+    assert (String.equal opt_result "5040")
+
+  )
 ;;
 
 let%expect_test "fibonacci 10 - no opt vs opt" =
-  test_both_modes
-    ~harness:
-      (make_harness_source
-         ~fn_name:"fib"
-         ~fn_arg_type:"int64_t"
-         ~fn_arg:"10"
-         ())
-    Examples.Textual.fib_recursive;
-  [%expect {|
-    no_opt: 89
-    opt: 89
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:
+        (make_harness_source
+           ~fn_name:"fib"
+           ~fn_arg_type:"int64_t"
+           ~fn_arg:"10"
+           ())
+      Examples.Textual.fib_recursive
+    in
+    assert (String.equal no_opt_result "89");
+    assert (String.equal opt_result "89")
+
+  )
 ;;
 
 let%expect_test "sum 1 to 100 - no opt vs opt" =
-  test_both_modes ~harness:(make_harness_source ()) Examples.Textual.sum_100;
-  [%expect {| 
-          no_opt: 4950 
-          opt: 4950 
-          |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes ~harness:(make_harness_source ()) Examples.Textual.sum_100
+    in
+    assert (String.equal no_opt_result "4950");
+    assert (String.equal opt_result "4950")
+
+  )
 ;;
 
 let%expect_test "nested loops simpler - no opt vs opt" =
-  test_both_modes
-    ~harness:(make_harness_source ())
-    Examples.Textual.f_but_simple;
-  [%expect {|
-     no_opt: 63
-     opt: 63
-     |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ())
+      Examples.Textual.f_but_simple
+    in
+    assert (String.equal no_opt_result "63");
+    assert (String.equal opt_result "63")
+
+  )
 ;;
 
 let%expect_test "nested loops - no opt vs opt" =
-  test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f;
-  [%expect {|
-    no_opt: 0
-    opt: 0
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes ~harness:(make_harness_source ()) Examples.Textual.f
+    in
+    assert (String.equal no_opt_result "0");
+    assert (String.equal opt_result "0")
+
+  )
 ;;
 
 let%expect_test "deep call stack - no opt vs opt" =
-  let program = String.concat deep_call_stack ~sep:"\n" in
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
-    program;
-  [%expect {|
-    no_opt: 1540
-    opt: 1540
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let program = String.concat deep_call_stack ~sep:"\n" in
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
+      program
+    in
+    assert (String.equal no_opt_result "1540");
+    assert (String.equal opt_result "1540")
+
+  )
 ;;
 
 let%expect_test "mutual recursion even(12) - no opt vs opt" =
-  let program = String.concat mutual_recursion ~sep:"\n" in
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"12" ())
-    program;
-  [%expect {|
-    no_opt: 1
-    opt: 1
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let program = String.concat mutual_recursion ~sep:"\n" in
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"12" ())
+      program
+    in
+    assert (String.equal no_opt_result "1");
+    assert (String.equal opt_result "1")
+
+  )
 ;;
 
 let%expect_test "complex arithmetic - no opt vs opt" =
-  let program = String.concat complex_arithmetic ~sep:"\n" in
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
-    program;
-  [%expect {|
-    no_opt: 117
-    opt: 117
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let program = String.concat complex_arithmetic ~sep:"\n" in
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
+      program
+    in
+    assert (String.equal no_opt_result "117");
+    assert (String.equal opt_result "117")
+
+  )
 ;;
 
 let%expect_test "mutual recursion even(13) - no opt vs opt" =
-  let program = String.concat mutual_recursion ~sep:"\n" in
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"13" ())
-    program;
-  [%expect {|
-    no_opt: 0
-    opt: 0
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let program = String.concat mutual_recursion ~sep:"\n" in
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"13" ())
+      program
+    in
+    assert (String.equal no_opt_result "0");
+    assert (String.equal opt_result "0")
+
+  )
 ;;
 
 let%expect_test "call chains - no opt vs opt" =
-  let program = String.concat Examples.Textual.call_chains ~sep:"\n" in
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"10" ())
-    program;
-  [%expect {|
-    no_opt: 71
-    opt: 71
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let program = String.concat Examples.Textual.call_chains ~sep:"\n" in
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"10" ())
+      program
+    in
+    assert (String.equal no_opt_result "71");
+    assert (String.equal opt_result "71")
+
+  )
 ;;
 
 let high_register_pressure_sum =
@@ -558,47 +590,62 @@ root(%x:i64) {
 ;;
 
 let%expect_test "high register pressure - sum of many variables" =
-  test_both_modes ~harness:(make_harness_source ()) high_register_pressure_sum;
-  [%expect {|
-    no_opt: 210
-    opt: 210
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes ~harness:(make_harness_source ()) high_register_pressure_sum
+    in
+    assert (String.equal no_opt_result "210");
+    assert (String.equal opt_result "210")
+
+  )
 ;;
 
 let%expect_test "high register pressure - many live across call" =
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
-    high_register_pressure_call;
-  [%expect {|
-    no_opt: 695
-    opt: 695
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
+      high_register_pressure_call
+    in
+    assert (String.equal no_opt_result "695");
+    assert (String.equal opt_result "695")
+
+  )
 ;;
 
 let%expect_test "high register pressure - loop with many live vars" =
-  test_both_modes ~harness:(make_harness_source ()) high_register_pressure_loop;
-  [%expect {|
-    no_opt: 27583
-    opt: 27583
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes ~harness:(make_harness_source ()) high_register_pressure_loop
+    in
+    assert (String.equal no_opt_result "27583");
+    assert (String.equal opt_result "27583")
+
+  )
 ;;
 
 let%expect_test "high register pressure - wide expression tree" =
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"2" ())
-    high_register_pressure_expr_tree;
-  [%expect {|
-    no_opt: 502
-    opt: 502
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"2" ())
+      high_register_pressure_expr_tree
+    in
+    assert (String.equal no_opt_result "502");
+    assert (String.equal opt_result "502")
+
+  )
 ;;
 
 let%expect_test "high register pressure - deeply nested expressions" =
-  test_both_modes
-    ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
-    high_register_pressure_nested;
-  [%expect {|
-    no_opt: 590
-    opt: 590
-    |}]
+  only_on_arch `X86_64 (fun () ->
+    let no_opt_result, opt_result =
+      test_both_modes
+      ~harness:(make_harness_source ~fn_arg_type:"int64_t" ~fn_arg:"5" ())
+      high_register_pressure_nested
+    in
+    assert (String.equal no_opt_result "590");
+    assert (String.equal opt_result "590")
+
+  )
 ;;

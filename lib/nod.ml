@@ -24,6 +24,17 @@ module X86_ir = Nod_core.X86_ir
 module X86_backend = Nod_x86_backend.X86_backend
 module Examples = Nod_examples.Examples
 
+let architecture () : [ `Arm64 | `X86_64 | `Other ] =
+  match Core_unix.uname () |> Core_unix.Utsname.machine |> String.lowercase with
+  | "x86_64" | "amd64" -> `X86_64
+  | "arm64" | "aarch64" -> `Arm64
+  | _ -> `Other
+;;
+
+let only_on_arch arch f =
+  if Poly.(architecture () = arch) then f () else ()
+;;
+
 module Eir = struct
   include Nod_core.Eir
 
