@@ -1,0 +1,290 @@
+X86 ARCHITECTURE AND ASSEMBLY NOTES (INTEL SYNTAX)
+===============================================
+
+Scope
+-----
+This document summarizes the architectural constraints required to target 64-bit
+x86 (x86-64 / AMD64) processors using Intel syntax, matching Linux System V ABI
+unless otherwise noted. It covers data layout, register usage, calling
+conventions, instruction selection constraints, stack management, and platform
+assumptions expected by the Nod compiler.
+
+Execution Model
+---------------
+- Little-endian byte order.
+- 64-bit general-purpose registers (GPRs) with partial register aliases (e.g.
+  `rax/eax/ax/al`). Writes to a smaller alias zero-extend/merge into the wider
+  register depending on width (16-bit doesn't zero upper 48 bits; 32-bit writes
+  zero the upper 32 bits).
+- Instruction pointer (`rip`) is implicit; relative addressing uses `rip`-based
+  displacements.
+- Condition codes live in `rflags` and feed conditional branches, `cmov*`,
+  `set*`, and arithmetic instructions.
+- Instructions generally support three-operand forms only via `lea` or fused
+  multiply-add extensions; classic ALU ops are two-operand (dest = dest op src).
+
+Registers
+---------
+- Volatile (caller-saved): `rax`, `rcx`, `rdx`, `rsi`, `rdi`, `r8`–`r11`.
+- Non-volatile (callee-saved): `rbx`, `rbp`, `r12`–`r15`. Callees must preserve
+  their 64-bit values across calls, typically via stack spills.
+- Stack pointer: `rsp`. Must remain 16-byte aligned at each `call` instruction;
+  System V mandates `rsp % 16 == 8` upon function entry (because the hardware
+  pushes an 8-byte return address).
+- Return value registers: `rax` (integers/fp pointers up to 128 bits using
+  `rax`/`rdx` convention), `xmm0`–`xmm1` for floating-point/SIMD returns.
+- Floating-point / vector registers: `xmm0`–`xmm15`; caller-saved under SysV.
+- `rflags` is caller-saved; inline asm should treat it as clobbered by most ALU
+  ops.
+
+Data Layout
+-----------
+- Integers: 8, 16, 32, 64-bit little-endian. No native 128-bit GPRs; use pairs.
+- Alignment: typical ABI requirements align 16 bytes for SSE data, 8 bytes for
+  scalars/pointers on stack. Global data should respect natural alignment.
+- Struct layout follows System V AMD64 psABI rules (packed according to member
+  alignment). Bit-fields exist but compiler IR should avoid them.
+
+Calling Convention (System V AMD64)
+-----------------------------------
+- Argument registers (in order):
+  1. `rdi`
+  2. `rsi`
+  3. `rdx`
+  4. `rcx`
+  5. `r8`
+  6. `r9`
+  Additional integer/pointer args spill to the stack (right-to-left push).
+- Floating-point/vector args use `xmm0`–`xmm7` in parallel register sequence;
+  if exhausted, they spill to stack slots shadowing the integer sequence.
+- Varargs: caller allocates a 32-byte “red zone” below `rsp` that callee may use
+  without saving unless interrupts/signal handlers are possible (userland only).
+  Windows x64 lacks the red zone; avoid relying on it if cross-platform needed.
+- Return: integer/pointer via `rax`; 128-bit aggregates split across `rax`/`rdx`.
+  Floating-point via `xmm0` (and `xmm1` if needed). Larger aggregates returned
+  indirectly via pointer passed as hidden first argument (in `rdi`).
+- Callee prologue responsibilities:
+  1. Optionally push `rbp` and set `rbp = rsp` for frame-based debugging.
+  2. Allocate stack space by `sub rsp, frame_size`, ensuring 16-byte alignment.
+  3. Spill callee-saved registers used by function.
+- Epilogue: reverse spills, free stack (e.g., `add rsp, frame_size`), restore
+  `rbp`, and `ret`.
+
+Stack Frame Layout
+------------------
+```
+| Higher addresses |
+-------------------
+| arguments>6      |  <- caller-pushed spill slots
+-------------------
+| return address   |  <- pushed by CALL, rsp points here on entry
+-------------------
+| saved rbp        |  <- optional
+-------------------
+| locals / spills  |  <- aligned to 16 bytes
+-------------------
+| red zone (128 B) |  <- caller-owned scratch, avoid in signal-safe code
+-------------------
+| Lower addresses  |
+```
+The compiler must ensure stack adjustments maintain 16-byte alignment before any
+`call`. Track outgoing call arg space (shadow space) by subtracting multiples of
+16 bytes, even if not all slots used, so nested calls remain aligned.
+
+Instruction Selection Notes
+---------------------------
+- Use Intel syntax: `op dest, src`. Memory operands appear as `[base + index *
+  scale + disp]`. Only one memory operand per instruction.
+- Immediate sizes: pay attention to sign-extension rules (`mov rax, imm32`
+  zero-extends). Use `movabs` for 64-bit immediates targeting 64-bit registers.
+- LEA is the only pure ternary arithmetic (for address calculation and limited
+  addition/multiplication by constant scales 1,2,4,8).
+- Shift/rotate by variable counts require the count in `cl` (lower 8 bits of
+  `rcx`).
+- Multiplication/division:
+  - Unsigned `mul` and signed `imul` implicit operands: `rax * r/m -> rdx:rax`.
+  - Division uses `div`/`idiv` with implicit `rdx:rax` dividend.
+- Compare & branch: `cmp`/`test` set flags; use `jcc`, `cmovcc`, or `setcc`.
+- Zero/sign extension instructions (`movzx`, `movsx`) are common when lowering
+  narrower types.
+- Push/pop affect alignment; prefer explicit `sub/add rsp, imm` for multi-word
+  adjustments.
+- Use `call label` for direct, `call [reg/mem]` for indirect. Remember
+  relocations for PLT/GOT when targeting position-independent code.
+
+Memory Model & Atomics
+----------------------
+- x86-64 enforces total store order (TSO). Most sequentially-consistent atomics
+  compile to simple locked instructions or `mfence`. Acquire/release semantics
+  can often omit explicit fences due to implicit ordering guarantees.
+- `lock` prefix enforces atomicity for multi-processor effects; instructions
+  like `xchg` are implicitly locked when involving memory.
+
+Position-Independent Code (PIC)
+-------------------------------
+- Use RIP-relative addressing for globals: `mov rax, [rel symbol]` or `lea
+  rax, [rel symbol]` under Intel syntax (`rel` pseudo-operator in assemblers).
+- For GOT/PLT access, `lea rax, [rip + symbol@GOTPCREL]` followed by `mov` to
+  load addresses; function calls to shared-library symbols use `call
+  symbol@PLT`.
+
+SIMD / Floating-Point
+---------------------
+- Default to SSE2+ (assume at least SSE4.2 on modern targets if desired).
+- Scalar floating-point operations use `xmm` registers with `addsd`, `subsd`,
+  etc. Mixed integer-float moves require `cvtsi2sd` / `cvttsd2si`.
+- Preserve ABI rules: all `xmm` registers caller-saved; callee must save any it
+  temp-uses when containing live values (rare in SysV since they are volatile).
+
+Exception Handling / Unwinding
+------------------------------
+- System V uses DWARF CFI. Prologues must be describable by frame directives if
+  unwinding/debug is required. Maintain canonical frame address (CFA) mapping
+  when emitting unwind info (handled elsewhere in Nod backend).
+
+Assembler Pragmatics
+--------------------
+- Comments use `;`. Labels end with `:`. Intel syntax orders operands as
+  `dest, src`.
+- Literals: decimal/plain for signed, `0x` for hex. Character constants in `'`.
+- Use `.text`, `.data`, `.bss` sections. Align via `.p2align n`.
+- External symbol visibility via `.globl name`. Data declarations: `.quad`,
+  `.long`, `.word`, `.byte`.
+
+Validation Checklist
+--------------------
+- Maintain 16-byte alignment on `rsp` before each `call`.
+- Save/restore callee-saved GPRs/XMMs actually used.
+- Respect calling convention for argument classification (integer vs SSE).
+- Avoid mixing AT&T syntax; emit Intel dialect consistently.
+- Ensure large immediates use `movabs` or materialization via literals.
+- Track red-zone usage; disable if emitting signal-safe code or targeting
+  Windows.
+
+Common Instruction Reference
+---------------------------
+- **`mov dest, src`**: Copy between registers/memory/immediates; at most one operand may reference memory.
+- **`movzx dest, src`**: Zero-extend narrow integer sources (8/16 bits) to a larger destination.
+- **`movsx dest, src` / `movsxd dest, src`**: Sign-extend narrow integer sources into wider registers.
+- **`lea dest, [base + index*scale + disp]`**: Compute addresses or general integer expressions without memory touch.
+- **`push src` / `pop dest`**: Adjust `rsp` and store/load operand width; affects alignment if used unevenly.
+- **`xchg op1, op2`**: Swap registers or reg/mem; mem form is implicitly locked for atomicity.
+- **`add dest, src` / `sub dest, src`**: Two-operand integer addition/subtraction updating flags.
+- **`inc dest` / `dec dest`**: Increment/decrement by one (avoid when overflow flag tracking matters).
+- **`imul dest, src`**: Signed multiply; accepts reg/mem source and optional immediate.
+- **`mul src` / `div src` / `idiv src`**: Unsigned/signed multiply/divide using implicit `rdx:rax` accumulators.
+- **`and/or/xor dest, src`**: Bitwise logical ops; `xor reg, reg` zeros the register efficiently.
+- **`not dest` / `neg dest`**: Bitwise NOT or two's-complement negation of operand.
+- **`cmp left, right`**: Subtracts for flag setting only; pairs with conditional branches or moves.
+- **`test op1, op2`**: Bitwise AND for flags (no stored result); useful for zero checks and masking.
+- **`jmp target`**: Unconditional branch to label or register.
+- **`jcc target`**: Conditional branches such as `je`, `jne`, `jg`, `jl`, `ja`, `jb`, etc., keyed off flag state.
+- **`cmovcc dest, src`**: Conditional register move executed when predicate true (`cmovg`, `cmova`, etc.).
+- **`setcc r/m8`**: Write byte as 0/1 per condition (e.g., `sete`, `setl`).
+- **`call target`**: Push return address and branch (direct or indirect via register/memory operand).
+- **`ret` / `ret imm16`**: Pop return address (and optionally adjust stack by immediate) to return from call.
+- **`leave`**: Equivalent to `mov rsp, rbp` + `pop rbp`; shorthand epilogue.
+- **`shl/shr/sar dest, imm/cl`**: Logical/arithmetic shifts; variable counts source from `cl`.
+- **`rol/ror/rcl/rcr dest, count`**: Bit rotations with or without carry involvement.
+- **`bt/bts/btr/btc r/m, reg/imm`**: Test/set/reset/complement specific bits in memory or registers.
+- **`movdqa/movdqu xmm, xmm/mem`**: Move aligned/unaligned 128-bit SSE data.
+- **`addsd/subsd/mulsd/divsd xmm, xmm/mem`**: Scalar double-precision floating-point arithmetic.
+- **`addps/mulps` / `addpd/mulpd`**: Packed single/double vector arithmetic.
+- **`cvtsi2sd xmm, r/m` / `cvttsd2si reg, xmm`**: Convert integers to/from scalar double.
+- **`ucomisd xmm, xmm/mem`**: Unordered compare of scalar doubles, setting flags.
+- **`prefetcht0 [addr]` / `prefetcht1`**: Hint to preload cache lines with different temporal locality.
+- **`mfence/lfence/sfence`**: Full/Load/Store memory barriers.
+- **`lock cmpxchg r/m, reg`**: Atomic compare-and-swap; use with preceding `mov` of expected value in `rax`.
+- **`pause`**: Spin-wait hint reducing power consumption in busy loops.
+
+Assembler Syntax & Directives Reference
+--------------------------------------
+- **Labels**: Symbols ending with `:` define code/data addresses (e.g., `foo:`). Local labels may use numeric forms (`1:`) with `1b/1f` references under GAS.
+- **Sections**: Use `.text` for code, `.data` for initialized data, `.rodata` for read-only constants, `.bss` for zero-initialized objects. Switch via `.section name, "flags"` when specific attributes needed.
+- **Alignment**: `.p2align n` aligns to `2^n` bytes (e.g., `.p2align 4` for 16-byte boundaries). `.align n` is also available depending on assembler configuration.
+- **Global visibility**: `.globl symbol` (or `.global`) exports a label to the linker. Pair with `.type symbol, @function` / `.type symbol, @object` for ELF metadata.
+- **Entry points**: Combine directives: `.text`, `.globl my_func`, `.type my_func, @function`, then label `my_func:`.
+- **Static data**: Use size-specific directives:
+  - `.byte 0x12, 'A'`
+  - `.word 0x1234` (16-bit)
+  - `.long 0x12345678` (32-bit)
+  - `.quad 0x1122334455667788` (64-bit)
+  Strings via `.ascii "text"` (no terminator) or `.asciz "text"` (NUL-terminated).
+- **Space reservation**: `.zero N` / `.skip N` emits zero bytes; `.fill count, size, value` repeats a pattern. In `.bss`, use `.comm sym, size, align` for global zero-initialized buffers.
+- **Constants/macros**: `.set name, expr` or `.equ name, expr` define assembler-time constants. `.ifdef` / `.ifndef` guard conditional assembly.
+- **Relocations**: Use suffixes like `symbol@GOTPCREL`, `symbol@PLT`, or `symbol@GOTOFF` for PIC sequences. `rel symbol` expresses RIP-relative addressing in Intel syntax when supported.
+- **Example skeleton**:
+  ```asm
+  .text
+  .globl foo
+  .type foo, @function
+  foo:
+      push rbp
+      mov rbp, rsp
+      sub rsp, 16
+      mov DWORD PTR [rbp-4], 42
+      lea rax, [rel msg]
+      call puts@PLT
+      leave
+      ret
+
+  .section .rodata
+  msg:
+      .asciz "hello"
+  ```
+This template demonstrates how sections, labels, directives, and code tie
+together so backend output assembles cleanly under GAS `-masm=intel`.
+
+ABI Edge Cases & Aggregates
+---------------------------
+- **Eightbyte classification**: Break every argument into 8-byte chunks. Each chunk receives a class (INTEGER, SSE, SSEUP, X87, X87UP, COMPLEX_X87, MEMORY). INTEGER chunks consume the integer register sequence (`rdi`–`r9`), SSE chunks consume the SSE register sequence (`xmm0`–`xmm7`), SSEUP pairs with the preceding SSE chunk, and any MEMORY classification forces the entire argument to the stack.
+- **Structs/arrays ≤16 bytes**: Up to two eightbytes may live in registers; mixed classes split between GPR and XMM. Example: `{ int64_t; double; }` passes `int64` in `rdi`, `double` in `xmm0`.
+- **Structs >16 bytes or with X87 fields**: Automatically passed/returned via memory (pointer argument supplied by caller). Ensure the caller allocates and passes an address before other arguments.
+- **Homogeneous SSE aggregates**: Arrays/vectors of `float`/`double` up to 16 bytes occupy XMM registers (e.g., `struct { double v[2]; }` uses `xmm0`). Mixed integer/fp fields break homogeneity.
+- **Varargs register save area**: Variadic callees must create a 176-byte save area containing 6×8-byte GPR slots (first 48 bytes) followed by 8×16-byte SSE slots (next 128 bytes). `va_list` contains `gp_offset`, `fp_offset`, `overflow_arg_area` (stack pointer to additional arguments), and `reg_save_area`. Promote register arguments into this area before exposing them to `va_arg` expansion.
+- **Stack argument layout**: Each stack slot is 8 bytes, right-to-left order, and aligned to 16 bytes overall. When mixing integer/SSE register exhaustion, ensure stack shadow area matches what the classifier would have produced (even if fewer args exist) so varargs scanning works.
+
+CFI / Unwind Directives
+-----------------------
+- Emit DWARF Call Frame Information for debuggability and exceptions. Typical prologue:
+  ```asm
+  .cfi_startproc
+      push rbp
+      .cfi_def_cfa_offset 16
+      .cfi_offset rbp, -16
+      mov rbp, rsp
+      .cfi_def_cfa_register rbp
+      sub rsp, 32
+  ```
+  Epilogue should reverse with `.cfi_def_cfa rbp, 16`, `.cfi_restore rbp`, and `.cfi_endproc` before `ret`.
+- Frame-pointer-less functions: describe CFA relative to `rsp` after allocation (e.g., `.cfi_def_cfa rsp, 8`). Update after each stack adjustment so unwinder tracks locals.
+- Callee-saved spills: every `push`/`mov [rsp-?], r12` requires matching `.cfi_offset r12, -offset`. Restore with `.cfi_restore` when popping.
+
+Relocation Cookbook
+-------------------
+- **Direct local data**: `lea rax, [rel symbol]` materializes the address in PIC. Follow with loads/stores. For non-PIC, `mov rax, offset symbol` suffices but is discouraged.
+- **Global data via GOT**: Use `lea rax, [rip + symbol@GOTPCREL]` / `mov rax, [rax]` to load absolute addresses in position-independent code.
+- **Function calls**: `call symbol@PLT` guarantees late binding through the Procedure Linkage Table. Direct `call symbol` only for local, non-interposed functions in the same linkage unit.
+- **Jump tables**: Emit `.quad label0 - .LJmpTableBase` entries and compute `lea rax, [rel .LJmpTableBase]` to add scaled offsets for PIC-safe tables.
+- **Thread-local storage**:
+  - *Local Exec*: `mov rax, qword ptr fs:0; add rax, symbol@tpoff` (Linux) after ensuring TLS segment is local.
+  - *Initial Exec*: `mov rdi, fs:0; add rax, [rip + symbol@GOTTPREL]; add rax, rdi`.
+  - *General Dynamic/Local Dynamic*: call `__tls_get_addr@PLT` with relocation descriptors emitted by assembler; rarely needed for compiler-generated code unless supporting shared TLS definitions.
+- **Rel32 patching**: When lowering PC-relative references (e.g., branch targets), ensure relocations fit 32-bit displacements; far data accesses require GOT indirection or literal pools.
+
+Linux Syscall Interface (x86-64)
+--------------------------------
+- Instruction: `syscall`. Unlike `int 0x80`, it preserves `rcx`/`r11` semantics (they are clobbered) and enforces `rcx`/`r11` saving by caller if needed.
+- **Register mapping**:
+  - `rax`: syscall number
+  - `rdi`, `rsi`, `rdx`, `r10`, `r8`, `r9`: argument 1–6 (note `r10` instead of `rcx`)
+  - Return value in `rax`; `rdx` used for 128-bit returns (e.g., `pread64`).
+- Errors are indicated by signed negative values in `rax` (−1..−4095) with no flag change; translate to `errno` by negating.
+- Maintain `rsp` alignment before invoking `syscall` because kernel assumes 16-byte alignment at entry.
+- Example wrapper:
+  ```asm
+  mov rax, 60        ; SYS_exit
+  mov rdi, 0
+  syscall
+  ```
+- When mixing with libc, prefer function calls; raw syscalls require manual restart handling (`-ERESTART*`) and signal-safe stack discipline.
