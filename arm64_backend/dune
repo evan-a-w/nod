@@ -1,0 +1,8 @@
+(library
+ (name nod_arm64_backend)
+ (preprocess
+  (pps ppx_jane))
+ (inline_tests)
+ (libraries core core_unix nod_common nod_core feel ds nod_backend_common)
+ (flags
+  (:standard -extension-universe beta)))

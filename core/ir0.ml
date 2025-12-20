@@ -26,6 +26,12 @@ module Lit_or_var = struct
     | Lit l -> Imm l
     | Var v -> Reg (X86_reg.unallocated v)
   ;;
+
+  let to_arm64_ir_operand t : Arm64_ir.operand =
+    match t with
+    | Lit l -> Arm64_ir.Imm l
+    | Var v -> Arm64_ir.Reg (Arm64_reg.unallocated v)
+  ;;
 end
 
 module Mem = struct
@@ -55,6 +61,12 @@ module Mem = struct
     match t with
     | Lit_or_var l -> Lit_or_var.to_x86_ir_operand l
     | Stack_slot i -> Mem (X86_reg.rbp, i)
+  ;;
+
+  let to_arm64_ir_operand t : Arm64_ir.operand =
+    match t with
+    | Lit_or_var l -> Lit_or_var.to_arm64_ir_operand l
+    | Stack_slot i -> Arm64_ir.Mem (Arm64_reg.fp, i)
   ;;
 end
 
