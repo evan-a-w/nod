@@ -1,5 +1,12 @@
 open Core
 
+module Class = struct
+  type t =
+    | I64
+    | F64
+  [@@deriving sexp, equal, compare, hash, variants, enumerate]
+end
+
 module Raw = struct
   type t =
     | SP
@@ -71,110 +78,296 @@ module Raw = struct
   [@@deriving sexp, equal, compare, hash, variants]
 
   let all_physical =
-    [| SP
-     ; X0
-     ; X1
-     ; X2
-     ; X3
-     ; X4
-     ; X5
-     ; X6
-     ; X7
-     ; X8
-     ; X9
-     ; X10
-     ; X11
-     ; X12
-     ; X13
-     ; X14
-     ; X15
-     ; X16
-     ; X17
-     ; X18
-     ; X19
-     ; X20
-     ; X21
-     ; X22
-     ; X23
-     ; X24
-     ; X25
-     ; X26
-     ; X27
-     ; X28
-     ; X29
-     ; X30
-     ; V0
-     ; V1
-     ; V2
-     ; V3
-     ; V4
-     ; V5
-     ; V6
-     ; V7
-     ; V8
-     ; V9
-     ; V10
-     ; V11
-     ; V12
-     ; V13
-     ; V14
-     ; V15
-     ; V16
-     ; V17
-     ; V18
-     ; V19
-     ; V20
-     ; V21
-     ; V22
-     ; V23
-     ; V24
-     ; V25
-     ; V26
-     ; V27
-     ; V28
-     ; V29
-     ; V30
-     ; V31
-    |]
+    [ SP
+    ; X0
+    ; X1
+    ; X2
+    ; X3
+    ; X4
+    ; X5
+    ; X6
+    ; X7
+    ; X8
+    ; X9
+    ; X10
+    ; X11
+    ; X12
+    ; X13
+    ; X14
+    ; X15
+    ; X16
+    ; X17
+    ; X18
+    ; X19
+    ; X20
+    ; X21
+    ; X22
+    ; X23
+    ; X24
+    ; X25
+    ; X26
+    ; X27
+    ; X28
+    ; X29
+    ; X30
+    ; V0
+    ; V1
+    ; V2
+    ; V3
+    ; V4
+    ; V5
+    ; V6
+    ; V7
+    ; V8
+    ; V9
+    ; V10
+    ; V11
+    ; V12
+    ; V13
+    ; V14
+    ; V15
+    ; V16
+    ; V17
+    ; V18
+    ; V19
+    ; V20
+    ; V21
+    ; V22
+    ; V23
+    ; V24
+    ; V25
+    ; V26
+    ; V27
+    ; V28
+    ; V29
+    ; V30
+    ; V31
+    ]
   ;;
 
-  let is_physical = function
-    | Unallocated _ | Allocated _ -> false
-    | _ -> true
+  let rec to_physical = function
+    | Allocated (_, None) | Unallocated _ -> None
+    | Allocated (_, Some reg) -> to_physical reg
+    | other -> Some other
   ;;
 
   let should_save = function
-    | SP -> false
-    | reg -> is_physical reg
+    | SP -> None
+    | other -> to_physical other
+  ;;
+
+  let phys_reg_limit = List.length all_physical
+
+  let rec class_ = function
+    | V0
+    | V1
+    | V2
+    | V3
+    | V4
+    | V5
+    | V6
+    | V7
+    | V8
+    | V9
+    | V10
+    | V11
+    | V12
+    | V13
+    | V14
+    | V15
+    | V16
+    | V17
+    | V18
+    | V19
+    | V20
+    | V21
+    | V22
+    | V23
+    | V24
+    | V25
+    | V26
+    | V27
+    | V28
+    | V29
+    | V30
+    | V31 -> `Physical Class.F64
+    | Allocated (_, Some forced) -> class_ forced
+    | SP
+    | X0
+    | X1
+    | X2
+    | X3
+    | X4
+    | X5
+    | X6
+    | X7
+    | X8
+    | X9
+    | X10
+    | X11
+    | X12
+    | X13
+    | X14
+    | X15
+    | X16
+    | X17
+    | X18
+    | X19
+    | X20
+    | X21
+    | X22
+    | X23
+    | X24
+    | X25
+    | X26
+    | X27
+    | X28
+    | X29
+    | X30 -> `Physical Class.I64
+    | Unallocated _ | Allocated (_, _) -> `Variable
+  ;;
+
+  let to_id ~var_id = function
+    | SP -> 0
+    | X0 -> 1
+    | X1 -> 2
+    | X2 -> 3
+    | X3 -> 4
+    | X4 -> 5
+    | X5 -> 6
+    | X6 -> 7
+    | X7 -> 8
+    | X8 -> 9
+    | X9 -> 10
+    | X10 -> 11
+    | X11 -> 12
+    | X12 -> 13
+    | X13 -> 14
+    | X14 -> 15
+    | X15 -> 16
+    | X16 -> 17
+    | X17 -> 18
+    | X18 -> 19
+    | X19 -> 20
+    | X20 -> 21
+    | X21 -> 22
+    | X22 -> 23
+    | X23 -> 24
+    | X24 -> 25
+    | X25 -> 26
+    | X26 -> 27
+    | X27 -> 28
+    | X28 -> 29
+    | X29 -> 30
+    | X30 -> 31
+    | V0 -> 32
+    | V1 -> 33
+    | V2 -> 34
+    | V3 -> 35
+    | V4 -> 36
+    | V5 -> 37
+    | V6 -> 38
+    | V7 -> 39
+    | V8 -> 40
+    | V9 -> 41
+    | V10 -> 42
+    | V11 -> 43
+    | V12 -> 44
+    | V13 -> 45
+    | V14 -> 46
+    | V15 -> 47
+    | V16 -> 48
+    | V17 -> 49
+    | V18 -> 50
+    | V19 -> 51
+    | V20 -> 52
+    | V21 -> 53
+    | V22 -> 54
+    | V23 -> 55
+    | V24 -> 56
+    | V25 -> 57
+    | V26 -> 58
+    | V27 -> 59
+    | V28 -> 60
+    | V29 -> 61
+    | V30 -> 62
+    | V31 -> 63
+    | Unallocated var | Allocated (var, _) -> phys_reg_limit + var_id var
+  ;;
+
+  let of_id ~id_var id =
+    match id with
+    | 0 -> sp
+    | 1 -> x0
+    | 2 -> x1
+    | 3 -> x2
+    | 4 -> x3
+    | 5 -> x4
+    | 6 -> x5
+    | 7 -> x6
+    | 8 -> x7
+    | 9 -> x8
+    | 10 -> x9
+    | 11 -> x10
+    | 12 -> x11
+    | 13 -> x12
+    | 14 -> x13
+    | 15 -> x14
+    | 16 -> x15
+    | 17 -> x16
+    | 18 -> x17
+    | 19 -> x18
+    | 20 -> x19
+    | 21 -> x20
+    | 22 -> x21
+    | 23 -> x22
+    | 24 -> x23
+    | 25 -> x24
+    | 26 -> x25
+    | 27 -> x26
+    | 28 -> x27
+    | 29 -> x28
+    | 30 -> x29
+    | 31 -> x30
+    | 32 -> v0
+    | 33 -> v1
+    | 34 -> v2
+    | 35 -> v3
+    | 36 -> v4
+    | 37 -> v5
+    | 38 -> v6
+    | 39 -> v7
+    | 40 -> v8
+    | 41 -> v9
+    | 42 -> v10
+    | 43 -> v11
+    | 44 -> v12
+    | 45 -> v13
+    | 46 -> v14
+    | 47 -> v15
+    | 48 -> v16
+    | 49 -> v17
+    | 50 -> v18
+    | 51 -> v19
+    | 52 -> v20
+    | 53 -> v21
+    | 54 -> v22
+    | 55 -> v23
+    | 56 -> v24
+    | 57 -> v25
+    | 58 -> v26
+    | 59 -> v27
+    | 60 -> v28
+    | 61 -> v29
+    | 62 -> v30
+    | 63 -> v31
+    | other ->
+      let id = other - phys_reg_limit in
+      unallocated (id_var id)
   ;;
 
   include functor Comparable.Make
   include functor Hashable.Make
-end
-
-module Class = struct
-  type t =
-    | I64
-    | F64
-  [@@deriving sexp, equal, compare, hash, variants]
-
-  let arguments ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ X0; X1; X2; X3; X4; X5; X6; X7 ]
-    | F64, Default -> [ V0; V1; V2; V3; V4; V5; V6; V7 ]
-  ;;
-
-  let callee_saved ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ X19; X20; X21; X22; X23; X24; X25; X26; X27; X28; X29 ]
-    | F64, Default -> [ V8; V9; V10; V11; V12; V13; V14; V15 ]
-  ;;
-
-  let results ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ X0; X1 ]
-    | F64, Default -> [ V0; V1 ]
-  ;;
 end
 
 type t =
@@ -185,85 +378,22 @@ type t =
 
 let raw t = t.reg
 let class_ t = t.class_
-
-let rec default_class = function
-  | Raw.V0
-  | Raw.V1
-  | Raw.V2
-  | Raw.V3
-  | Raw.V4
-  | Raw.V5
-  | Raw.V6
-  | Raw.V7
-  | Raw.V8
-  | Raw.V9
-  | Raw.V10
-  | Raw.V11
-  | Raw.V12
-  | Raw.V13
-  | Raw.V14
-  | Raw.V15
-  | Raw.V16
-  | Raw.V17
-  | Raw.V18
-  | Raw.V19
-  | Raw.V20
-  | Raw.V21
-  | Raw.V22
-  | Raw.V23
-  | Raw.V24
-  | Raw.V25
-  | Raw.V26
-  | Raw.V27
-  | Raw.V28
-  | Raw.V29
-  | Raw.V30
-  | Raw.V31 -> Class.F64
-  | Raw.Allocated (_, Some forced) -> default_class forced
-  | _ -> Class.I64
-;;
-
-let make ?class_ reg =
-  let class_ = Option.value class_ ~default:(default_class reg) in
-  { reg; class_ }
-;;
-
-let physical ?class_ reg = make ?class_ reg
-let is_physical t = Raw.is_physical t.reg
+let create ~class_ ~raw = { reg = raw; class_ }
 let should_save t = Raw.should_save t.reg
 let with_class t class_ = { t with class_ }
 let with_raw t reg = { reg; class_ = t.class_ }
 
-let unallocated ?(class_ = Class.I64) var = { reg = Raw.Unallocated var; class_ }
+let unallocated ?(class_ = Class.I64) var =
+  { reg = Raw.Unallocated var; class_ }
+;;
 
-let allocated ?class_ var forced =
-  let class_ =
-    match class_, forced with
-    | Some class_, _ -> class_
-    | None, Some reg -> reg.class_
-    | None, None -> Class.I64
-  in
+let allocated ~class_ var forced =
   let forced = Option.map forced ~f:raw in
   { reg = Raw.Allocated (var, forced); class_ }
 ;;
 
-let arguments ?(call_conv = Call_conv.default) class_ =
-  Class.arguments ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let results ?(call_conv = Call_conv.default) class_ =
-  Class.results ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let callee_saved ?(call_conv = Call_conv.default) class_ =
-  Class.callee_saved ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let all_physical = Array.map Raw.all_physical ~f:make
-
-let gp raw = physical ~class_:Class.I64 raw
-let vec raw = physical ~class_:Class.F64 raw
-
+let gp raw = create ~class_:Class.I64 ~raw
+let vec raw = create ~class_:Class.F64 ~raw
 let sp = gp Raw.SP
 let fp = gp Raw.X29
 let lr = gp Raw.X30
@@ -298,7 +428,6 @@ let x27 = gp Raw.X27
 let x28 = gp Raw.X28
 let x29 = fp
 let x30 = lr
-
 let v0 = vec Raw.V0
 let v1 = vec Raw.V1
 let v2 = vec Raw.V2
@@ -331,6 +460,31 @@ let v28 = vec Raw.V28
 let v29 = vec Raw.V29
 let v30 = vec Raw.V30
 let v31 = vec Raw.V31
+
+let arguments ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Default -> [ x0; x1; x2; x3; x4; x5; x6; x7 ]
+  | F64, Default -> [ v0; v1; v2; v3; v4; v5; v6; v7 ]
+;;
+
+let callee_saved ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Default -> [ x19; x20; x21; x22; x23; x24; x25; x26; x27; x28; fp ]
+  | F64, Default -> [ v8; v9; v10; v11; v12; v13; v14; v15 ]
+;;
+
+let results ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Default -> [ x0; x1 ]
+  | F64, Default -> [ v0; v1 ]
+;;
+
+let all_physical =
+  List.map Raw.all_physical ~f:(fun raw ->
+    match Raw.class_ raw with
+    | `Physical class_ -> create ~class_ ~raw
+    | `Variable -> failwith "raw register should be physical")
+;;
 
 include functor Comparable.Make
 include functor Hashable.Make

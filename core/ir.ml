@@ -30,10 +30,10 @@ let add_block_args =
     | Unreachable
     | Noop
     | Return _ ) as t -> t
-  | Arm64 arm64_ir ->
-    Arm64 (Arm64_ir.map_call_blocks arm64_ir ~f:on_call_block)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_call_blocks arm64_ir ~f:on_call_block)
   | Arm64_terminal arm64_irs ->
-    Arm64_terminal (List.map ~f:(Arm64_ir.map_call_blocks ~f:on_call_block) arm64_irs)
+    Arm64_terminal
+      (List.map ~f:(Arm64_ir.map_call_blocks ~f:on_call_block) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f:on_call_block)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f:on_call_block) x86_irs)
@@ -72,10 +72,10 @@ let remove_block_args =
     | Unreachable
     | Noop
     | Return _ ) as t -> t
-  | Arm64 arm64_ir ->
-    Arm64 (Arm64_ir.map_call_blocks arm64_ir ~f:on_call_block)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_call_blocks arm64_ir ~f:on_call_block)
   | Arm64_terminal arm64_irs ->
-    Arm64_terminal (List.map ~f:(Arm64_ir.map_call_blocks ~f:on_call_block) arm64_irs)
+    Arm64_terminal
+      (List.map ~f:(Arm64_ir.map_call_blocks ~f:on_call_block) arm64_irs)
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f:on_call_block)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f:on_call_block) x86_irs)
@@ -340,7 +340,8 @@ module Type_check = struct
   ;;
 
   let check = function
-    | Noop | Arm64 _ | Arm64_terminal _ | X86 _ | X86_terminal _ | Unreachable -> Ok ()
+    | Noop | Arm64 _ | Arm64_terminal _ | X86 _ | X86_terminal _ | Unreachable
+      -> Ok ()
     | Add arith -> check_arith ~op:"add" arith
     | Sub arith -> check_arith ~op:"sub" arith
     | Mul arith -> check_arith ~op:"mul" arith

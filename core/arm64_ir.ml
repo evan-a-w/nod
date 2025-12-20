@@ -14,94 +14,205 @@ module Jump_target = struct
     | Reg of Reg.t
     | Imm of Int64.t
     | Symbol of Symbol.t
+  [@@deriving sexp, equal, compare, hash]
+end
+
+module Condition = struct
+  type t =
+    | Eq
+    | Ne
+    | Lt
+    | Le
+    | Gt
+    | Ge
+    | Pl
+    | Mi
+  [@@deriving sexp, equal, compare, hash, enumerate]
+end
+
+module Int_op = struct
+  type t =
+    | Add
+    | Sub
+    | Mul
+    | Sdiv
+    | Smod
+    | And
+    | Orr
+    | Eor
+    | Lsl
+    | Lsr
+    | Asr
+  [@@deriving sexp, equal, compare, hash, enumerate]
+end
+
+module Float_op = struct
+  type t =
+    | Fadd
+    | Fsub
+    | Fmul
+    | Fdiv
+  [@@deriving sexp, equal, compare, hash, enumerate]
+end
+
+module Convert_op = struct
+  type t =
+    | Int_to_float
+    | Float_to_int
+  [@@deriving sexp, equal, compare, hash, enumerate]
+end
+
+module Comp_kind = struct
+  type t =
+    | Int
+    | Float
+  [@@deriving sexp, equal, compare, hash, enumerate]
 end
 
 type operand =
   | Reg of Reg.t
   | Imm of Int64.t
-  | Mem of Reg.t * int (* [reg + disp] *)
+  | Mem of Reg.t * int (* [reg + offset] addressing *)
 [@@deriving sexp, equal, compare, hash]
 
 let reg_of_operand_exn = function
   | Reg r -> r
-  | _ -> failwith "Not operand reg"
+  | _ -> failwith "operand is not a register"
 ;;
 
 type 'block t =
-  | NOOP
-  (* Use this tag things for regalloc bs where we mint temp vars and make them allocated to a particular hw reg when we need *)
+  | Nop
   | Tag_use of 'block t * operand
   | Tag_def of 'block t * operand
-  | AND of operand * operand
-  | OR of operand * operand
-  | MOV of operand * operand
-  | ADD of operand * operand
-  | SUB of operand * operand
-  | IMUL of operand (* multiply RAX by operand  result RDX:RAX *)
-  | IDIV of operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
-  | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
-  (* SSE float instructions *)
-  | ADDSD of operand * operand (* double precision add *)
-  | SUBSD of operand * operand (* double precision sub *)
-  | MULSD of operand * operand (* double precision mul *)
-  | DIVSD of operand * operand (* double precision div *)
-  | MOVSD of operand * operand (* f64 move *)
-  | MOVQ of operand * operand (* move quadword (for i64<->f64 bitcast) *)
-  (* Type conversion instructions *)
-  | CVTSI2SD of operand * operand (* convert int64 to f64 *)
-  | CVTTSD2SI of operand * operand (* convert f64 to int64 with truncation *)
-  | Save_clobbers
-  | Restore_clobbers
-  | CALL of
+  | Move of
+      { dst : Reg.t
+      ; src : operand
+      }
+  | Load of
+      { dst : Reg.t
+      ; addr : operand
+      }
+  | Store of
+      { src : operand
+      ; addr : operand
+      }
+  | Int_binary of
+      { op : Int_op.t
+      ; dst : Reg.t
+      ; lhs : operand
+      ; rhs : operand
+      }
+  | Float_binary of
+      { op : Float_op.t
+      ; dst : Reg.t
+      ; lhs : operand
+      ; rhs : operand
+      }
+  | Convert of
+      { op : Convert_op.t
+      ; dst : Reg.t
+      ; src : operand
+      }
+  | Bitcast of
+      { dst : Reg.t
+      ; src : operand
+      }
+  | Adr of
+      { dst : Reg.t
+      ; target : Jump_target.t
+      }
+  | Comp of
+      { kind : Comp_kind.t
+      ; lhs : operand
+      ; rhs : operand
+      }
+  | Conditional_branch of
+      { condition : Condition.t
+      ; then_ : 'block Call_block.t
+      ; else_ : 'block Call_block.t option
+      }
+  | Jump of 'block Call_block.t
+  | Call of
       { fn : string
       ; results : Reg.t list
       ; args : operand list
       }
-  | PUSH of operand
-  | POP of Reg.t
-  | LABEL of string
-  | CMP of operand * operand
-  | JE of 'block Call_block.t * 'block Call_block.t option
-  | JNE of 'block Call_block.t * 'block Call_block.t option
-  | JMP of 'block Call_block.t
-  | RET of operand list
-  | ALLOCA of operand * Int64.t
+  | Ret of operand list
+  | Label of string
+  | Save_clobbers
+  | Restore_clobbers
+  | Alloca of operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
+
+let fn = function
+  | Call { fn; _ } -> Some fn
+  | Nop
+  | Tag_use _
+  | Tag_def _
+  | Move _
+  | Load _
+  | Store _
+  | Int_binary _
+  | Float_binary _
+  | Convert _
+  | Bitcast _
+  | Adr _
+  | Comp _
+  | Conditional_branch _
+  | Jump _
+  | Ret _
+  | Label _
+  | Save_clobbers
+  | Restore_clobbers
+  | Alloca _ -> None
+;;
 
 let fold_operand op ~f ~init = f init op
 
-let fold_operands ins ~f ~init =
+let fold_jump_target target ~f ~init =
+  match target with
+  | Jump_target.Reg reg -> fold_operand (Reg reg) ~f ~init
+  | Jump_target.Imm _ | Jump_target.Symbol _ -> init
+;;
+
+let rec fold_operands ins ~f ~init =
   match ins with
-  | Save_clobbers | Restore_clobbers -> init
-  | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
-  | MOV (dst, src)
-  | AND (dst, src)
-  | OR (dst, src)
-  | ADD (dst, src)
-  | SUB (dst, src)
-  | CMP (dst, src)
-  | ADDSD (dst, src)
-  | SUBSD (dst, src)
-  | MULSD (dst, src)
-  | DIVSD (dst, src)
-  | MOVSD (dst, src)
-  | MOVQ (dst, src)
-  | CVTSI2SD (dst, src)
-  | CVTTSD2SI (dst, src) ->
-    let init = fold_operand dst ~f ~init in
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> init
+  | Alloca (dst, _) -> fold_operand dst ~f ~init
+  | Tag_use (ins, op) | Tag_def (ins, op) ->
+    fold_operand op ~f ~init:(fold_operands ins ~f ~init)
+  | Move { dst; src } ->
+    let init = fold_operand (Reg dst) ~f ~init in
     fold_operand src ~f ~init
-  | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
-  | RET ops -> List.fold ops ~init ~f:(fun acc -> fold_operand ~f ~init:acc)
-  | CALL { results; args; _ } ->
-    let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
-    List.fold args ~init ~f:(fun acc op -> f acc op)
-  | PUSH op ->
-    let init = fold_operand op ~f ~init in
-    fold_operand (Reg Reg.sp) ~f ~init
-  | POP reg ->
-    let init = fold_operand (Reg reg) ~f ~init in
-    fold_operand (Reg Reg.sp) ~f ~init
-  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
+  | Load { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Store { src; addr } ->
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Int_binary { op = _; dst; lhs; rhs }
+  | Float_binary { op = _; dst; lhs; rhs } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    let init = fold_operand lhs ~f ~init in
+    fold_operand rhs ~f ~init
+  | Convert { op = _; dst; src } | Bitcast { dst; src } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand src ~f ~init
+  | Adr { dst; target } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_jump_target target ~f ~init
+  | Comp { lhs; rhs; _ } ->
+    let init = fold_operand lhs ~f ~init in
+    fold_operand rhs ~f ~init
+  | Ret ops ->
+    List.fold ops ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
+  | Call { results; args; _ } ->
+    let init =
+      List.fold results ~init ~f:(fun acc reg ->
+        fold_operand (Reg reg) ~f ~init:acc)
+    in
+    List.fold args ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
+  | Conditional_branch _ | Jump _ -> init
 ;;
 
 let rebuild_virtual_reg (reg : Reg.t) ~var =
@@ -109,8 +220,7 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw ->
-        Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) var forced
   | _ -> reg
@@ -123,6 +233,12 @@ let map_reg (reg : Reg.t) ~f =
   | _ -> Reg reg
 ;;
 
+let map_jump_target target ~f =
+  match target with
+  | Jump_target.Reg reg -> Jump_target.Reg (f reg)
+  | Jump_target.Imm _ | Jump_target.Symbol _ -> target
+;;
+
 let map_var_operand op ~f =
   match op with
   | Reg r -> map_reg r ~f
@@ -130,76 +246,7 @@ let map_var_operand op ~f =
   | Mem (r, disp) ->
     (match map_reg r ~f with
      | Reg r -> Mem (r, disp)
-     | _ -> failwith "expected reg, got non reg, in [map_var_operand]")
-;;
-
-let rec map_var_operands ins ~f =
-  match ins with
-  | Save_clobbers -> Save_clobbers
-  | Restore_clobbers -> Restore_clobbers
-  | ALLOCA (a, b) -> ALLOCA (map_var_operand a ~f, b)
-  | Tag_def (ins, r) -> Tag_def (map_var_operands ins ~f, map_var_operand r ~f)
-  | Tag_use (ins, r) -> Tag_use (map_var_operands ins ~f, map_var_operand r ~f)
-  | AND (dst, src) -> AND (map_var_operand dst ~f, map_var_operand src ~f)
-  | OR (dst, src) -> OR (map_var_operand dst ~f, map_var_operand src ~f)
-  | MOV (dst, src) -> MOV (map_var_operand dst ~f, map_var_operand src ~f)
-  | ADD (dst, src) -> ADD (map_var_operand dst ~f, map_var_operand src ~f)
-  | SUB (dst, src) -> SUB (map_var_operand dst ~f, map_var_operand src ~f)
-  | ADDSD (dst, src) -> ADDSD (map_var_operand dst ~f, map_var_operand src ~f)
-  | SUBSD (dst, src) -> SUBSD (map_var_operand dst ~f, map_var_operand src ~f)
-  | MULSD (dst, src) -> MULSD (map_var_operand dst ~f, map_var_operand src ~f)
-  | DIVSD (dst, src) -> DIVSD (map_var_operand dst ~f, map_var_operand src ~f)
-  | MOVSD (dst, src) -> MOVSD (map_var_operand dst ~f, map_var_operand src ~f)
-  | MOVQ (dst, src) -> MOVQ (map_var_operand dst ~f, map_var_operand src ~f)
-  | CVTSI2SD (dst, src) ->
-    CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
-  | CVTTSD2SI (dst, src) ->
-    CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
-  | IDIV op -> IDIV (map_var_operand op ~f)
-  | IMUL op -> IMUL (map_var_operand op ~f)
-  | MOD op -> MOD (map_var_operand op ~f)
-  | CALL { fn; results; args } ->
-    let map_result r =
-      match map_var_operand (Reg r) ~f with
-      | Reg r' -> r'
-      | _ -> failwith "expected reg operand in CALL results"
-    in
-    CALL
-      { fn
-      ; results = List.map results ~f:map_result
-      ; args = List.map args ~f:(fun op -> map_var_operand op ~f)
-      }
-  | PUSH op -> PUSH (map_var_operand op ~f)
-  | POP reg ->
-    (match map_var_operand (Reg reg) ~f with
-     | Reg reg' -> POP reg'
-     | _ -> failwith "expected reg operand in POP")
-  | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
-  | RET ops -> RET (List.map ~f:(map_var_operand ~f) ops)
-  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
-;;
-
-let var_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) -> Some v
-  | _ -> None
-;;
-
-let vars_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) ->
-    Var.Set.singleton v
-  | _ -> Var.Set.empty
-;;
-
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ -> Var.Set.empty
-  | Mem (r, _disp) -> vars_of_reg r
-;;
-
-let regs_of_operand = function
-  | Reg r -> Reg.Set.singleton r
-  | Imm _ -> Reg.Set.empty
-  | Mem (r, _disp) -> Reg.Set.singleton r
+     | _ -> failwith "expected register operand")
 ;;
 
 let map_virtual_reg reg ~f =
@@ -207,8 +254,7 @@ let map_virtual_reg reg ~f =
   | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
   | Raw.Allocated (v, forced) ->
     let forced =
-      Option.map forced ~f:(fun raw ->
-        Reg.physical ~class_:(Reg.class_ reg) raw)
+      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
     in
     Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
   | _ -> reg
@@ -231,67 +277,123 @@ let map_use_operand op ~f =
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 
+let rec map_var_operands ins ~f =
+  let map_reg_definition reg = map_virtual_reg reg ~f in
+  let map_op op = map_var_operand op ~f in
+  let map_jump = map_jump_target ~f:map_reg_definition in
+  match ins with
+  | Save_clobbers -> Save_clobbers
+  | Restore_clobbers -> Restore_clobbers
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (map_op op, sz)
+  | Tag_def (ins, op) -> Tag_def (map_var_operands ins ~f, map_op op)
+  | Tag_use (ins, op) -> Tag_use (map_var_operands ins ~f, map_op op)
+  | Move { dst; src } -> Move { dst = map_reg_definition dst; src = map_op src }
+  | Load { dst; addr } ->
+    Load { dst = map_reg_definition dst; addr = map_op addr }
+  | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
+  | Int_binary { op; dst; lhs; rhs } ->
+    Int_binary
+      { op; dst = map_reg_definition dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Float_binary { op; dst; lhs; rhs } ->
+    Float_binary
+      { op; dst = map_reg_definition dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Convert { op; dst; src } ->
+    Convert { op; dst = map_reg_definition dst; src = map_op src }
+  | Bitcast { dst; src } ->
+    Bitcast { dst = map_reg_definition dst; src = map_op src }
+  | Adr { dst; target } ->
+    Adr { dst = map_reg_definition dst; target = map_jump target }
+  | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Call { fn; results; args } ->
+    Call
+      { fn
+      ; results = List.map results ~f:map_reg_definition
+      ; args = List.map args ~f:map_op
+      }
+  | Ret ops -> Ret (List.map ops ~f:map_op)
+  | Conditional_branch { condition; then_; else_ } ->
+    let map_cb cb = Call_block.map_uses cb ~f in
+    Conditional_branch
+      { condition; then_ = map_cb then_; else_ = Option.map else_ ~f:map_cb }
+  | Jump cb -> Jump (Call_block.map_uses cb ~f)
+;;
+
+let var_of_reg = function
+  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) -> Some v
+  | _ -> None
+;;
+
+let vars_of_reg = function
+  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) ->
+    Var.Set.singleton v
+  | _ -> Var.Set.empty
+;;
+
+let vars_of_operand = function
+  | Reg r -> vars_of_reg r
+  | Imm _ -> Var.Set.empty
+  | Mem (r, _) -> vars_of_reg r
+;;
+
+let regs_of_operand = function
+  | Reg r -> Reg.Set.singleton r
+  | Imm _ -> Reg.Set.empty
+  | Mem (r, _) -> Reg.Set.singleton r
+;;
+
+let regs_of_jump_target = function
+  | Jump_target.Reg r -> Reg.Set.singleton r
+  | Jump_target.Imm _ | Jump_target.Symbol _ -> Reg.Set.empty
+;;
+
 let rec reg_defs ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
-  | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> Reg.Set.empty
+  | Tag_def (ins, op) -> Set.union (regs_of_operand op) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
-  | MOV (dst, _)
-  | MOVQ (dst, _)
-  | MOVSD (dst, _)
-  | CVTSI2SD (dst, _)
-  | CVTTSD2SI (dst, _) -> regs_of_operand dst
-  | ALLOCA (dst, _)
-  | AND (dst, _)
-  | OR (dst, _)
-  | ADD (dst, _)
-  | SUB (dst, _)
-  | ADDSD (dst, _)
-  | SUBSD (dst, _)
-  | MULSD (dst, _)
-  | DIVSD (dst, _) -> regs_of_operand dst
-  | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.x0; Reg.x1 ]
-  | CALL { results; _ } -> Reg.Set.of_list results
-  | PUSH _ -> Reg.Set.singleton Reg.sp
-  | POP reg -> Reg.Set.of_list [ Reg.sp; reg ]
-  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
+  | Alloca (dst, _) -> regs_of_operand dst
+  | Move { dst; _ }
+  | Load { dst; _ }
+  | Int_binary { dst; _ }
+  | Float_binary { dst; _ }
+  | Convert { dst; _ }
+  | Bitcast { dst; _ }
+  | Adr { dst; _ } -> Reg.Set.singleton dst
+  | Call { results; _ } -> Reg.Set.of_list results
+  | Store _ | Comp _ | Conditional_branch _ | Jump _ | Ret _ -> Reg.Set.empty
 ;;
 
 let rec reg_uses ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
-  | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> Reg.Set.empty
+  | Tag_use (ins, op) -> Set.union (regs_of_operand op) (reg_uses ins)
   | Tag_def (ins, _) -> reg_uses ins
-  | IDIV op | MOD op ->
-    Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.x0; Reg.x1 ])
-  | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.x0 ])
-  | MOV (_, src)
-  | MOVQ (_, src)
-  | MOVSD (_, src)
-  | CVTSI2SD (_, src)
-  | CVTTSD2SI (_, src) -> regs_of_operand src
-  | ADD (dst, src)
-  | SUB (dst, src)
-  | AND (dst, src)
-  | OR (dst, src)
-  | ADDSD (dst, src)
-  | SUBSD (dst, src)
-  | MULSD (dst, src)
-  | DIVSD (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
-  | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
-  | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
-  | PUSH op -> Set.union (Reg.Set.singleton Reg.sp) (regs_of_operand op)
-  | POP _ -> Reg.Set.of_list [ Reg.sp ]
-  | CALL { args; _ } ->
+  | Alloca _ -> Reg.Set.empty
+  | Move { src; _ } -> regs_of_operand src
+  | Load { addr; _ } -> regs_of_operand addr
+  | Store { src; addr } ->
+    Set.union (regs_of_operand src) (regs_of_operand addr)
+  | Int_binary { lhs; rhs; _ } | Float_binary { lhs; rhs; _ } ->
+    Set.union (regs_of_operand lhs) (regs_of_operand rhs)
+  | Convert { src; _ } | Bitcast { src; _ } -> regs_of_operand src
+  | Adr { target; _ } -> regs_of_jump_target target
+  | Comp { lhs; rhs; _ } ->
+    Set.union (regs_of_operand lhs) (regs_of_operand rhs)
+  | Call { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
-  | JE (a, b) | JNE (a, b) ->
-    Call_block.uses a
-    @ (Option.map b ~f:Call_block.uses |> Option.value ~default:[])
-    |> List.map ~f:Reg.unallocated
-    |> Reg.Set.of_list
-  | JMP a -> Call_block.uses a |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
-  | ALLOCA _ | NOOP | LABEL _ -> Reg.Set.empty
+  | Ret ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
+  | Conditional_branch { then_; else_; _ } ->
+    let use_cb cb =
+      Call_block.uses cb |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
+    in
+    let init = use_cb then_ in
+    Option.value_map else_ ~default:init ~f:(fun cb ->
+      Set.union init (use_cb cb))
+  | Jump cb ->
+    Call_block.uses cb |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
 ;;
 
 let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
@@ -307,326 +409,229 @@ let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> blocks ins
-  | NOOP
-  | MOV _
-  | ADD _
-  | SUB _
-  | ADDSD _
-  | SUBSD _
-  | MULSD _
-  | DIVSD _
-  | MOVQ _
-  | MOVSD _
-  | CVTSI2SD _
-  | CVTTSD2SI _
-  | IMUL _
-  | IDIV _
-  | MOD _
-  | CMP _
-  | RET _
-  | AND _
-  | OR _
-  | CALL _
-  | PUSH _
-  | POP _
-  | ALLOCA _
-  | LABEL _ -> []
-  | JMP lbl -> Call_block.blocks lbl
-  | JE (lbl, next) | JNE (lbl, next) ->
-    List.concat_map ~f:Call_block.blocks (lbl :: Option.to_list next)
+  | Conditional_branch { then_; else_; _ } ->
+    Call_block.blocks then_
+    @ Option.value_map else_ ~default:[] ~f:Call_block.blocks
+  | Jump cb -> Call_block.blocks cb
+  | _ -> []
 ;;
 
 let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | ALLOCA (a, b) -> ALLOCA (a, b)
-  | Tag_def (ins, r) -> Tag_def (map_blocks ins ~f, r)
-  | Tag_use (ins, r) -> Tag_use (map_blocks ins ~f, r)
-  | LABEL s -> LABEL s
-  | AND (x, y) -> AND (x, y)
-  | OR (x, y) -> OR (x, y)
-  | MOV (x, y) -> MOV (x, y)
-  | MOVSD (x, y) -> MOVSD (x, y)
-  | MOVQ (x, y) -> MOVQ (x, y)
-  | CVTSI2SD (x, y) -> CVTSI2SD (x, y)
-  | CVTTSD2SI (x, y) -> CVTTSD2SI (x, y)
-  | ADD (x, y) -> ADD (x, y)
-  | SUB (x, y) -> SUB (x, y)
-  | ADDSD (x, y) -> ADDSD (x, y)
-  | SUBSD (x, y) -> SUBSD (x, y)
-  | MULSD (x, y) -> MULSD (x, y)
-  | DIVSD (x, y) -> DIVSD (x, y)
-  | IMUL x -> IMUL x
-  | IDIV x -> IDIV x
-  | MOD x -> MOD x
-  | CALL call -> CALL call
-  | PUSH op -> PUSH op
-  | POP reg -> POP reg
-  | CMP (x, y) -> CMP (x, y)
-  | JE (lbl, next) ->
-    JE
-      ( Call_block.map_blocks ~f lbl
-      , Option.map next ~f:(Call_block.map_blocks ~f) )
-  | JNE (lbl, next) ->
-    JNE
-      ( Call_block.map_blocks ~f lbl
-      , Option.map next ~f:(Call_block.map_blocks ~f) )
-  | JMP lbl -> JMP (Call_block.map_blocks ~f lbl)
-  | RET x -> RET x
-  | NOOP -> NOOP
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (op, sz)
+  | Tag_def (ins, op) -> Tag_def (map_blocks ins ~f, op)
+  | Tag_use (ins, op) -> Tag_use (map_blocks ins ~f, op)
+  | Move mv -> Move mv
+  | Load ld -> Load ld
+  | Store st -> Store st
+  | Int_binary bin -> Int_binary bin
+  | Float_binary bin -> Float_binary bin
+  | Convert conv -> Convert conv
+  | Bitcast bc -> Bitcast bc
+  | Adr adr -> Adr adr
+  | Comp cmp -> Comp cmp
+  | Call call -> Call call
+  | Ret ops -> Ret ops
+  | Conditional_branch { condition; then_; else_ } ->
+    Conditional_branch
+      { condition
+      ; then_ = Call_block.map_blocks ~f then_
+      ; else_ = Option.map else_ ~f:(Call_block.map_blocks ~f)
+      }
+  | Jump cb -> Jump (Call_block.map_blocks ~f cb)
 ;;
 
 let rec filter_map_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
-  | NOOP
-  | MOV _
-  | MOVQ _
-  | MOVSD _
-  | CVTSI2SD _
-  | CVTTSD2SI _
-  | ALLOCA _
-  | ADD _
-  | SUB _
-  | ADDSD _
-  | SUBSD _
-  | MULSD _
-  | DIVSD _
-  | IMUL _
-  | IDIV _
-  | MOD _
-  | CMP _
-  | RET _
-  | AND _
-  | OR _
-  | CALL _
-  | PUSH _
-  | POP _
-  | LABEL _ -> []
-  | JMP lbl -> f lbl |> Option.to_list
-  | JE (lbl, next) | JNE (lbl, next) ->
-    (f lbl |> Option.to_list) @ (Option.bind next ~f |> Option.to_list)
+  | Conditional_branch { then_; else_; _ } ->
+    let mapped_then = f then_ |> Option.to_list in
+    let mapped_else = Option.bind else_ ~f |> Option.to_list in
+    mapped_then @ mapped_else
+  | Jump cb -> f cb |> Option.to_list
+  | _ -> []
 ;;
 
-let unreachable = NOOP
+let unreachable = Nop
 
 let rec map_defs t ~f =
-  let map_dst op = map_def_operand op ~f in
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | ALLOCA (a, b) -> ALLOCA (map_dst a, b)
-  | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
-  | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
-  | MOV (dst, src) -> MOV (map_dst dst, src)
-  | MOVQ (dst, src) -> MOVQ (map_dst dst, src)
-  | MOVSD (dst, src) -> MOVSD (map_dst dst, src)
-  | CVTSI2SD (dst, src) -> CVTSI2SD (map_dst dst, src)
-  | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_dst dst, src)
-  | AND (dst, src) -> AND (map_dst dst, src)
-  | OR (dst, src) -> OR (map_dst dst, src)
-  | ADD (dst, src) -> ADD (map_dst dst, src)
-  | SUB (dst, src) -> SUB (map_dst dst, src)
-  | ADDSD (dst, src) -> ADDSD (map_dst dst, src)
-  | SUBSD (dst, src) -> SUBSD (map_dst dst, src)
-  | MULSD (dst, src) -> MULSD (map_dst dst, src)
-  | DIVSD (dst, src) -> DIVSD (map_dst dst, src)
-  | CALL { fn; results; args } ->
-    CALL { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
-  | POP reg -> POP (map_def_reg reg ~f)
-  | PUSH _ -> t
-  | NOOP | IDIV _ | MOD _ | LABEL _ | IMUL _
-  | CMP (_, _)
-  | JE (_, _)
-  | JNE (_, _)
-  | JMP _ | RET _ -> t
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (map_def_operand op ~f, sz)
+  | Tag_def (ins, op) -> Tag_def (map_defs ins ~f, map_def_operand op ~f)
+  | Tag_use (ins, op) -> Tag_use (map_defs ins ~f, op)
+  | Move { dst; src } -> Move { dst = map_def_reg dst ~f; src }
+  | Load { dst; addr } -> Load { dst = map_def_reg dst ~f; addr }
+  | Store st -> Store st
+  | Int_binary { op; dst; lhs; rhs } ->
+    Int_binary { op; dst = map_def_reg dst ~f; lhs; rhs }
+  | Float_binary { op; dst; lhs; rhs } ->
+    Float_binary { op; dst = map_def_reg dst ~f; lhs; rhs }
+  | Convert { op; dst; src } -> Convert { op; dst = map_def_reg dst ~f; src }
+  | Bitcast { dst; src } -> Bitcast { dst = map_def_reg dst ~f; src }
+  | Adr { dst; target } -> Adr { dst = map_def_reg dst ~f; target }
+  | Comp cmp -> Comp cmp
+  | Call { fn; results; args } ->
+    Call { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
+  | Ret ops -> Ret ops
+  | Conditional_branch branch -> Conditional_branch branch
+  | Jump cb -> Jump cb
 ;;
 
 let rec map_uses t ~f =
   let map_op op = map_use_operand op ~f in
-  let map_call_block cb = Call_block.map_uses cb ~f in
+  let map_cb cb = Call_block.map_uses cb ~f in
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
-  | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
-  | MOV (dst, src) -> MOV (dst, map_op src)
-  | MOVSD (dst, src) -> MOVSD (dst, map_op src)
-  | MOVQ (dst, src) -> MOVQ (dst, map_op src)
-  | CVTSI2SD (dst, src) -> CVTSI2SD (dst, map_op src)
-  | CVTTSD2SI (dst, src) -> CVTTSD2SI (dst, map_op src)
-  | AND (dst, src) -> AND (map_op dst, map_op src)
-  | OR (dst, src) -> OR (map_op dst, map_op src)
-  | ADD (dst, src) -> ADD (map_op dst, map_op src)
-  | SUB (dst, src) -> SUB (map_op dst, map_op src)
-  | ADDSD (dst, src) -> ADDSD (map_op dst, map_op src)
-  | SUBSD (dst, src) -> SUBSD (map_op dst, map_op src)
-  | MULSD (dst, src) -> MULSD (map_op dst, map_op src)
-  | DIVSD (dst, src) -> DIVSD (map_op dst, map_op src)
-  | IMUL op -> IMUL (map_op op)
-  | IDIV op -> IDIV (map_op op)
-  | MOD op -> MOD (map_op op)
-  | CMP (a, b) -> CMP (map_op a, map_op b)
-  | RET ops -> RET (List.map ~f:map_op ops)
-  | CALL { fn; results; args } ->
-    CALL { fn; results; args = List.map args ~f:map_op }
-  | PUSH op -> PUSH (map_op op)
-  | POP reg -> POP reg
-  | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
-  | JNE (lbl, next) ->
-    JNE (map_call_block lbl, Option.map next ~f:map_call_block)
-  | JMP lbl -> JMP (map_call_block lbl)
-  | NOOP | LABEL _ | ALLOCA _ -> t
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (op, sz)
+  | Tag_def (ins, op) -> Tag_def (map_uses ins ~f, op)
+  | Tag_use (ins, op) -> Tag_use (map_uses ins ~f, map_op op)
+  | Move { dst; src } -> Move { dst; src = map_op src }
+  | Load { dst; addr } -> Load { dst; addr = map_op addr }
+  | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
+  | Int_binary { op; dst; lhs; rhs } ->
+    Int_binary { op; dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Float_binary { op; dst; lhs; rhs } ->
+    Float_binary { op; dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Convert { op; dst; src } -> Convert { op; dst; src = map_op src }
+  | Bitcast { dst; src } -> Bitcast { dst; src = map_op src }
+  | Adr { dst; target } ->
+    Adr { dst; target = map_jump_target target ~f:(fun r -> map_use_reg r ~f) }
+  | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Call { fn; results; args } ->
+    Call { fn; results; args = List.map args ~f:map_op }
+  | Ret ops -> Ret (List.map ops ~f:map_op)
+  | Conditional_branch { condition; then_; else_ } ->
+    Conditional_branch
+      { condition; then_ = map_cb then_; else_ = Option.map else_ ~f:map_cb }
+  | Jump cb -> Jump (map_cb cb)
 ;;
 
 let rec map_operands t ~f =
+  let map_reg_operand reg =
+    match f (Reg reg) with
+    | Reg reg' -> reg'
+    | _ -> failwith "expected register operand"
+  in
+  let map_op op = f op in
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | ALLOCA (a, b) -> ALLOCA (f a, b)
-  | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
-  | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
-  | MOV (dst, src) -> MOV (f dst, f src)
-  | MOVSD (dst, src) -> MOVSD (f dst, f src)
-  | MOVQ (dst, src) -> MOVQ (f dst, f src)
-  | CVTSI2SD (dst, src) -> CVTSI2SD (f dst, f src)
-  | CVTTSD2SI (dst, src) -> CVTTSD2SI (f dst, f src)
-  | AND (dst, src) -> AND (f dst, f src)
-  | OR (dst, src) -> OR (f dst, f src)
-  | ADD (dst, src) -> ADD (f dst, f src)
-  | SUB (dst, src) -> SUB (f dst, f src)
-  | ADDSD (dst, src) -> ADDSD (f dst, f src)
-  | SUBSD (dst, src) -> SUBSD (f dst, f src)
-  | MULSD (dst, src) -> MULSD (f dst, f src)
-  | DIVSD (dst, src) -> DIVSD (f dst, f src)
-  | IMUL op -> IMUL (f op)
-  | IDIV op -> IDIV (f op)
-  | MOD op -> MOD (f op)
-  | CMP (a, b) -> CMP (f a, f b)
-  | RET ops -> RET (List.map ~f ops)
-  | CALL { fn; results; args } ->
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (map_op op, sz)
+  | Tag_def (ins, op) -> Tag_def (map_operands ins ~f, map_op op)
+  | Tag_use (ins, op) -> Tag_use (map_operands ins ~f, map_op op)
+  | Move { dst; src } -> Move { dst = map_reg_operand dst; src = map_op src }
+  | Load { dst; addr } -> Load { dst = map_reg_operand dst; addr = map_op addr }
+  | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
+  | Int_binary { op; dst; lhs; rhs } ->
+    Int_binary
+      { op; dst = map_reg_operand dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Float_binary { op; dst; lhs; rhs } ->
+    Float_binary
+      { op; dst = map_reg_operand dst; lhs = map_op lhs; rhs = map_op rhs }
+  | Convert { op; dst; src } ->
+    Convert { op; dst = map_reg_operand dst; src = map_op src }
+  | Bitcast { dst; src } ->
+    Bitcast { dst = map_reg_operand dst; src = map_op src }
+  | Adr { dst; target } ->
+    let target =
+      match target with
+      | Jump_target.Reg r -> Jump_target.Reg (map_reg_operand r)
+      | Jump_target.Imm _ | Jump_target.Symbol _ -> target
+    in
+    Adr { dst = map_reg_operand dst; target }
+  | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Call { fn; results; args } ->
     let map_result r =
       match f (Reg r) with
       | Reg r' -> r'
-      | _ -> failwith "expected reg operand when mapping CALL results"
+      | _ -> failwith "expected register operand"
     in
-    CALL
-      { fn; results = List.map results ~f:map_result; args = List.map args ~f }
-  | PUSH op -> PUSH (f op)
-  | POP reg ->
-    (match f (Reg reg) with
-     | Reg reg' -> POP reg'
-     | _ -> failwith "expected reg operand when mapping POP")
-  | JE _ | JNE _ | JMP _ | NOOP | LABEL _ -> t
+    Call
+      { fn
+      ; results = List.map results ~f:map_result
+      ; args = List.map args ~f:map_op
+      }
+  | Ret ops -> Ret (List.map ops ~f:map_op)
+  | Conditional_branch branch -> Conditional_branch branch
+  | Jump cb -> Jump cb
 ;;
 
 let rec map_call_blocks t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
-  | Tag_def (ins, r) -> Tag_def (map_call_blocks ins ~f, r)
-  | Tag_use (ins, r) -> Tag_use (map_call_blocks ins ~f, r)
-  | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
-  | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
-  | JMP lbl -> JMP (f lbl)
-  | NOOP
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | ADD (_, _)
-  | SUB (_, _)
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
-  | CMP (_, _)
-  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
+  | Nop -> Nop
+  | Label s -> Label s
+  | Alloca (op, sz) -> Alloca (op, sz)
+  | Tag_def (ins, op) -> Tag_def (map_call_blocks ins ~f, op)
+  | Tag_use (ins, op) -> Tag_use (map_call_blocks ins ~f, op)
+  | Conditional_branch { condition; then_; else_ } ->
+    Conditional_branch
+      { condition; then_ = f then_; else_ = Option.map else_ ~f }
+  | Jump cb -> Jump (f cb)
+  | Move mv -> Move mv
+  | Load ld -> Load ld
+  | Store st -> Store st
+  | Int_binary bin -> Int_binary bin
+  | Float_binary bin -> Float_binary bin
+  | Convert conv -> Convert conv
+  | Bitcast bc -> Bitcast bc
+  | Adr adr -> Adr adr
+  | Comp cmp -> Comp cmp
+  | Call call -> Call call
+  | Ret ops -> Ret ops
 ;;
 
 let rec iter_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers -> ()
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> ()
   | Tag_def (ins, _) | Tag_use (ins, _) -> iter_call_blocks ins ~f
-  | JE (lbl, next) ->
-    f lbl;
-    Option.iter next ~f
-  | JNE (lbl, next) ->
-    f lbl;
-    Option.iter next ~f
-  | JMP lbl -> f lbl
-  | NOOP
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | ADD (_, _)
-  | SUB (_, _)
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
-  | CMP (_, _)
-  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> ()
+  | Conditional_branch { then_; else_; _ } ->
+    f then_;
+    Option.iter else_ ~f
+  | Jump cb -> f cb
+  | _ -> ()
 ;;
 
 let rec call_blocks = function
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
   | Tag_def (ins, _) | Tag_use (ins, _) -> call_blocks ins
-  | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
-  | JMP lbl -> [ lbl ]
-  | NOOP
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | ADD (_, _)
-  | SUB (_, _)
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
-  | CMP (_, _)
-  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
+  | Conditional_branch { then_; else_; _ } -> then_ :: Option.to_list else_
+  | Jump cb -> [ cb ]
+  | _ -> []
 ;;
 
 let map_lit_or_vars t ~f:_ = t
 
 let rec is_terminal = function
-  | Save_clobbers | Restore_clobbers -> false
+  | Save_clobbers | Restore_clobbers | Nop | Label _ -> false
   | Tag_def (ins, _) | Tag_use (ins, _) -> is_terminal ins
-  | JNE _ | JE _ | RET _ | JMP _ -> true
-  | NOOP
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | ADD (_, _)
-  | SUB (_, _)
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | IMUL _ | IDIV _ | LABEL _ | MOD _
-  | CMP (_, _)
-  | ALLOCA _ | CALL _ | PUSH _ | POP _ -> false
+  | Ret _ | Jump _ | Conditional_branch _ -> true
+  | Move _
+  | Load _
+  | Store _
+  | Int_binary _
+  | Float_binary _
+  | Convert _
+  | Bitcast _
+  | Adr _
+  | Comp _
+  | Call _
+  | Alloca _ -> false
 ;;

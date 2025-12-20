@@ -654,7 +654,8 @@ let call_blocks = function
   | Return _
   | Call _ -> []
   | Arm64 arm64_ir -> Arm64_ir.call_blocks arm64_ir
-  | Arm64_terminal arm64_irs -> List.concat_map ~f:Arm64_ir.call_blocks arm64_irs
+  | Arm64_terminal arm64_irs ->
+    List.concat_map ~f:Arm64_ir.call_blocks arm64_irs
   | X86 x86_ir -> X86_ir.call_blocks x86_ir
   | X86_terminal x86_irs -> List.concat_map ~f:X86_ir.call_blocks x86_irs
   | Branch (Branch.Cond { cond = _; if_true; if_false }) ->
