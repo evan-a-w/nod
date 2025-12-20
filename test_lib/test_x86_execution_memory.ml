@@ -46,15 +46,18 @@ let execute_functions
   in
   let arch_args =
     match arch, host_sysname with
-    | `X86_64, "darwin" -> [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+    | `X86_64, "darwin" ->
+      [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
     | _ -> []
   in
   let run_shell_runtime ~cwd command =
-    if use_rosetta then
-      let command = quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ] in
-      run_shell_exn ~cwd command
-    else
-      run_shell_exn ~cwd command
+    if use_rosetta
+    then (
+      let command =
+        quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
+      in
+      run_shell_exn ~cwd command)
+    else run_shell_exn ~cwd command
   in
   Exn.protect
     ~f:(fun () ->
@@ -77,7 +80,10 @@ let execute_functions
       let output_path = Filename.concat temp_dir output_file in
       run_shell_runtime
         ~cwd:temp_dir
-        (sprintf "%s > %s" (quote_command "./program" []) (Filename.quote output_file));
+        (sprintf
+           "%s > %s"
+           (quote_command "./program" [])
+           (Filename.quote output_file));
       In_channel.read_all output_path |> String.strip)
     ~finally:(fun () ->
       let _ = Stdlib.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
@@ -121,8 +127,7 @@ let%expect_test "alloca passed to child; child loads value" =
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   let output =
-    execute_functions
-      (String.Map.of_alist_exn [ "root", root; "child", child ])
+    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
   in
   assert (String.equal output "41")
 ;;
@@ -137,9 +142,7 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
   in
   Vec.push
     child_root.instructions
-    (Ir.store
-       (Ir.Lit_or_var.Lit 99L)
-       (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+    (Ir.store (Ir.Lit_or_var.Lit 99L) (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
   Vec.push child_root.instructions (Ir.move child_ret (Ir.Lit_or_var.Lit 0L));
   let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
@@ -166,8 +169,7 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
     (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   let output =
-    execute_functions
-      (String.Map.of_alist_exn [ "root", root; "child", child ])
+    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
   in
   assert (String.equal output "99")
 ;;
@@ -217,8 +219,7 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
   Vec.push root_root.instructions (Ir.move res (Ir.Lit_or_var.Var tmp));
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   let output =
-    execute_functions
-      (String.Map.of_alist_exn [ "root", root; "child", child ])
+    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
   in
   assert (String.equal output "123")
 ;;
@@ -249,14 +250,10 @@ let%expect_test "call returning two values (RAX/RDX)" =
   Vec.push
     root_root.instructions
     (Ir.add
-       { dest = sum
-       ; src1 = Ir.Lit_or_var.Var r0
-       ; src2 = Ir.Lit_or_var.Var r1
-       });
+       { dest = sum; src1 = Ir.Lit_or_var.Var r0; src2 = Ir.Lit_or_var.Var r1 });
   let root = Function.create ~name:"root" ~args:[] ~root:root_root in
   let output =
-    execute_functions
-      (String.Map.of_alist_exn [ "root", root; "two", callee ])
+    execute_functions (String.Map.of_alist_exn [ "root", root; "two", callee ])
   in
   assert (String.equal output "33")
 ;;
@@ -290,8 +287,7 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
       ~id_hum:"%root"
       ~terminal:
         (Ir.branch
-           (Ir.Branch.Uncond
-              { Call_block.block = swap_block; args = [ b; a ] }))
+           (Ir.Branch.Uncond { Call_block.block = swap_block; args = [ b; a ] }))
   in
   start.dfs_id <- Some 0;
   Vec.push start.instructions (Ir.move a (Ir.Lit_or_var.Lit 1L));
