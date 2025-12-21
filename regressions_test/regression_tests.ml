@@ -1,25 +1,31 @@
 open! Core
 open! Import
-module Std = Stdlib
 
-let compile_and_execute ?harness ?opt_flags program =
-  Nod.compile_and_execute
-    ~arch:`X86_64
-    ~system:(Lazy.force Nod.host_system)
-    ?harness
-    ?opt_flags
-    program
-;;
-
-(* Helper to test both with and without optimizations *)
 let test_both_modes ~harness program =
-  let no_opt_result =
-    compile_and_execute ~harness ~opt_flags:Eir.Opt_flags.no_opt program
+  let ensure_same_output result_ref arch mode_label ~opt_flags =
+    let output =
+      compile_and_execute_on_arch arch ~harness ~opt_flags program
+    in
+    match !result_ref with
+    | None -> result_ref := Some output
+    | Some expected when String.equal expected output -> ()
+    | Some expected ->
+      failwithf
+        "arch %s (%s) produced %s, expected %s"
+        (arch_to_string arch)
+        mode_label
+        output
+        expected
+        ()
   in
-  let opt_result =
-    compile_and_execute ~harness ~opt_flags:Eir.Opt_flags.default program
-  in
-  no_opt_result, opt_result
+  let no_opt_result = ref None in
+  let opt_result = ref None in
+  List.iter test_architectures ~f:(fun arch ->
+    ensure_same_output no_opt_result arch "no_opt" ~opt_flags:Eir.Opt_flags.no_opt;
+    ensure_same_output opt_result arch "opt" ~opt_flags:Eir.Opt_flags.default);
+  match !no_opt_result, !opt_result with
+  | Some no_opt, Some opt -> no_opt, opt
+  | _ -> failwith "no supported architectures available for regressions"
 ;;
 
 (* Test Programs *)

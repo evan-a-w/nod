@@ -97,9 +97,8 @@ let execute_functions
 ;;
 
 let run_functions ?harness functions expected =
-  List.iter test_architectures ~f:(fun arch ->
-    match arch with
-    | `X86_64 ->
+  List.iter test_architectures ~f:(function
+    | `X86_64 | `Arm64 as arch ->
       let output = execute_functions ~arch ?harness functions in
       if not (String.equal output expected)
       then
@@ -109,7 +108,7 @@ let run_functions ?harness functions expected =
           output
           expected
           ()
-    | `Arm64 | `Other -> ())
+    | `Other -> ())
 ;;
 
 let make_fn ~name ~args ~root =
