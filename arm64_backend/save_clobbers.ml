@@ -54,20 +54,20 @@ let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
 let sp_operand = Arm64_ir.Reg Reg.sp
 
 let sub_sp bytes =
-  Arm64
-    (int_binary
+  Ir.arm64
+    (Int_binary
        { op = Int_op.Sub; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
 ;;
 
 let add_sp bytes =
-  Arm64
-    (int_binary
+  Ir.arm64
+    (Int_binary
        { op = Int_op.Add; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
 ;;
 
 let add_fp bytes =
-  Arm64
-    (int_binary
+  Ir.arm64
+    (Int_binary
        { op = Int_op.Add
        ; dst = Reg.fp
        ; lhs = Arm64_ir.Reg Reg.fp
@@ -76,22 +76,22 @@ let add_fp bytes =
 ;;
 
 let move_fp_to_sp =
-  Arm64 (move { dst = Reg.fp; src = sp_operand })
+  Ir.arm64 (Move { dst = Reg.fp; src = sp_operand })
 ;;
 
 let move_sp_to_fp =
-  Arm64 (move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
+  Ir.arm64 (Move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
 ;;
 
 let store_reg_at_sp (reg, offset) =
-  Arm64
-    (store
+  Ir.arm64
+    (Store
        { src = Arm64_ir.Reg reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
 let load_reg_from_sp (reg, offset) =
-  Arm64
-    (load
+  Ir.arm64
+    (Load
        { dst = reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 

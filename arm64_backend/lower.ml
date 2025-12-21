@@ -102,6 +102,41 @@ let string_of_operand = function
   | Mem (reg, disp) -> string_of_mem reg disp
 ;;
 
+let gpr_scratch_pool = [ Reg.x16; Reg.x17; Reg.x15; Reg.x14 ]
+let fpr_scratch_pool = [ Reg.v31; Reg.v30; Reg.v29 ]
+
+let rec pick_scratch pool avoid =
+  match pool with
+  | [] -> failwith "no scratch registers available"
+  | reg :: rest ->
+    if List.exists avoid ~f:(Reg.equal reg) then pick_scratch rest avoid else reg
+;;
+
+let ensure_gpr operand ~dst ~avoid =
+  match operand with
+  | Reg reg -> [], string_of_reg reg, avoid
+  | Imm imm ->
+    let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
+    [ sprintf "mov %s, #%Ld" (string_of_reg scratch) imm ], string_of_reg scratch, scratch :: avoid
+  | Mem (reg, disp) ->
+    let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
+    [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ], string_of_reg scratch, scratch :: avoid
+;;
+
+let ensure_fpr operand ~dst ~avoid =
+  match operand with
+  | Reg reg -> [], string_of_reg reg, avoid
+  | Mem (reg, disp) ->
+    let scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
+    [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ], string_of_reg scratch, scratch :: avoid
+  | Imm imm ->
+    let fp_scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
+    let gpr_scratch = pick_scratch gpr_scratch_pool [] in
+    [ sprintf "mov %s, #%Ld" (string_of_reg gpr_scratch) imm
+    ; sprintf "fmov %s, %s" (string_of_reg fp_scratch) (string_of_reg gpr_scratch)
+    ], string_of_reg fp_scratch, fp_scratch :: avoid
+;;
+
 let rec unwrap_tags = function
   | Tag_use (ins, _) | Tag_def (ins, _) -> unwrap_tags ins
   | ins -> ins
@@ -178,31 +213,34 @@ let string_of_jump_target = function
 ;;
 
 let lower_int_binary ~op ~dst ~lhs ~rhs =
-  let dst = string_of_reg dst in
-  let lhs = string_of_operand lhs in
-  let rhs = string_of_operand rhs in
-  match op with
-  | Int_op.Add -> [ sprintf "add %s, %s, %s" dst lhs rhs ]
-  | Sub -> [ sprintf "sub %s, %s, %s" dst lhs rhs ]
-  | Mul -> [ sprintf "mul %s, %s, %s" dst lhs rhs ]
-  | Sdiv -> [ sprintf "sdiv %s, %s, %s" dst lhs rhs ]
-  | Smod ->
-    let scratch = string_of_reg Reg.x16 in
-    [ sprintf "sdiv %s, %s, %s" scratch lhs rhs
-    ; sprintf "msub %s, %s, %s, %s" dst scratch rhs lhs
-    ]
-  | And -> [ sprintf "and %s, %s, %s" dst lhs rhs ]
-  | Orr -> [ sprintf "orr %s, %s, %s" dst lhs rhs ]
-  | Eor -> [ sprintf "eor %s, %s, %s" dst lhs rhs ]
-  | Lsl -> [ sprintf "lsl %s, %s, %s" dst lhs rhs ]
-  | Lsr -> [ sprintf "lsr %s, %s, %s" dst lhs rhs ]
-  | Asr -> [ sprintf "asr %s, %s, %s" dst lhs rhs ]
+  let dst_name = string_of_reg dst in
+  let lhs_setup, lhs_reg, used = ensure_gpr lhs ~dst ~avoid:[] in
+  let rhs_setup, rhs_reg, used = ensure_gpr rhs ~dst ~avoid:used in
+  let body =
+    match op with
+    | Int_op.Add -> [ sprintf "add %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Sub -> [ sprintf "sub %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Mul -> [ sprintf "mul %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Sdiv -> [ sprintf "sdiv %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Smod ->
+      let scratch = pick_scratch gpr_scratch_pool (dst :: used) in
+      [ sprintf "sdiv %s, %s, %s" (string_of_reg scratch) lhs_reg rhs_reg
+      ; sprintf "msub %s, %s, %s, %s" dst_name (string_of_reg scratch) rhs_reg lhs_reg
+      ]
+    | And -> [ sprintf "and %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Orr -> [ sprintf "orr %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Eor -> [ sprintf "eor %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Lsl -> [ sprintf "lsl %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Lsr -> [ sprintf "lsr %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Asr -> [ sprintf "asr %s, %s, %s" dst_name lhs_reg rhs_reg ]
+  in
+  lhs_setup @ rhs_setup @ body
 ;;
 
 let lower_float_binary ~op ~dst ~lhs ~rhs =
-  let dst = string_of_reg dst in
-  let lhs = string_of_operand lhs in
-  let rhs = string_of_operand rhs in
+  let dst_name = string_of_reg dst in
+  let lhs_setup, lhs_reg, used = ensure_fpr lhs ~dst ~avoid:[] in
+  let rhs_setup, rhs_reg, _used = ensure_fpr rhs ~dst ~avoid:used in
   let mnem =
     match op with
     | Float_op.Fadd -> "fadd"
@@ -210,7 +248,7 @@ let lower_float_binary ~op ~dst ~lhs ~rhs =
     | Fmul -> "fmul"
     | Fdiv -> "fdiv"
   in
-  [ sprintf "%s %s, %s, %s" mnem dst lhs rhs ]
+  lhs_setup @ rhs_setup @ [ sprintf "%s %s, %s, %s" mnem dst_name lhs_reg rhs_reg ]
 ;;
 
 let run ~system (functions : Function.t String.Map.t) =
@@ -274,17 +312,25 @@ let run ~system (functions : Function.t String.Map.t) =
         | Load { dst; addr } ->
           `Emit [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr) ]
         | Store { src; addr } ->
-          `Emit [ sprintf "str %s, %s" (string_of_operand src) (string_of_operand addr) ]
+          let addr_str = string_of_operand addr in
+          (match src with
+           | Reg reg -> `Emit [ sprintf "str %s, %s" (string_of_reg reg) addr_str ]
+           | _ ->
+             let setup, src_reg, _ = ensure_gpr src ~dst:Reg.sp ~avoid:[] in
+             `Emit (setup @ [ sprintf "str %s, %s" src_reg addr_str ]))
         | Int_binary { op; dst; lhs; rhs } ->
           `Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
         | Float_binary { op; dst; lhs; rhs } ->
           `Emit (lower_float_binary ~op ~dst ~lhs ~rhs)
         | Convert { op; dst; src } ->
-          let dst = string_of_reg dst in
-          let src = string_of_operand src in
+          let dst_name = string_of_reg dst in
           (match op with
-           | Convert_op.Int_to_float -> `Emit [ sprintf "scvtf %s, %s" dst src ]
-           | Float_to_int -> `Emit [ sprintf "fcvtzs %s, %s" dst src ])
+           | Convert_op.Int_to_float ->
+             let setup, src_reg, _ = ensure_gpr src ~dst ~avoid:[] in
+             `Emit (setup @ [ sprintf "scvtf %s, %s" dst_name src_reg ])
+           | Float_to_int ->
+             let setup, src_reg, _ = ensure_fpr src ~dst ~avoid:[] in
+             `Emit (setup @ [ sprintf "fcvtzs %s, %s" dst_name src_reg ]))
         | Bitcast { dst; src } ->
           `Emit [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
         | Adr { dst; target } ->

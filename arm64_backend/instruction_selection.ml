@@ -46,8 +46,8 @@ let type_of_class = function
 ;;
 
 let class_of_lit_or_var t = function
-  | Lit _ -> Class.I64
-  | Var v -> class_of_var t v
+  | Ir.Lit_or_var.Lit _ -> Class.I64
+  | Ir.Lit_or_var.Var v -> class_of_var t v
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
@@ -62,20 +62,19 @@ let fresh_like_var t var =
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
-  | Lit l -> Imm l
-  | Var v ->
+  | Ir.Lit_or_var.Lit l -> Imm l
+  | Ir.Lit_or_var.Var v ->
     require_class t v class_;
     Reg (Reg.unallocated ~class_ v)
 ;;
 
 let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
-  let reg v = Reg (reg_of_var t v) in
   let int_operand = operand_of_lit_or_var t ~class_:Class.I64 in
   let float_operand = operand_of_lit_or_var t ~class_:Class.F64 in
   let make_int_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.I64;
-    [ int_binary
+    [ Int_binary
         { op
         ; dst = reg_of_var t dest
         ; lhs = int_operand src1
@@ -85,7 +84,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   in
   let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.F64;
-    [ float_binary
+    [ Float_binary
         { op
         ; dst = reg_of_var t dest
         ; lhs = float_operand src1
@@ -94,7 +93,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     ]
   in
   let cmp_zero cond =
-    comp { kind = Comp_kind.Int; lhs = int_operand cond; rhs = Imm Int64.zero }
+    Comp { kind = Comp_kind.Int; lhs = int_operand cond; rhs = Imm Int64.zero }
   in
   match ir with
   | Arm64 x -> [ x ]
@@ -114,18 +113,18 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   | Fdiv arith -> make_float_arith Float_op.Fdiv arith
   | Return lit_or_var ->
     let class_ = class_of_lit_or_var t lit_or_var in
-    [ ret [ operand_of_lit_or_var t ~class_ lit_or_var ] ]
+    [ Ret [ operand_of_lit_or_var t ~class_ lit_or_var ] ]
   | Move (v, lit_or_var) ->
     let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
     require_class t v class_;
     let src = operand_of_lit_or_var t ~class_ lit_or_var in
-    [ move { dst = reg_of_var t v; src } ]
+    [ Move { dst = reg_of_var t v; src } ]
   | Cast (dest, src) ->
     let dest_type = Var.type_ dest in
     let src_type =
       match src with
       | Ir.Lit_or_var.Var v -> Var.type_ v
-      | Lit _ -> Type.I64
+      | Ir.Lit_or_var.Lit _ -> Type.I64
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
@@ -134,15 +133,15 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let src_op = operand_of_lit_or_var t ~class_:src_class src in
     (match src_class, dest_class with
      | Class.I64, Class.F64 ->
-       [ convert { op = Convert_op.Int_to_float; dst; src = src_op } ]
+       [ Convert { op = Convert_op.Int_to_float; dst; src = src_op } ]
      | Class.F64, Class.I64 ->
-       [ convert { op = Convert_op.Float_to_int; dst; src = src_op } ]
-     | _ -> [ move { dst; src = src_op } ])
+       [ Convert { op = Convert_op.Float_to_int; dst; src = src_op } ]
+     | _ -> [ Move { dst; src = src_op } ])
   | Load (v, mem) ->
     require_class t v Class.I64;
-    [ load { dst = reg_of_var t v; addr = Ir.Mem.to_arm64_ir_operand mem } ]
+    [ Load { dst = reg_of_var t v; addr = Ir.Mem.to_arm64_ir_operand mem } ]
   | Store (lit_or_var, mem) ->
-    [ store { src = int_operand lit_or_var; addr = Ir.Mem.to_arm64_ir_operand mem }
+    [ Store { src = int_operand lit_or_var; addr = Ir.Mem.to_arm64_ir_operand mem }
     ]
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
@@ -166,7 +165,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         let forced =
           Reg.allocated ~class_ (fresh_var t "arg_reg") (Some reg)
         in
-        move { dst = forced; src = operand }, operand)
+        Move { dst = forced; src = operand }, operand)
       |> List.unzip
     in
     let gp_result_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64) in
@@ -192,29 +191,30 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
             (fresh_var t "tmp_force_physical")
             (Some reg)
         in
-        let instr = move { dst = reg_of_var t res; src = Reg forced } in
+        let instr = Move { dst = reg_of_var t res; src = Reg forced } in
         instr, forced)
       |> List.unzip
     in
     [ Save_clobbers ]
     @ reg_arg_moves
-    @ [ call { fn; results = updated_results; args = call_args } ]
+    @ [ Call { fn; results = updated_results; args = call_args } ]
     @ post_moves
     @ [ Restore_clobbers ]
-  | Alloca { dest; size = Lit i } -> [ alloca (Reg (reg_of_var t dest)) i ]
-  | Alloca { dest; size = Var v } ->
-    [ move { dst = reg_of_var t dest; src = Reg Reg.sp }
-    ; int_binary
+  | Alloca { dest; size = Ir.Lit_or_var.Lit i } ->
+    [ alloca (Reg (reg_of_var t dest)) i ]
+  | Alloca { dest; size = Ir.Lit_or_var.Var v } ->
+    [ Move { dst = reg_of_var t dest; src = Reg Reg.sp }
+    ; Int_binary
         { op = Int_op.Sub
         ; dst = Reg.sp
         ; lhs = Reg Reg.sp
         ; rhs = Reg (reg_of_var t v)
         }
     ]
-  | Branch (Uncond cb) -> [ jump cb ]
+  | Branch (Uncond cb) -> [ Jump cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
     [ cmp_zero cond
-    ; conditional_branch
+    ; Conditional_branch
         { condition = Condition.Ne; then_ = if_true; else_ = Some if_false }
     ]
 ;;
@@ -274,10 +274,10 @@ let make_prologue t =
     List.map args ~f:(fun arg ->
       let class_ = class_of_var t arg in
       let reg = take_arg_reg class_ in
-      move { dst = Reg.allocated ~class_ arg (Some reg); src = Reg reg })
+      Move { dst = Reg.allocated ~class_ arg (Some reg); src = Reg reg })
   in
   let block =
-    Block.create ~id_hum ~terminal:(Arm64 (jump { block = t.fn.root; args }))
+    Block.create ~id_hum ~terminal:(Arm64 (Jump { block = t.fn.root; args }))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   block.dfs_id <- Some 0;
@@ -314,10 +314,10 @@ let make_epilogue t ~ret_shape =
       let class_ = class_of_var t arg in
       let reg = take_res_reg class_ in
       let forced = Reg.allocated ~class_ arg (Some reg) in
-      move { dst = reg; src = Reg forced }, Reg forced)
+      Move { dst = reg; src = Reg forced }, Reg forced)
     |> List.unzip
   in
-  let block = Block.create ~id_hum ~terminal:(Arm64 (ret args')) in
+  let block = Block.create ~id_hum ~terminal:(Arm64 (Ret args')) in
   assert (Call_conv.(equal t.fn.call_conv default));
   block.dfs_id <- Some 0;
   block.args <- Vec.of_list args;
@@ -360,12 +360,12 @@ let split_blocks_and_add_prologue_and_epilogue t =
         t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
         (match dest with
          | Reg dst ->
-           let base = move { dst; src = Reg Reg.fp } in
+           let base = Move { dst; src = Reg Reg.fp } in
            let adjust =
              if offset = 0
              then []
              else
-               [ int_binary
+               [ Int_binary
                    { op = Int_op.Add
                    ; dst
                    ; lhs = Reg dst
@@ -381,14 +381,6 @@ let split_blocks_and_add_prologue_and_epilogue t =
     match true_terminal block with
     | None -> ()
     | Some true_terminal ->
-      let rep make a b =
-        block.insert_phi_moves <- false;
-        replace_true_terminal
-          block
-          (make
-             (mint_intermediate t ~from_block:block ~to_call_block:a)
-             (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
-      in
       let epilogue_jmp operands_to_ret =
         let args =
           List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
@@ -399,18 +391,18 @@ let split_blocks_and_add_prologue_and_epilogue t =
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
-                 Vec.push
-                   block.instructions
-                   (Arm64 (move { dst = reg_of_var t v; src = operand }));
+                Vec.push
+                  block.instructions
+                  (Arm64 (Move { dst = reg_of_var t v; src = operand }));
                  v)
             | other ->
               let v = fresh_like_var t arg in
               Vec.push
                 block.instructions
-                (Arm64 (move { dst = reg_of_var t v; src = other }));
+                (Arm64 (Move { dst = reg_of_var t v; src = other }));
               v)
         in
-        jump { Call_block.block = epilogue; args }
+        Jump { Call_block.block = epilogue; args }
       in
       (match true_terminal with
        | Ret l when not (phys_equal block epilogue) ->
@@ -418,14 +410,14 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | Ret _ | Jump _ -> ()
        | Conditional_branch { condition; then_; else_ = None } ->
          replace_true_terminal block
-           (conditional_branch { condition; then_; else_ = None })
+           (Conditional_branch { condition; then_; else_ = None })
        | Conditional_branch { condition; then_; else_ = Some else_ } ->
          let then_ = mint_intermediate t ~from_block:block ~to_call_block:then_ in
          let else_ = mint_intermediate t ~from_block:block ~to_call_block:else_ in
          block.insert_phi_moves <- false;
          replace_true_terminal
            block
-           (conditional_branch { condition; then_; else_ = Some else_ })
+           (Conditional_branch { condition; then_; else_ = Some else_ })
        | Tag_use _ | Tag_def _ | Nop | Alloca _
        | Move _
        | Load _
@@ -436,6 +428,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | Bitcast _
        | Adr _
        | Comp _
+       | Label _
        | Call _
        | Save_clobbers
        | Restore_clobbers -> ()));
@@ -458,8 +451,7 @@ let par_moves t ~dst_to_src =
   let emit (dst : Reg.t) src =
     if Reg.equal dst src
     then ()
-    else
-      Vec.push emitted (Ir.arm64 (move { dst; src = Reg src }))
+    else Vec.push emitted (Ir.arm64 (Move { dst; src = Reg src }))
   in
   let rec go () =
     if Map.is_empty !pending
@@ -513,12 +505,13 @@ let insert_par_moves t =
          | Int_binary _
          | Float_binary _
          | Convert _
-         | Bitcast _
-         | Adr _
-         | Comp _
-         | Call _
-         | Save_clobbers
-         | Restore_clobbers
+        | Bitcast _
+        | Adr _
+        | Comp _
+        | Label _
+        | Call _
+        | Save_clobbers
+        | Restore_clobbers
          | Alloca _ -> ())));
   t
 ;;

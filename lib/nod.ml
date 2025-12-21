@@ -22,6 +22,7 @@ module Ssa = Nod_core.Ssa
 module Var = Nod_core.Var
 module X86_ir = Nod_core.X86_ir
 module X86_backend = Nod_x86_backend.X86_backend
+module Arm64_backend = Nod_arm64_backend.Arm64_backend
 module Examples = Nod_examples.Examples
 
 let architecture () : [ `Arm64 | `X86_64 | `Other ] =
@@ -118,11 +119,18 @@ let compile_and_execute
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
   | Ok functions ->
-    let asm = X86_backend.compile_to_asm ~system functions in
+    let asm =
+      match arch with
+      | `X86_64 -> X86_backend.compile_to_asm ~system functions
+      | `Arm64 -> Arm64_backend.compile_to_asm ~system functions
+      | `Other -> failwith "unsupported target architecture"
+    in
     let temp_dir = Core_unix.mkdtemp "nod-exec" in
-    let needs_x86 = Poly.(arch = `X86_64) in
+    let host_architecture = Lazy.force host_arch in
     let use_rosetta =
-      needs_x86 && Poly.(arch = `Arm64) && Poly.(system = `Darwin)
+      Poly.(arch = `X86_64)
+      && Poly.(host_architecture = `Arm64)
+      && Poly.(system = `Darwin)
     in
     let compiler =
       match system with
@@ -133,6 +141,8 @@ let compile_and_execute
       match arch, system with
       | `X86_64, `Darwin ->
         [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+      | `Arm64, `Darwin ->
+        [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
       | _ -> []
     in
     let run_shell_runtime ?cwd command =
@@ -150,6 +160,11 @@ let compile_and_execute
         Out_channel.write_all asm_path ~data:asm;
         let harness_path = Filename.concat temp_dir "main.c" in
         Out_channel.write_all harness_path ~data:harness;
+        (match arch, host_architecture with
+         | `X86_64, `X86_64 -> ()
+         | `X86_64, `Arm64 when use_rosetta -> ()
+         | `Arm64, `Arm64 -> ()
+         | _ -> failwith "execution is not supported on this host") ;
         run_shell_exn
           ~cwd:temp_dir
           (quote_command
