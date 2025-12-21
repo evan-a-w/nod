@@ -27,42 +27,6 @@ let collect_var_classes root =
   classes
 ;;
 
-let reg_pool_for_class = function
-  | Reg.Class.I64 ->
-    [| Reg.rax
-     ; Reg.rbx
-     ; Reg.rcx
-     ; Reg.rdx
-     ; Reg.r8
-     ; Reg.r9
-     ; Reg.r10
-     ; Reg.r11
-     ; Reg.r12
-     ; Reg.r13
-     ; Reg.r14
-     ; Reg.r15
-    |]
-    (* [| Reg.rax; Reg.rbx; Reg.rcx |] *)
-  | Reg.Class.F64 ->
-    [| Reg.xmm0
-     ; Reg.xmm1
-     ; Reg.xmm2
-     ; Reg.xmm3
-     ; Reg.xmm4
-     ; Reg.xmm5
-     ; Reg.xmm6
-     ; Reg.xmm7
-     ; Reg.xmm8
-     ; Reg.xmm9
-     ; Reg.xmm10
-     ; Reg.xmm11
-     ; Reg.xmm12
-     ; Reg.xmm13
-     ; Reg.xmm14
-     ; Reg.xmm15
-    |]
-;;
-
 let update_assignment ~assignments ~var ~to_ =
   Hashtbl.update assignments var ~f:(function
     | None -> to_
@@ -103,14 +67,14 @@ let run_sat
   ~class_
   =
   (* let dump_crap = dump_crap || true in *)
-  let reg_pool = reg_pool_for_class class_ in
+  let reg_pool = Reg.allocable ~class_ |> Iarray.of_list in
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
     |> List.filter ~f:(fun state ->
       Reg.Class.equal (class_of_var state.var) class_)
   in
-  let sat_vars_per_var_id = Array.length reg_pool + 1 in
+  let sat_vars_per_var_id = Iarray.length reg_pool + 1 in
   (* if dump_crap *)
   (* then ( *)
   (*   let var_to_id = *)
@@ -131,10 +95,12 @@ let run_sat
     let backout_sat_var var =
       let var_id = (var - 1) / sat_vars_per_var_id in
       let reg = (var - 1) mod sat_vars_per_var_id in
-      if reg = 0 then var_id, `Spill else var_id, `Assignment reg_pool.(reg - 1)
+      if reg = 0
+      then var_id, `Spill
+      else var_id, `Assignment reg_pool.:(reg - 1)
     in
     let all_reg_assignments var_id =
-      Array.init (Array.length reg_pool) ~f:(reg_sat var_id)
+      Array.init (Iarray.length reg_pool) ~f:(reg_sat var_id)
     in
     let sat_constraints =
       let open Feel.Logic in
@@ -178,7 +144,7 @@ let run_sat
         | Some Assignment.Spill -> spill id
         | Some (Reg reg) ->
           (match
-             Array.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
+             Iarray.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
            with
            | None -> spill id
            | Some (i, _) -> reg_sat id i)

@@ -486,5 +486,28 @@ let all_physical =
     | `Variable -> failwith "raw register should be physical")
 ;;
 
+let allocable ~class_ =
+  match class_ with
+  | Class.I64 -> [ rax; rbx; rcx; rdx; r8; r9; r10; r11; r12; r13; r14; r15 ]
+  | Class.F64 ->
+    [ xmm0
+    ; xmm1
+    ; xmm2
+    ; xmm3
+    ; xmm4
+    ; xmm5
+    ; xmm6
+    ; xmm7
+    ; xmm8
+    ; xmm9
+    ; xmm10
+    ; xmm11
+    ; xmm12
+    ; xmm13
+    ; xmm14
+    ; xmm15
+    ]
+;;
+
 include functor Comparable.Make
 include functor Hashable.Make

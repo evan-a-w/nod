@@ -22,6 +22,7 @@ module type S = sig
   val class_ : t -> Class.t
   val raw : t -> Raw.t
   val callee_saved : call_conv:Call_conv.t -> Class.t -> t list
+  val allocable : class_:Class.t -> t list
 
   include Comparable.S with type t := t
 end
