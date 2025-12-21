@@ -57,13 +57,19 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
     print_endline asm
 ;;
 
-let compile_and_execute ?harness ?opt_flags program =
-  Nod.compile_and_execute
-    ~arch:`X86_64
-    ~system:(Lazy.force Nod.host_system)
-    ?harness
-    ?opt_flags
-    program
+let assert_execution ?harness ?(opt_flags = Eir.Opt_flags.no_opt) program expected =
+  List.iter test_architectures ~f:(fun arch ->
+    let output =
+      compile_and_execute_on_arch arch ?harness ~opt_flags program
+    in
+    if not (String.equal output expected)
+    then
+      failwithf
+        "arch %s produced %s, expected %s"
+        (arch_to_string arch)
+        output
+        expected
+        ())
 ;;
 
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
@@ -122,14 +128,11 @@ helper(%x:i64) {
 ;;
 
 let%expect_test "run" =
-  let output =
-    compile_and_execute
-      ~harness:
-        (make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
-      ~opt_flags:Eir.Opt_flags.no_opt
-      borked
-  in
-  assert (String.equal output "695")
+  assert_execution
+    ~harness:(make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
+    ~opt_flags:Eir.Opt_flags.no_opt
+    borked
+    "695"
 ;;
 
 let%expect_test "borked regaloc" =
