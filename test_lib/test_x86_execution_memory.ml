@@ -28,16 +28,19 @@ let execute_functions
   functions
   =
   let asm =
-    X86_backend.compile_to_asm ~system:(Lazy.force Nod.host_system) functions
+    match arch with
+    | `X86_64 -> X86_backend.compile_to_asm ~system:host_system functions
+    | `Arm64 -> Arm64_backend.compile_to_asm ~system:host_system functions
+    | `Other -> failwith "unsupported target architecture"
   in
   let temp_dir = Core_unix.mkdtemp "nod-exec-ir" in
-  let host_arch = architecture () in
+  let host_architecture = Lazy.force Nod.host_arch in
   let host_sysname =
     String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
   in
-  let needs_x86 = Poly.(arch = `X86_64) in
+  let target_is_x86 = Poly.(arch = `X86_64) in
   let use_rosetta =
-    needs_x86 && Poly.(host_arch = `Arm64) && String.equal host_sysname "darwin"
+    target_is_x86 && Poly.(host_architecture = `Arm64) && String.equal host_sysname "darwin"
   in
   let compiler =
     match host_sysname with
@@ -48,6 +51,8 @@ let execute_functions
     match arch, host_sysname with
     | `X86_64, "darwin" ->
       [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+    | `Arm64, "darwin" ->
+      [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
     | _ -> []
   in
   let run_shell_runtime ~cwd command =
@@ -65,10 +70,11 @@ let execute_functions
       Out_channel.write_all asm_path ~data:asm;
       let harness_path = Filename.concat temp_dir "main.c" in
       Out_channel.write_all harness_path ~data:harness;
-      (match needs_x86, host_arch with
-       | true, _ when Poly.(host_arch <> `X86_64) && not use_rosetta ->
-         failwith "x86_64 execution is not supported on this host"
-       | _ -> ());
+      (match arch, host_architecture with
+       | `X86_64, `X86_64 -> ()
+       | `X86_64, `Arm64 when use_rosetta -> ()
+       | `Arm64, `Arm64 -> ()
+       | _ -> failwith "execution is not supported on this host");
       run_shell_exn
         ~cwd:temp_dir
         (quote_command
@@ -88,6 +94,22 @@ let execute_functions
     ~finally:(fun () ->
       let _ = Stdlib.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
       ())
+;;
+
+let run_functions ?harness functions expected =
+  List.iter test_architectures ~f:(fun arch ->
+    match arch with
+    | `X86_64 ->
+      let output = execute_functions ~arch ?harness functions in
+      if not (String.equal output expected)
+      then
+        failwithf
+          "arch %s produced %s, expected %s"
+          (arch_to_string arch)
+          output
+          expected
+          ()
+    | `Arm64 | `Other -> ())
 ;;
 
 let make_fn ~name ~args ~root =
@@ -126,10 +148,9 @@ let%expect_test "alloca passed to child; child loads value" =
     root_root.instructions
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
-  let output =
-    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
-  in
-  assert (String.equal output "41")
+  run_functions
+    (String.Map.of_alist_exn [ "root", root; "child", child ])
+    "41"
 ;;
 
 let%expect_test "alloca passed to child; child stores value; parent observes" =
@@ -168,10 +189,9 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
     root_root.instructions
     (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
-  let output =
-    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
-  in
-  assert (String.equal output "99")
+  run_functions
+    (String.Map.of_alist_exn [ "root", root; "child", child ])
+    "99"
 ;;
 
 let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
@@ -218,10 +238,9 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
     (Ir.call ~fn:"child" ~results:[ tmp ] ~args:[ Ir.Lit_or_var.Var elem1 ]);
   Vec.push root_root.instructions (Ir.move res (Ir.Lit_or_var.Var tmp));
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
-  let output =
-    execute_functions (String.Map.of_alist_exn [ "root", root; "child", child ])
-  in
-  assert (String.equal output "123")
+  run_functions
+    (String.Map.of_alist_exn [ "root", root; "child", child ])
+    "123"
 ;;
 
 let%expect_test "call returning two values (RAX/RDX)" =
@@ -252,10 +271,9 @@ let%expect_test "call returning two values (RAX/RDX)" =
     (Ir.add
        { dest = sum; src1 = Ir.Lit_or_var.Var r0; src2 = Ir.Lit_or_var.Var r1 });
   let root = Function.create ~name:"root" ~args:[] ~root:root_root in
-  let output =
-    execute_functions (String.Map.of_alist_exn [ "root", root; "two", callee ])
-  in
-  assert (String.equal output "33")
+  run_functions
+    (String.Map.of_alist_exn [ "root", root; "two", callee ])
+    "33"
 ;;
 
 let%expect_test "phi/parallel-move cycle: swap two values across edge" =
@@ -295,6 +313,5 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
   Vec.push start.children swap_block;
   Vec.push swap_block.parents start;
   let fn = Function.create ~name:"root" ~args:[] ~root:start in
-  let output = execute_functions (String.Map.of_alist_exn [ "root", fn ]) in
-  assert (String.equal output "21")
+  run_functions (String.Map.of_alist_exn [ "root", fn ]) "21"
 ;;

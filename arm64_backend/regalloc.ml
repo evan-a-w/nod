@@ -1,6 +1,7 @@
 open! Core
 open! Import
 open! Common
+module Raw = Arm64_reg.Raw
 
 let note_var_class table var class_ =
   match Hashtbl.find table var with
