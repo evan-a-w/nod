@@ -29,8 +29,70 @@ let rec find_following_call ~start ~len ~instructions =
   then None
   else (
     match Vec.get instructions start with
-    | Ir0.X86 (CALL { fn; _ }) -> Some fn
+    | Ir0.Arm64 (Call { fn; _ }) -> Some fn
     | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
+;;
+
+let reg_save_size reg =
+  match Reg.class_ reg with
+  | Reg.Class.I64 -> 8
+  | Reg.Class.F64 -> 8
+;;
+
+let layout_reg_saves regs =
+  let total, slots_rev =
+    List.fold regs ~init:(0, []) ~f:(fun (offset, acc) reg ->
+      let size = reg_save_size reg in
+      let acc = (reg, offset) :: acc in
+      offset + size, acc)
+  in
+  total, List.rev slots_rev
+;;
+
+let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
+
+let sp_operand = Arm64_ir.Reg Reg.sp
+
+let sub_sp bytes =
+  Arm64
+    (int_binary
+       { op = Int_op.Sub; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
+;;
+
+let add_sp bytes =
+  Arm64
+    (int_binary
+       { op = Int_op.Add; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
+;;
+
+let add_fp bytes =
+  Arm64
+    (int_binary
+       { op = Int_op.Add
+       ; dst = Reg.fp
+       ; lhs = Arm64_ir.Reg Reg.fp
+       ; rhs = imm_of_int bytes
+       })
+;;
+
+let move_fp_to_sp =
+  Arm64 (move { dst = Reg.fp; src = sp_operand })
+;;
+
+let move_sp_to_fp =
+  Arm64 (move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
+;;
+
+let store_reg_at_sp (reg, offset) =
+  Arm64
+    (store
+       { src = Arm64_ir.Reg reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
+;;
+
+let load_reg_from_sp (reg, offset) =
+  Arm64
+    (load
+       { dst = reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
 let save_and_restore_in_prologue_and_epilogue
@@ -40,57 +102,45 @@ let save_and_restore_in_prologue_and_epilogue
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
   Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
-    fn.bytes_for_clobber_saves <- Set.length to_restore * 8;
+    let to_restore = Set.to_list to_restore in
+    let bytes_for_clobber_saves, save_slots = layout_reg_saves to_restore in
+    fn.bytes_for_clobber_saves <- bytes_for_clobber_saves;
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
-    let to_restore = Set.to_list to_restore in
+    let header_bytes_excl_clobber_saves =
+      fn.bytes_alloca'd + fn.bytes_for_spills
+    in
     let () =
       (* change prologue *)
-      let header_bytes_excl_clobber_saves =
-        fn.bytes_alloca'd + fn.bytes_for_spills
-      in
       let new_prologue : Ir.t Vec.t = Vec.create () in
       if header_bytes_excl_clobber_saves > 0
-      then
-        Vec.push
-          new_prologue
-          (X86
-             (sub
-                (Reg Reg.sp)
-                (Imm (Int64.of_int header_bytes_excl_clobber_saves))));
-      List.iter to_restore ~f:(fun reg ->
-        Vec.push new_prologue (X86 (push (Reg reg))));
-      Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.sp)));
-      if fn.bytes_for_clobber_saves > 0
-      then
-        Vec.push
-          new_prologue
-          (X86
-             (add
-                (Reg Reg.rbp)
-                (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
+      then Vec.push new_prologue (sub_sp header_bytes_excl_clobber_saves);
+      if bytes_for_clobber_saves > 0
+      then Vec.push new_prologue (sub_sp bytes_for_clobber_saves);
+      List.iter save_slots ~f:(fun slot ->
+        Vec.push new_prologue (store_reg_at_sp slot));
+      Vec.push new_prologue move_fp_to_sp;
+      if bytes_for_clobber_saves > 0 then Vec.push new_prologue (add_fp bytes_for_clobber_saves);
       Vec.append new_prologue prologue.instructions;
       prologue.instructions <- new_prologue
     in
     let () =
       (* change epilogue *)
       if List.is_empty to_restore
-      then Vec.push epilogue.instructions (X86 (mov (Reg Reg.sp) (Reg Reg.rbp)))
+      then (
+        Vec.push epilogue.instructions move_sp_to_fp;
+        if header_bytes_excl_clobber_saves > 0
+        then Vec.push epilogue.instructions (add_sp header_bytes_excl_clobber_saves))
       else
-        List.map
-          ~f:Ir.x86
-          ([ mov (Reg Reg.sp) (Reg Reg.rbp)
-           ; sub (Reg Reg.sp) (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))
-           ]
-           @ List.map (List.rev to_restore) ~f:pop
-           @
-           if fn.bytes_alloca'd + fn.bytes_for_spills > 0
-           then
-             [ add
-                 (Reg Reg.sp)
-                 (Imm (fn.bytes_alloca'd + fn.bytes_for_spills |> Int64.of_int))
-             ]
-           else [])
+        ([ move_sp_to_fp
+         ; sub_sp bytes_for_clobber_saves
+         ]
+         @ List.map (List.rev save_slots) ~f:load_reg_from_sp
+         @ [ add_sp bytes_for_clobber_saves ]
+         @
+         if header_bytes_excl_clobber_saves > 0
+         then [ add_sp header_bytes_excl_clobber_saves ]
+         else [])
         |> List.iter ~f:(Vec.push epilogue.instructions)
     in
     ())
@@ -117,7 +167,7 @@ let save_and_restore_around_calls
     else (
       let ir = Vec.get instructions idx in
       (match ir with
-       | Ir0.X86 Save_clobbers ->
+       | Ir0.Arm64 Save_clobbers ->
          let liveness_at_instr = Vec.get block_state.instructions idx in
          let call_fn =
            match find_following_call ~start:(idx + 1) ~len ~instructions with
@@ -130,17 +180,20 @@ let save_and_restore_around_calls
              ~call_fn
              ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
          in
-         Stack.push pending regs;
-         List.iter regs ~f:(fun reg ->
-           Vec.push new_instructions (Ir0.X86 (push (Reg reg))))
-       | Ir0.X86 Restore_clobbers ->
-         let regs =
+         let bytes, slots = layout_reg_saves regs in
+         Stack.push pending (slots, bytes);
+         if bytes > 0 then Vec.push new_instructions (sub_sp bytes);
+         List.iter slots ~f:(fun slot ->
+           Vec.push new_instructions (store_reg_at_sp slot))
+       | Ir0.Arm64 Restore_clobbers ->
+         let slots, bytes =
            match Stack.pop pending with
-           | Some regs -> regs
+           | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in
-         List.iter (List.rev regs) ~f:(fun reg ->
-           Vec.push new_instructions (Ir0.X86 (pop reg)))
+         List.iter (List.rev slots) ~f:(fun slot ->
+           Vec.push new_instructions (load_reg_from_sp slot));
+         if bytes > 0 then Vec.push new_instructions (add_sp bytes)
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
@@ -149,7 +202,7 @@ let save_and_restore_around_calls
   then failwith "Unbalanced Save_clobbers markers";
   block.instructions <- new_instructions;
   match block.terminal with
-  | Ir0.X86 Save_clobbers | Ir0.X86 Restore_clobbers ->
+  | Ir0.Arm64 Save_clobbers | Ir0.Arm64 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
   | _ -> ()
 ;;
