@@ -27,10 +27,15 @@ let require_class t var class_ =
         ()
 ;;
 
+let class_of_type type_ = if Type.is_float type_ then Class.F64 else Class.I64
+
 let class_of_var t var =
   match Hashtbl.find t.var_classes var with
   | Some class_ -> class_
-  | None -> Class.I64
+  | None ->
+    let class_ = class_of_type (Var.type_ var) in
+    Hashtbl.set t.var_classes ~key:var ~data:class_;
+    class_
 ;;
 
 let reg_of_var t var = Reg.unallocated ~class_:(class_of_var t var) var
@@ -38,6 +43,11 @@ let reg_of_var t var = Reg.unallocated ~class_:(class_of_var t var) var
 let type_of_class = function
   | Class.I64 -> Type.I64
   | Class.F64 -> Type.F64
+;;
+
+let class_of_lit_or_var t = function
+  | Lit _ -> Class.I64
+  | Var v -> class_of_var t v
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
@@ -102,7 +112,9 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   | Fsub arith -> make_float_arith Float_op.Fsub arith
   | Fmul arith -> make_float_arith Float_op.Fmul arith
   | Fdiv arith -> make_float_arith Float_op.Fdiv arith
-  | Return lit_or_var -> [ ret [ int_operand lit_or_var ] ]
+  | Return lit_or_var ->
+    let class_ = class_of_lit_or_var t lit_or_var in
+    [ ret [ operand_of_lit_or_var t ~class_ lit_or_var ] ]
   | Move (v, lit_or_var) ->
     let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
     require_class t v class_;
@@ -134,70 +146,69 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     ]
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
-    let stack_args =
-      if List.length args <= List.length gp_arg_regs
-      then []
-      else List.drop args (List.length gp_arg_regs)
+    let gp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.I64) in
+    let fp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64) in
+    let take_arg_reg = function
+      | Class.I64 ->
+        (match !gp_arg_regs with
+         | reg :: rest -> gp_arg_regs := rest; reg
+         | [] -> failwith "stack arguments not yet supported on arm64 (gp)")
+      | Class.F64 ->
+        (match !fp_arg_regs with
+         | reg :: rest -> fp_arg_regs := rest; reg
+         | [] -> failwith "stack arguments not yet supported on arm64 (fp)")
     in
-    if not (List.is_empty stack_args)
-    then failwith "stack arguments not yet supported on arm64"
-    else (
-      let reg_arg_moves =
-        List.zip_with_remainder args gp_arg_regs
-        |> fst
-        |> List.map ~f:(fun (arg, reg) ->
-          let forced =
-            Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
-          in
-          move { dst = forced; src = int_operand arg })
-      in
-      assert (List.length results <= 2);
-      let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
-      let post_moves, results_with_physical =
-        Sequence.zip_full
-          (Sequence.of_list results)
-          (Sequence.of_list gp_result_regs)
-        |> Sequence.filter_map ~f:(function
-          | `Right _ -> None
-          | `Left _ -> failwith "impossible"
-          | `Both (res, reg) ->
-            let forced =
-              Reg.allocated
-                ~class_:Class.I64
-                (fresh_var t "tmp_force_physical")
-                (Some reg)
-            in
-            let instr =
-              move { dst = Reg.unallocated res; src = Reg forced }
-            in
-            Some (instr, forced))
-        |> Sequence.to_list
-        |> List.unzip
-      in
-      let results_on_stack =
-        List.drop results (List.length results_with_physical)
-        |> List.map ~f:Reg.unallocated
-      in
-      let updated_results = results_with_physical @ results_on_stack in
-      [ Save_clobbers ]
-      @ reg_arg_moves
-      @ [ call
-            { fn
-            ; results = updated_results
-            ; args = List.map args ~f:int_operand
-            }
-        ]
-      @ post_moves
-      @ [ Restore_clobbers ])
-  | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
+    let reg_arg_moves, call_args =
+      List.map args ~f:(fun arg ->
+        let class_ = class_of_lit_or_var t arg in
+        let operand = operand_of_lit_or_var t ~class_ arg in
+        let reg = take_arg_reg class_ in
+        let forced =
+          Reg.allocated ~class_ (fresh_var t "arg_reg") (Some reg)
+        in
+        move { dst = forced; src = operand }, operand)
+      |> List.unzip
+    in
+    let gp_result_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64) in
+    let fp_result_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.F64) in
+    let take_result_reg class_ =
+      match class_ with
+      | Class.I64 ->
+        (match !gp_result_regs with
+         | reg :: rest -> gp_result_regs := rest; reg
+         | [] -> failwith "too many gp call results on arm64")
+      | Class.F64 ->
+        (match !fp_result_regs with
+         | reg :: rest -> fp_result_regs := rest; reg
+         | [] -> failwith "too many fp call results on arm64")
+    in
+    let post_moves, updated_results =
+      List.map results ~f:(fun res ->
+        let class_ = class_of_var t res in
+        let reg = take_result_reg class_ in
+        let forced =
+          Reg.allocated
+            ~class_
+            (fresh_var t "tmp_force_physical")
+            (Some reg)
+        in
+        let instr = move { dst = reg_of_var t res; src = Reg forced } in
+        instr, forced)
+      |> List.unzip
+    in
+    [ Save_clobbers ]
+    @ reg_arg_moves
+    @ [ call { fn; results = updated_results; args = call_args } ]
+    @ post_moves
+    @ [ Restore_clobbers ]
+  | Alloca { dest; size = Lit i } -> [ alloca (Reg (reg_of_var t dest)) i ]
   | Alloca { dest; size = Var v } ->
     [ move { dst = reg_of_var t dest; src = Reg Reg.sp }
     ; int_binary
         { op = Int_op.Sub
         ; dst = Reg.sp
         ; lhs = Reg Reg.sp
-        ; rhs = Reg (Reg.unallocated v)
+        ; rhs = Reg (reg_of_var t v)
         }
     ]
   | Branch (Uncond cb) -> [ jump cb ]
@@ -246,22 +257,24 @@ let mint_intermediate
 let make_prologue t =
   let id_hum = t.fn.name ^ "__prologue" |> Util.new_name t.block_names in
   let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
-  let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
-  let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
-  let reg_arg_moves =
-    List.zip_with_remainder reg_args gp_arg_regs
-    |> fst
-    |> List.map ~f:(fun (arg, reg) ->
-      move
-        { dst = Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)
-        ; src = Reg reg
-        })
+  let gp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.I64) in
+  let fp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64) in
+  let take_arg_reg class_ =
+    match class_ with
+    | Class.I64 ->
+      (match !gp_arg_regs with
+       | reg :: rest -> gp_arg_regs := rest; reg
+       | [] -> failwith "stack arguments not yet supported on arm64")
+    | Class.F64 ->
+      (match !fp_arg_regs with
+       | reg :: rest -> fp_arg_regs := rest; reg
+       | [] -> failwith "stack arguments not yet supported on arm64")
   in
-  let stack_arg_moves =
-    args_on_stack
-    |> List.mapi ~f:(fun i arg ->
-      let stack_offset = (i + 1) * 8 in
-      move { dst = Reg.unallocated arg; src = Mem (Reg.fp, stack_offset) })
+  let reg_arg_moves =
+    List.map args ~f:(fun arg ->
+      let class_ = class_of_var t arg in
+      let reg = take_arg_reg class_ in
+      move { dst = Reg.allocated ~class_ arg (Some reg); src = Reg reg })
   in
   let block =
     Block.create ~id_hum ~terminal:(Arm64 (jump { block = t.fn.root; args }))
@@ -272,9 +285,7 @@ let make_prologue t =
   block.instructions
   <- List.map
        ~f:Ir.arm64
-       (reg_arg_moves
-        @ stack_arg_moves
-        @ [ tag_def nop (Reg Reg.fp) ])
+       (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
      |> Vec.of_list;
   block
 ;;
@@ -285,21 +296,26 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       fresh_var t ("res__" ^ Int.to_string i))
   in
-  let gp_res_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
-  let reg_res_moves =
-    List.zip_with_remainder args gp_res_regs
-    |> fst
-    |> List.map ~f:(fun (arg, reg) ->
-      move
-        { dst = reg
-        ; src = Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg))
-        })
+  let gp_res_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64) in
+  let fp_res_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.F64) in
+  let take_res_reg class_ =
+    match class_ with
+    | Class.I64 ->
+      (match !gp_res_regs with
+       | reg :: rest -> gp_res_regs := rest; reg
+       | [] -> failwith "too many gp return values on arm64")
+    | Class.F64 ->
+      (match !fp_res_regs with
+       | reg :: rest -> fp_res_regs := rest; reg
+       | [] -> failwith "too many fp return values on arm64")
   in
-  let args' =
-    List.zip_with_remainder args gp_res_regs
-    |> fst
-    |> List.map ~f:(fun (arg, reg) ->
-      Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
+  let reg_res_moves, args' =
+    List.map args ~f:(fun arg ->
+      let class_ = class_of_var t arg in
+      let reg = take_res_reg class_ in
+      let forced = Reg.allocated ~class_ arg (Some reg) in
+      move { dst = reg; src = Reg forced }, Reg forced)
+    |> List.unzip
   in
   let block = Block.create ~id_hum ~terminal:(Arm64 (ret args')) in
   assert (Call_conv.(equal t.fn.call_conv default));
@@ -385,13 +401,13 @@ let split_blocks_and_add_prologue_and_epilogue t =
                  let v = fresh_like_var t arg in
                  Vec.push
                    block.instructions
-                   (Arm64 (move { dst = Reg.unallocated v; src = operand }));
+                   (Arm64 (move { dst = reg_of_var t v; src = operand }));
                  v)
             | other ->
               let v = fresh_like_var t arg in
               Vec.push
                 block.instructions
-                (Arm64 (move { dst = Reg.unallocated v; src = other }));
+                (Arm64 (move { dst = reg_of_var t v; src = other }));
               v)
         in
         jump { Call_block.block = epilogue; args }

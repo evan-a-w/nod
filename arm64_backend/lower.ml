@@ -1,8 +1,9 @@
 open! Core
 open! Import
 open! Common
-module Reg = X86_reg
-module Raw = X86_reg.Raw
+open Arm64_ir
+module Reg = Arm64_reg
+module Raw = Arm64_reg.Raw
 
 let sanitize_identifier s =
   let sanitized =
@@ -17,40 +18,71 @@ let sanitize_identifier s =
 ;;
 
 let rec string_of_raw = function
-  | Raw.RAX -> "rax"
-  | Raw.RBX -> "rbx"
-  | Raw.RCX -> "rcx"
-  | Raw.RDX -> "rdx"
-  | Raw.RSI -> "rsi"
-  | Raw.RDI -> "rdi"
-  | Raw.RSP -> "rsp"
-  | Raw.RBP -> "rbp"
-  | Raw.R8 -> "r8"
-  | Raw.R9 -> "r9"
-  | Raw.R10 -> "r10"
-  | Raw.R11 -> "r11"
-  | Raw.R12 -> "r12"
-  | Raw.R13 -> "r13"
-  | Raw.R14 -> "r14"
-  | Raw.R15 -> "r15"
-  | Raw.XMM0 -> "xmm0"
-  | Raw.XMM1 -> "xmm1"
-  | Raw.XMM2 -> "xmm2"
-  | Raw.XMM3 -> "xmm3"
-  | Raw.XMM4 -> "xmm4"
-  | Raw.XMM5 -> "xmm5"
-  | Raw.XMM6 -> "xmm6"
-  | Raw.XMM7 -> "xmm7"
-  | Raw.XMM8 -> "xmm8"
-  | Raw.XMM9 -> "xmm9"
-  | Raw.XMM10 -> "xmm10"
-  | Raw.XMM11 -> "xmm11"
-  | Raw.XMM12 -> "xmm12"
-  | Raw.XMM13 -> "xmm13"
-  | Raw.XMM14 -> "xmm14"
-  | Raw.XMM15 -> "xmm15"
-  | Raw.Unallocated v | Raw.Allocated (v, None) ->
-    sanitize_identifier (Var.name v)
+  | Raw.SP -> "sp"
+  | Raw.X0 -> "x0"
+  | Raw.X1 -> "x1"
+  | Raw.X2 -> "x2"
+  | Raw.X3 -> "x3"
+  | Raw.X4 -> "x4"
+  | Raw.X5 -> "x5"
+  | Raw.X6 -> "x6"
+  | Raw.X7 -> "x7"
+  | Raw.X8 -> "x8"
+  | Raw.X9 -> "x9"
+  | Raw.X10 -> "x10"
+  | Raw.X11 -> "x11"
+  | Raw.X12 -> "x12"
+  | Raw.X13 -> "x13"
+  | Raw.X14 -> "x14"
+  | Raw.X15 -> "x15"
+  | Raw.X16 -> "x16"
+  | Raw.X17 -> "x17"
+  | Raw.X18 -> "x18"
+  | Raw.X19 -> "x19"
+  | Raw.X20 -> "x20"
+  | Raw.X21 -> "x21"
+  | Raw.X22 -> "x22"
+  | Raw.X23 -> "x23"
+  | Raw.X24 -> "x24"
+  | Raw.X25 -> "x25"
+  | Raw.X26 -> "x26"
+  | Raw.X27 -> "x27"
+  | Raw.X28 -> "x28"
+  | Raw.X29 -> "x29"
+  | Raw.X30 -> "x30"
+  | Raw.V0 -> "v0"
+  | Raw.V1 -> "v1"
+  | Raw.V2 -> "v2"
+  | Raw.V3 -> "v3"
+  | Raw.V4 -> "v4"
+  | Raw.V5 -> "v5"
+  | Raw.V6 -> "v6"
+  | Raw.V7 -> "v7"
+  | Raw.V8 -> "v8"
+  | Raw.V9 -> "v9"
+  | Raw.V10 -> "v10"
+  | Raw.V11 -> "v11"
+  | Raw.V12 -> "v12"
+  | Raw.V13 -> "v13"
+  | Raw.V14 -> "v14"
+  | Raw.V15 -> "v15"
+  | Raw.V16 -> "v16"
+  | Raw.V17 -> "v17"
+  | Raw.V18 -> "v18"
+  | Raw.V19 -> "v19"
+  | Raw.V20 -> "v20"
+  | Raw.V21 -> "v21"
+  | Raw.V22 -> "v22"
+  | Raw.V23 -> "v23"
+  | Raw.V24 -> "v24"
+  | Raw.V25 -> "v25"
+  | Raw.V26 -> "v26"
+  | Raw.V27 -> "v27"
+  | Raw.V28 -> "v28"
+  | Raw.V29 -> "v29"
+  | Raw.V30 -> "v30"
+  | Raw.V31 -> "v31"
+  | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier (Var.name v)
   | Raw.Allocated (_, Some reg) -> string_of_raw reg
 ;;
 
@@ -60,25 +92,14 @@ let string_of_mem reg disp =
   let base = string_of_reg reg in
   match disp with
   | 0 -> sprintf "[%s]" base
-  | d when d > 0 -> sprintf "[%s + %d]" base d
-  | d -> sprintf "[%s - %d]" base (-d)
+  | d when d > 0 -> sprintf "[%s, #%d]" base d
+  | d -> sprintf "[%s, #%d]" base d
 ;;
 
 let string_of_operand = function
   | Reg reg -> string_of_reg reg
-  | Imm imm -> Int64.to_string imm
+  | Imm imm -> sprintf "#%Ld" imm
   | Mem (reg, disp) -> string_of_mem reg disp
-;;
-
-let string_of_operand_with_size ~size_for_mem operand =
-  match operand with
-  | Mem (reg, disp) -> sprintf "%s %s" size_for_mem (string_of_mem reg disp)
-  | _ -> string_of_operand operand
-;;
-
-let is_valid_move_dest = function
-  | Reg _ | Mem _ -> true
-  | Imm _ -> false
 ;;
 
 let rec unwrap_tags = function
@@ -122,60 +143,74 @@ let order_blocks root =
   ~idx_by_block, ~blocks
 ;;
 
-let emit_binary_instr op dst src =
-  match dst, src with
-  | Mem _, Imm _ ->
-    sprintf
-      "%s %s, %s"
-      op
-      (string_of_operand_with_size ~size_for_mem:"qword ptr" dst)
-      (string_of_operand src)
-  | _ -> sprintf "%s %s, %s" op (string_of_operand dst) (string_of_operand src)
-;;
-
-let lower_mem_mem_binop ~op ~dst ~src =
-  let scratch = Reg Reg.r11 in
-  [ sprintf "push %s" (string_of_reg Reg.r11)
-  ; emit_binary_instr "mov" scratch dst
-  ; emit_binary_instr op scratch src
-  ; emit_binary_instr "mov" dst scratch
-  ; sprintf "pop %s" (string_of_reg Reg.r11)
-  ]
-;;
-
-let lower_mem_mem_cmp ~lhs ~rhs =
-  let scratch = Reg Reg.r11 in
-  [ sprintf "push %s" (string_of_reg Reg.r11)
-  ; emit_binary_instr "mov" scratch lhs
-  ; emit_binary_instr "cmp" scratch rhs
-  ; sprintf "pop %s" (string_of_reg Reg.r11)
-  ]
-;;
-
-let lower_mem_mem_mov ~dst ~src =
-  let scratch = Reg Reg.r11 in
-  [ sprintf "push %s" (string_of_reg Reg.r11)
-  ; emit_binary_instr "mov" scratch src
-  ; emit_binary_instr "mov" dst scratch
-  ; sprintf "pop %s" (string_of_reg Reg.r11)
-  ]
-;;
-
 let is_next_block ~idx_by_block ~current_idx target_block =
   match Hashtbl.find idx_by_block target_block with
   | None -> false
   | Some target_idx -> target_idx = current_idx + 1
 ;;
 
-let emit_conditional_jump kind target =
-  match kind with
-  | `Je -> sprintf "je %s" target
-  | `Jne -> sprintf "jne %s" target
+let string_of_condition = function
+  | Condition.Eq -> "eq"
+  | Ne -> "ne"
+  | Lt -> "lt"
+  | Le -> "le"
+  | Gt -> "gt"
+  | Ge -> "ge"
+  | Pl -> "pl"
+  | Mi -> "mi"
 ;;
 
-let invert_branch_kind = function
-  | `Je -> `Jne
-  | `Jne -> `Je
+let invert_condition = function
+  | Condition.Eq -> Condition.Ne
+  | Ne -> Eq
+  | Lt -> Ge
+  | Le -> Gt
+  | Gt -> Le
+  | Ge -> Lt
+  | Pl -> Mi
+  | Mi -> Pl
+;;
+
+let string_of_jump_target = function
+  | Jump_target.Reg reg -> string_of_reg reg
+  | Imm imm -> sprintf "#%Ld" imm
+  | Symbol sym -> sanitize_identifier (Symbol.to_string sym)
+;;
+
+let lower_int_binary ~op ~dst ~lhs ~rhs =
+  let dst = string_of_reg dst in
+  let lhs = string_of_operand lhs in
+  let rhs = string_of_operand rhs in
+  match op with
+  | Int_op.Add -> [ sprintf "add %s, %s, %s" dst lhs rhs ]
+  | Sub -> [ sprintf "sub %s, %s, %s" dst lhs rhs ]
+  | Mul -> [ sprintf "mul %s, %s, %s" dst lhs rhs ]
+  | Sdiv -> [ sprintf "sdiv %s, %s, %s" dst lhs rhs ]
+  | Smod ->
+    let scratch = string_of_reg Reg.x16 in
+    [ sprintf "sdiv %s, %s, %s" scratch lhs rhs
+    ; sprintf "msub %s, %s, %s, %s" dst scratch rhs lhs
+    ]
+  | And -> [ sprintf "and %s, %s, %s" dst lhs rhs ]
+  | Orr -> [ sprintf "orr %s, %s, %s" dst lhs rhs ]
+  | Eor -> [ sprintf "eor %s, %s, %s" dst lhs rhs ]
+  | Lsl -> [ sprintf "lsl %s, %s, %s" dst lhs rhs ]
+  | Lsr -> [ sprintf "lsr %s, %s, %s" dst lhs rhs ]
+  | Asr -> [ sprintf "asr %s, %s, %s" dst lhs rhs ]
+;;
+
+let lower_float_binary ~op ~dst ~lhs ~rhs =
+  let dst = string_of_reg dst in
+  let lhs = string_of_operand lhs in
+  let rhs = string_of_operand rhs in
+  let mnem =
+    match op with
+    | Float_op.Fadd -> "fadd"
+    | Fsub -> "fsub"
+    | Fmul -> "fmul"
+    | Fdiv -> "fdiv"
+  in
+  [ sprintf "%s %s, %s, %s" mnem dst lhs rhs ]
 ;;
 
 let run ~system (functions : Function.t String.Map.t) =
@@ -189,7 +224,6 @@ let run ~system (functions : Function.t String.Map.t) =
       | `Linux | `Other -> ""
     in
     let buffer = Buffer.create 1024 in
-    add_line buffer ".intel_syntax noprefix";
     add_line buffer ".text";
     let used_labels = String.Hash_set.create () in
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
@@ -231,168 +265,96 @@ let run ~system (functions : Function.t String.Map.t) =
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
-      let lower_move ~dst ~src s =
-        `Emit
-          (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
-           then []
-           else (
-             match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
-             | _ -> [ emit_binary_instr s dst src ]))
-      in
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
         match instr with
-        | NOOP | Save_clobbers | Restore_clobbers -> `No_emit
-        | MOV (dst, src) -> lower_move ~dst ~src "mov"
-        | MOVSD (dst, src) -> lower_move ~dst ~src "movsd"
-        | MOVQ (dst, src) -> lower_move ~dst ~src "movq"
-        | CVTSI2SD (dst, src) -> lower_move ~dst ~src "cvtsi2sd"
-        | CVTTSD2SI (dst, src) -> lower_move ~dst ~src "cvttsd2si"
-        | ADD (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"add" ~dst ~src
-             | _ -> [ emit_binary_instr "add" dst src ])
-        | SUB (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
-             | _ -> [ emit_binary_instr "sub" dst src ])
-        | ADDSD (dst, src) -> `Emit [ emit_binary_instr "addsd" dst src ]
-        | SUBSD (dst, src) -> `Emit [ emit_binary_instr "subsd" dst src ]
-        | MULSD (dst, src) -> `Emit [ emit_binary_instr "mulsd" dst src ]
-        | DIVSD (dst, src) -> `Emit [ emit_binary_instr "divsd" dst src ]
-        | AND (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"and" ~dst ~src
-             | _ -> [ emit_binary_instr "and" dst src ])
-        | OR (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"or" ~dst ~src
-             | _ -> [ emit_binary_instr "or" dst src ])
-        | IMUL op -> `Emit [ sprintf "imul %s" (string_of_operand op) ]
-        | IDIV op | MOD op -> `Emit [ sprintf "idiv %s" (string_of_operand op) ]
-        | CMP (Imm a, Imm b) -> `Set_pending (Some (a, b))
-        | CMP (a, b) ->
-          `Emit
-            (match a, b with
-             | Mem _, Mem _ -> lower_mem_mem_cmp ~lhs:a ~rhs:b
-             | _ -> [ emit_binary_instr "cmp" a b ])
-        | CALL { fn = callee; _ } ->
-          let callee = global_prefix ^ sanitize_identifier callee in
-          `Emit [ sprintf "call %s" callee ]
-        | PUSH op -> `Emit [ sprintf "push %s" (string_of_operand op) ]
-        | POP reg -> `Emit [ sprintf "pop %s" (string_of_reg reg) ]
-        | JMP cb ->
-          (* Optimize: omit jump to immediately following block *)
+        | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> `No_emit
+        | Move { dst; src } ->
+          `Emit [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+        | Load { dst; addr } ->
+          `Emit [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr) ]
+        | Store { src; addr } ->
+          `Emit [ sprintf "str %s, %s" (string_of_operand src) (string_of_operand addr) ]
+        | Int_binary { op; dst; lhs; rhs } ->
+          `Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
+        | Float_binary { op; dst; lhs; rhs } ->
+          `Emit (lower_float_binary ~op ~dst ~lhs ~rhs)
+        | Convert { op; dst; src } ->
+          let dst = string_of_reg dst in
+          let src = string_of_operand src in
+          (match op with
+           | Convert_op.Int_to_float -> `Emit [ sprintf "scvtf %s, %s" dst src ]
+           | Float_to_int -> `Emit [ sprintf "fcvtzs %s, %s" dst src ])
+        | Bitcast { dst; src } ->
+          `Emit [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+        | Adr { dst; target } ->
+          `Emit [ sprintf "adr %s, %s" (string_of_reg dst) (string_of_jump_target target) ]
+        | Comp { kind; lhs; rhs } ->
+          let lhs = string_of_operand lhs in
+          let rhs = string_of_operand rhs in
+          (match kind with
+           | Comp_kind.Int -> `Emit [ sprintf "cmp %s, %s" lhs rhs ]
+           | Float -> `Emit [ sprintf "fcmp %s, %s" lhs rhs ])
+        | Conditional_branch { condition; then_; else_ } ->
+          `Branch (condition, then_, else_)
+        | Jump cb ->
           if is_next_block ~idx_by_block ~current_idx cb.Call_block.block
-          then `Emit []
-          else `Emit [ sprintf "jmp %s" (label_of_call_block cb) ]
-        | JE (cb, else_) -> `Branch (`Je, cb, else_)
-        | JNE (cb, else_) -> `Branch (`Jne, cb, else_)
-        | RET _ -> `Emit [ "ret" ]
-        | ALLOCA _ -> `Emit []
-        | LABEL s ->
+          then `No_emit
+          else `Emit [ sprintf "b %s" (label_of_call_block cb) ]
+        | Call { fn = callee; _ } ->
+          let callee = global_prefix ^ sanitize_identifier callee in
+          `Emit [ sprintf "bl %s" callee ]
+        | Ret _ -> `Emit [ "ret" ]
+        | Label s ->
           let label = ensure_unique (sanitize_identifier s) in
           `Emit_label label
         | Tag_use _ | Tag_def _ -> assert false
       in
-      let pending_const_cmp = ref None in
-      let handle_branch ~current_idx branch_kind cb else_opt =
-        match !pending_const_cmp with
-        | Some (lhs, rhs) ->
-          pending_const_cmp := None;
-          let take_branch =
-            match branch_kind with
-            | `Je -> Int64.equal lhs rhs
-            | `Jne -> not (Int64.equal lhs rhs)
-          in
-          if take_branch
-          then (
-            if (* Jump to target if not next block *)
-               not
-                 (is_next_block ~idx_by_block ~current_idx cb.Call_block.block)
-            then emit_instruction (sprintf "jmp %s" (label_of_call_block cb)))
-          else (
-            match else_opt with
-            | None -> ()
-            | Some else_cb ->
-              (* Jump to else if not next block *)
-              if not
-                   (is_next_block
-                      ~idx_by_block
-                      ~current_idx
-                      else_cb.Call_block.block)
-              then
-                emit_instruction
-                  (sprintf "jmp %s" (label_of_call_block else_cb)))
-        | None ->
-          let target_is_next =
-            is_next_block ~idx_by_block ~current_idx cb.Call_block.block
-          in
-          let else_is_next =
-            match else_opt with
-            | None -> false
-            | Some else_cb ->
-              is_next_block ~idx_by_block ~current_idx else_cb.Call_block.block
-          in
-          (match target_is_next, else_is_next, else_opt with
-           | true, _, Some else_cb ->
-             (* Target is next: invert condition and jump to else *)
-             let inverted_kind = invert_branch_kind branch_kind in
-             emit_instruction
-               (emit_conditional_jump
-                  inverted_kind
-                  (label_of_call_block else_cb))
-           | true, _, None ->
-             (* Target is next and no else: no jump needed *)
-             ()
-           | false, true, _ ->
-             (* Else is next: just emit conditional jump to target *)
-             emit_instruction
-               (emit_conditional_jump branch_kind (label_of_call_block cb))
-           | false, false, Some else_cb ->
-             (* Neither is next: emit both jumps, but prefer making else the fall-through *)
-             (* This is a heuristic - we could switch the condition to optimize better *)
-             emit_instruction
-               (emit_conditional_jump branch_kind (label_of_call_block cb));
-             emit_instruction (sprintf "jmp %s" (label_of_call_block else_cb))
-           | false, false, None ->
-             (* Only target, not next: emit conditional jump *)
-             emit_instruction
-               (emit_conditional_jump branch_kind (label_of_call_block cb)))
+      let handle_branch ~current_idx condition cb else_opt =
+        let emit_branch cond target =
+          emit_instruction (sprintf "b.%s %s" (string_of_condition cond) target)
+        in
+        let target_is_next = is_next_block ~idx_by_block ~current_idx cb.Call_block.block in
+        let else_is_next =
+          match else_opt with
+          | None -> false
+          | Some else_cb ->
+            is_next_block ~idx_by_block ~current_idx else_cb.Call_block.block
+        in
+        match target_is_next, else_is_next, else_opt with
+        | true, _, Some else_cb ->
+          let cond = invert_condition condition in
+          emit_branch cond (label_of_call_block else_cb)
+        | true, _, None -> ()
+        | false, true, _ -> emit_branch condition (label_of_call_block cb)
+        | false, false, Some else_cb ->
+          emit_branch condition (label_of_call_block cb);
+          emit_instruction (sprintf "b %s" (label_of_call_block else_cb))
+        | false, false, None ->
+          emit_branch condition (label_of_call_block cb)
       in
       let process_instruction ~current_idx instr =
         match lower_instruction ~current_idx instr with
         | `No_emit -> ()
-        | `Set_pending value -> pending_const_cmp := value
-        | `Emit_label label ->
-          pending_const_cmp := None;
-          emit_label label
-        | `Branch (kind, cb, else_opt) ->
-          handle_branch ~current_idx kind cb else_opt
-        | `Emit lines ->
-          pending_const_cmp := None;
-          List.iter lines ~f:emit_instruction
+        | `Emit_label label -> emit_label label
+        | `Branch (cond, cb, else_opt) ->
+          handle_branch ~current_idx cond cb else_opt
+        | `Emit lines -> List.iter lines ~f:emit_instruction
       in
       Vec.iteri blocks ~f:(fun idx block ->
         let label = label_of_block block in
         add_line buffer (label ^ ":");
-        pending_const_cmp := None;
         let instructions = Vec.to_list block.Block.instructions in
         List.iter instructions ~f:(fun ir ->
           match ir with
-          | Ir0.X86 x -> process_instruction ~current_idx:idx x
-          | Ir0.X86_terminal xs ->
+          | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
+          | Ir0.Arm64_terminal xs ->
             List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
         match block.Block.terminal with
-        | Ir0.X86_terminal xs ->
+        | Ir0.Arm64_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
-        | Ir0.X86 x -> process_instruction ~current_idx:idx x
+        | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
         | _ -> ()));
     (match system with
      | `Linux ->
