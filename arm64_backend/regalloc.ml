@@ -18,7 +18,7 @@ let note_var_class table var class_ =
 let collect_var_classes root =
   let classes = Var.Table.create () in
   Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Unallocated var | Raw.Allocated (var, _) ->
@@ -44,7 +44,7 @@ let initialize_assignments root =
   let assignments = Var.Table.create () in
   let don't_spill = Var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Allocated (_, Some (Raw.Allocated _))
@@ -67,7 +67,7 @@ let run_sat
   ~class_
   =
   (* let dump_crap = dump_crap || true in *)
-  let reg_pool = reg_pool_for_class class_ in
+  let reg_pool = Reg.allocable ~class_ |> Array.of_list in
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
@@ -273,27 +273,27 @@ let replace_regs
            let offset =
              fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
-           Mem (Reg.rbp, offset)
-         | Some (Assignment.Reg phys) -> Reg phys
-         | None -> Reg reg)
+           Arm64_ir.Mem (Reg.fp, offset)
+         | Some (Assignment.Reg phys) -> Arm64_ir.Reg phys
+         | None -> Arm64_ir.Reg reg)
       | Raw.Allocated (v, _) ->
         let phys =
           Hashtbl.find_exn assignments v
           |> Assignment.reg_val
           |> Option.value_exn
         in
-        Reg phys
-      | _ -> Reg reg
+        Arm64_ir.Reg phys
+      | _ -> Arm64_ir.Reg reg
     in
-    Ir.map_x86_operands ir ~f:(function
-      | Reg r -> map_reg r
-      | Mem (r, offset) ->
-        Mem
+    Ir.map_arm64_operands ir ~f:(function
+      | Arm64_ir.Reg r -> map_reg r
+      | Arm64_ir.Mem (r, offset) ->
+        Arm64_ir.Mem
           ( map_reg r
             |> (* safe because we enforce no spills on the mem regs *)
-            reg_of_operand_exn
+            Arm64_ir.reg_of_operand_exn
           , offset )
-      | Imm _ as t -> t)
+      | Arm64_ir.Imm _ as t -> t)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in
