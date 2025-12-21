@@ -27,42 +27,6 @@ let collect_var_classes root =
   classes
 ;;
 
-let reg_pool_for_class = function
-  | Reg.Class.I64 ->
-    [| Reg.rax
-     ; Reg.rbx
-     ; Reg.rcx
-     ; Reg.rdx
-     ; Reg.r8
-     ; Reg.r9
-     ; Reg.r10
-     ; Reg.r11
-     ; Reg.r12
-     ; Reg.r13
-     ; Reg.r14
-     ; Reg.r15
-    |]
-    (* [| Reg.rax; Reg.rbx; Reg.rcx |] *)
-  | Reg.Class.F64 ->
-    [| Reg.xmm0
-     ; Reg.xmm1
-     ; Reg.xmm2
-     ; Reg.xmm3
-     ; Reg.xmm4
-     ; Reg.xmm5
-     ; Reg.xmm6
-     ; Reg.xmm7
-     ; Reg.xmm8
-     ; Reg.xmm9
-     ; Reg.xmm10
-     ; Reg.xmm11
-     ; Reg.xmm12
-     ; Reg.xmm13
-     ; Reg.xmm14
-     ; Reg.xmm15
-    |]
-;;
-
 let update_assignment ~assignments ~var ~to_ =
   Hashtbl.update assignments var ~f:(function
     | None -> to_
