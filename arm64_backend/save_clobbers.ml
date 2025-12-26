@@ -102,13 +102,23 @@ let save_and_restore_in_prologue_and_epilogue
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
   Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
-    let to_restore = Set.to_list to_restore in
+    let to_restore = Set.add to_restore Reg.lr |> Set.to_list in
     let bytes_for_clobber_saves, save_slots = layout_reg_saves to_restore in
     fn.bytes_for_clobber_saves <- bytes_for_clobber_saves;
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
     let header_bytes_excl_clobber_saves =
       fn.bytes_alloca'd + fn.bytes_for_spills
+    in
+    let total_stack_usage = header_bytes_excl_clobber_saves + bytes_for_clobber_saves in
+    let aligned_stack_usage =
+      if total_stack_usage % 16 = 0
+      then total_stack_usage
+      else total_stack_usage + (16 - (total_stack_usage % 16))
+    in
+    let header_bytes_excl_clobber_saves =
+      header_bytes_excl_clobber_saves
+      + (aligned_stack_usage - total_stack_usage)
     in
     let () =
       (* change prologue *)
