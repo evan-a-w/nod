@@ -57,11 +57,14 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
     print_endline asm
 ;;
 
-let assert_execution ?harness ?(opt_flags = Eir.Opt_flags.no_opt) program expected =
+let assert_execution
+  ?harness
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  expected
+  =
   List.iter test_architectures ~f:(fun arch ->
-    let output =
-      compile_and_execute_on_arch arch ?harness ~opt_flags program
-    in
+    let output = compile_and_execute_on_arch arch ?harness ~opt_flags program in
     if not (String.equal output expected)
     then
       failwithf
@@ -129,7 +132,8 @@ helper(%x:i64) {
 
 let%expect_test "run" =
   assert_execution
-    ~harness:(make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
+    ~harness:
+      (make_harness_source ~fn_name:"root" ~fn_arg_type:"int" ~fn_arg:"5" ())
     ~opt_flags:Eir.Opt_flags.no_opt
     borked
     "695"
