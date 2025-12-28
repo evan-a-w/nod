@@ -6,7 +6,7 @@ let host_system = Lazy.force Nod.host_system
 
 let test_architectures : [ `X86_64 | `Arm64 | `Other ] list =
   match Lazy.force Nod.host_arch with
-  | `Arm64 -> [ `X86_64 (* ; `Arm64 *) ]
+  | `Arm64 -> [ `X86_64; `Arm64 ]
   | `X86_64 -> [ `X86_64 ]
   | `Other -> []
 ;;

@@ -108,6 +108,29 @@ let host_system =
 
 let host_arch = lazy (architecture ())
 
+let compile_and_lower_functions
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  functions
+  =
+  match arch with
+  | `X86_64 -> X86_backend.compile_to_asm ~system functions
+  | `Arm64 -> Arm64_backend.compile_to_asm ~system functions
+  | `Other -> failwith "unsupported target architecture"
+;;
+
+let compile_and_lower
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  =
+  match Eir.compile ~opt_flags program with
+  | Error err ->
+    Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
+  | Ok functions -> compile_and_lower_functions ~arch ~system functions
+;;
+
 let compile_and_execute
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
@@ -115,73 +138,63 @@ let compile_and_execute
   ?(opt_flags = Eir.Opt_flags.no_opt)
   program
   =
-  match Eir.compile ~opt_flags program with
-  | Error err ->
-    Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok functions ->
-    let asm =
-      match arch with
-      | `X86_64 -> X86_backend.compile_to_asm ~system functions
-      | `Arm64 -> Arm64_backend.compile_to_asm ~system functions
-      | `Other -> failwith "unsupported target architecture"
-    in
-    let temp_dir = Core_unix.mkdtemp "nod-exec" in
-    let host_architecture = Lazy.force host_arch in
-    let use_rosetta =
-      Poly.(arch = `X86_64)
-      && Poly.(host_architecture = `Arm64)
-      && Poly.(system = `Darwin)
-    in
-    let compiler =
-      match system with
-      | `Darwin -> "clang"
-      | `Linux | `Other -> "gcc"
-    in
-    let arch_args =
-      match arch, system with
-      | `X86_64, `Darwin ->
-        [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
-      | `Arm64, `Darwin ->
-        [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
-      | _ -> []
-    in
-    let run_shell_runtime ?cwd command =
-      if use_rosetta
-      then (
-        let command =
-          quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
-        in
-        run_shell_exn ?cwd command)
-      else run_shell_exn ?cwd command
-    in
-    Exn.protect
-      ~f:(fun () ->
-        let asm_path = Filename.concat temp_dir "program.s" in
-        Out_channel.write_all asm_path ~data:asm;
-        let harness_path = Filename.concat temp_dir "main.c" in
-        Out_channel.write_all harness_path ~data:harness;
-        (match arch, host_architecture with
-         | `X86_64, `X86_64 -> ()
-         | `X86_64, `Arm64 when use_rosetta -> ()
-         | `Arm64, `Arm64 -> ()
-         | _ -> failwith "execution is not supported on this host") ;
-        run_shell_exn
-          ~cwd:temp_dir
-          (quote_command
-             compiler
-             ([ "-Wall"; "-Werror"; "-O0" ]
-              @ arch_args
-              @ [ "main.c"; "program.s"; "-o"; "program" ]));
-        let output_file = "stdout.txt" in
-        let output_path = Filename.concat temp_dir output_file in
-        run_shell_runtime
-          ~cwd:temp_dir
-          (sprintf
-             "%s > %s"
-             (quote_command "./program" [])
-             (Filename.quote output_file));
-        In_channel.read_all output_path |> String.strip)
-      ~finally:(fun () ->
-        let _ = Std.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
-        ())
+  let asm = compile_and_lower ~arch ~system ~opt_flags program in
+  let temp_dir = Core_unix.mkdtemp "nod-exec" in
+  let host_architecture = Lazy.force host_arch in
+  let use_rosetta =
+    Poly.(arch = `X86_64)
+    && Poly.(host_architecture = `Arm64)
+    && Poly.(system = `Darwin)
+  in
+  let compiler =
+    match system with
+    | `Darwin -> "clang"
+    | `Linux | `Other -> "gcc"
+  in
+  let arch_args =
+    match arch, system with
+    | `X86_64, `Darwin ->
+      [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+    | `Arm64, `Darwin -> [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
+    | _ -> []
+  in
+  let run_shell_runtime ?cwd command =
+    if use_rosetta
+    then (
+      let command =
+        quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
+      in
+      run_shell_exn ?cwd command)
+    else run_shell_exn ?cwd command
+  in
+  Exn.protect
+    ~f:(fun () ->
+      let asm_path = Filename.concat temp_dir "program.s" in
+      Out_channel.write_all asm_path ~data:asm;
+      let harness_path = Filename.concat temp_dir "main.c" in
+      Out_channel.write_all harness_path ~data:harness;
+      (match arch, host_architecture with
+       | `X86_64, `X86_64 -> ()
+       | `X86_64, `Arm64 when use_rosetta -> ()
+       | `Arm64, `Arm64 -> ()
+       | _ -> failwith "execution is not supported on this host");
+      run_shell_exn
+        ~cwd:temp_dir
+        (quote_command
+           compiler
+           ([ "-Wall"; "-Werror"; "-O0" ]
+            @ arch_args
+            @ [ "main.c"; "program.s"; "-o"; "program" ]));
+      let output_file = "stdout.txt" in
+      let output_path = Filename.concat temp_dir output_file in
+      run_shell_runtime
+        ~cwd:temp_dir
+        (sprintf
+           "%s > %s"
+           (quote_command "./program" [])
+           (Filename.quote output_file));
+      In_channel.read_all output_path |> String.strip)
+    ~finally:(fun () ->
+      let _ = Std.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
+      ())
 ;;

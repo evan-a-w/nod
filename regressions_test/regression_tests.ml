@@ -3,9 +3,7 @@ open! Import
 
 let test_both_modes ~harness program =
   let ensure_same_output result_ref arch mode_label ~opt_flags =
-    let output =
-      compile_and_execute_on_arch arch ~harness ~opt_flags program
-    in
+    let output = compile_and_execute_on_arch arch ~harness ~opt_flags program in
     match !result_ref with
     | None -> result_ref := Some output
     | Some expected when String.equal expected output -> ()
@@ -21,7 +19,11 @@ let test_both_modes ~harness program =
   let no_opt_result = ref None in
   let opt_result = ref None in
   List.iter test_architectures ~f:(fun arch ->
-    ensure_same_output no_opt_result arch "no_opt" ~opt_flags:Eir.Opt_flags.no_opt;
+    ensure_same_output
+      no_opt_result
+      arch
+      "no_opt"
+      ~opt_flags:Eir.Opt_flags.no_opt;
     ensure_same_output opt_result arch "opt" ~opt_flags:Eir.Opt_flags.default);
   match !no_opt_result, !opt_result with
   | Some no_opt, Some opt -> no_opt, opt
