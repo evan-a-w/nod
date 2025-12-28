@@ -50,39 +50,40 @@ let rec string_of_raw = function
   | Raw.X28 -> "x28"
   | Raw.X29 -> "x29"
   | Raw.X30 -> "x30"
-  | Raw.V0 -> "v0"
-  | Raw.V1 -> "v1"
-  | Raw.V2 -> "v2"
-  | Raw.V3 -> "v3"
-  | Raw.V4 -> "v4"
-  | Raw.V5 -> "v5"
-  | Raw.V6 -> "v6"
-  | Raw.V7 -> "v7"
-  | Raw.V8 -> "v8"
-  | Raw.V9 -> "v9"
-  | Raw.V10 -> "v10"
-  | Raw.V11 -> "v11"
-  | Raw.V12 -> "v12"
-  | Raw.V13 -> "v13"
-  | Raw.V14 -> "v14"
-  | Raw.V15 -> "v15"
-  | Raw.V16 -> "v16"
-  | Raw.V17 -> "v17"
-  | Raw.V18 -> "v18"
-  | Raw.V19 -> "v19"
-  | Raw.V20 -> "v20"
-  | Raw.V21 -> "v21"
-  | Raw.V22 -> "v22"
-  | Raw.V23 -> "v23"
-  | Raw.V24 -> "v24"
-  | Raw.V25 -> "v25"
-  | Raw.V26 -> "v26"
-  | Raw.V27 -> "v27"
-  | Raw.V28 -> "v28"
-  | Raw.V29 -> "v29"
-  | Raw.V30 -> "v30"
-  | Raw.V31 -> "v31"
-  | Raw.Unallocated v | Raw.Allocated (v, None) -> sanitize_identifier (Var.name v)
+  | Raw.D0 -> "d0"
+  | Raw.D1 -> "d1"
+  | Raw.D2 -> "d2"
+  | Raw.D3 -> "d3"
+  | Raw.D4 -> "d4"
+  | Raw.D5 -> "d5"
+  | Raw.D6 -> "d6"
+  | Raw.D7 -> "d7"
+  | Raw.D8 -> "d8"
+  | Raw.D9 -> "d9"
+  | Raw.D10 -> "d10"
+  | Raw.D11 -> "d11"
+  | Raw.D12 -> "d12"
+  | Raw.D13 -> "d13"
+  | Raw.D14 -> "d14"
+  | Raw.D15 -> "d15"
+  | Raw.D16 -> "d16"
+  | Raw.D17 -> "d17"
+  | Raw.D18 -> "d18"
+  | Raw.D19 -> "d19"
+  | Raw.D20 -> "d20"
+  | Raw.D21 -> "d21"
+  | Raw.D22 -> "d22"
+  | Raw.D23 -> "d23"
+  | Raw.D24 -> "d24"
+  | Raw.D25 -> "d25"
+  | Raw.D26 -> "d26"
+  | Raw.D27 -> "d27"
+  | Raw.D28 -> "d28"
+  | Raw.D29 -> "d29"
+  | Raw.D30 -> "d30"
+  | Raw.D31 -> "d31"
+  | Raw.Unallocated v | Raw.Allocated (v, None) ->
+    sanitize_identifier (Var.name v)
   | Raw.Allocated (_, Some reg) -> string_of_raw reg
 ;;
 
@@ -103,13 +104,15 @@ let string_of_operand = function
 ;;
 
 let gpr_scratch_pool = [ Reg.x16; Reg.x17; Reg.x15; Reg.x14 ]
-let fpr_scratch_pool = [ Reg.v31; Reg.v30; Reg.v29 ]
+let fpr_scratch_pool = [ Reg.d31; Reg.d30; Reg.d29 ]
 
 let rec pick_scratch pool avoid =
   match pool with
   | [] -> failwith "no scratch registers available"
   | reg :: rest ->
-    if List.exists avoid ~f:(Reg.equal reg) then pick_scratch rest avoid else reg
+    if List.exists avoid ~f:(Reg.equal reg)
+    then pick_scratch rest avoid
+    else reg
 ;;
 
 let ensure_gpr operand ~dst ~avoid =
@@ -117,10 +120,14 @@ let ensure_gpr operand ~dst ~avoid =
   | Reg reg -> [], string_of_reg reg, avoid
   | Imm imm ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    [ sprintf "mov %s, #%Ld" (string_of_reg scratch) imm ], string_of_reg scratch, scratch :: avoid
+    ( [ sprintf "mov %s, #%Ld" (string_of_reg scratch) imm ]
+    , string_of_reg scratch
+    , scratch :: avoid )
   | Mem (reg, disp) ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ], string_of_reg scratch, scratch :: avoid
+    ( [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ]
+    , string_of_reg scratch
+    , scratch :: avoid )
 ;;
 
 let ensure_fpr operand ~dst ~avoid =
@@ -128,13 +135,20 @@ let ensure_fpr operand ~dst ~avoid =
   | Reg reg -> [], string_of_reg reg, avoid
   | Mem (reg, disp) ->
     let scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
-    [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ], string_of_reg scratch, scratch :: avoid
+    ( [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ]
+    , string_of_reg scratch
+    , scratch :: avoid )
   | Imm imm ->
     let fp_scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
     let gpr_scratch = pick_scratch gpr_scratch_pool [] in
-    [ sprintf "mov %s, #%Ld" (string_of_reg gpr_scratch) imm
-    ; sprintf "fmov %s, %s" (string_of_reg fp_scratch) (string_of_reg gpr_scratch)
-    ], string_of_reg fp_scratch, fp_scratch :: avoid
+    ( [ sprintf "mov %s, #%Ld" (string_of_reg gpr_scratch) imm
+      ; sprintf
+          "fmov %s, %s"
+          (string_of_reg fp_scratch)
+          (string_of_reg gpr_scratch)
+      ]
+    , string_of_reg fp_scratch
+    , fp_scratch :: avoid )
 ;;
 
 let rec unwrap_tags = function
@@ -225,7 +239,12 @@ let lower_int_binary ~op ~dst ~lhs ~rhs =
     | Smod ->
       let scratch = pick_scratch gpr_scratch_pool (dst :: used) in
       [ sprintf "sdiv %s, %s, %s" (string_of_reg scratch) lhs_reg rhs_reg
-      ; sprintf "msub %s, %s, %s, %s" dst_name (string_of_reg scratch) rhs_reg lhs_reg
+      ; sprintf
+          "msub %s, %s, %s, %s"
+          dst_name
+          (string_of_reg scratch)
+          rhs_reg
+          lhs_reg
       ]
     | And -> [ sprintf "and %s, %s, %s" dst_name lhs_reg rhs_reg ]
     | Orr -> [ sprintf "orr %s, %s, %s" dst_name lhs_reg rhs_reg ]
@@ -248,7 +267,9 @@ let lower_float_binary ~op ~dst ~lhs ~rhs =
     | Fmul -> "fmul"
     | Fdiv -> "fdiv"
   in
-  lhs_setup @ rhs_setup @ [ sprintf "%s %s, %s, %s" mnem dst_name lhs_reg rhs_reg ]
+  lhs_setup
+  @ rhs_setup
+  @ [ sprintf "%s %s, %s, %s" mnem dst_name lhs_reg rhs_reg ]
 ;;
 
 let run ~system (functions : Function.t String.Map.t) =
@@ -308,13 +329,17 @@ let run ~system (functions : Function.t String.Map.t) =
         match instr with
         | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> `No_emit
         | Move { dst; src } ->
-          `Emit [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+          `Emit
+            [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
         | Load { dst; addr } ->
-          `Emit [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr) ]
+          `Emit
+            [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr)
+            ]
         | Store { src; addr } ->
           let addr_str = string_of_operand addr in
           (match src with
-           | Reg reg -> `Emit [ sprintf "str %s, %s" (string_of_reg reg) addr_str ]
+           | Reg reg ->
+             `Emit [ sprintf "str %s, %s" (string_of_reg reg) addr_str ]
            | _ ->
              let setup, src_reg, _ = ensure_gpr src ~dst:Reg.sp ~avoid:[] in
              `Emit (setup @ [ sprintf "str %s, %s" src_reg addr_str ]))
@@ -332,9 +357,15 @@ let run ~system (functions : Function.t String.Map.t) =
              let setup, src_reg, _ = ensure_fpr src ~dst ~avoid:[] in
              `Emit (setup @ [ sprintf "fcvtzs %s, %s" dst_name src_reg ]))
         | Bitcast { dst; src } ->
-          `Emit [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+          `Emit
+            [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
         | Adr { dst; target } ->
-          `Emit [ sprintf "adr %s, %s" (string_of_reg dst) (string_of_jump_target target) ]
+          `Emit
+            [ sprintf
+                "adr %s, %s"
+                (string_of_reg dst)
+                (string_of_jump_target target)
+            ]
         | Comp { kind; lhs; rhs } ->
           let lhs = string_of_operand lhs in
           let rhs = string_of_operand rhs in
@@ -360,7 +391,9 @@ let run ~system (functions : Function.t String.Map.t) =
         let emit_branch cond target =
           emit_instruction (sprintf "b.%s %s" (string_of_condition cond) target)
         in
-        let target_is_next = is_next_block ~idx_by_block ~current_idx cb.Call_block.block in
+        let target_is_next =
+          is_next_block ~idx_by_block ~current_idx cb.Call_block.block
+        in
         let else_is_next =
           match else_opt with
           | None -> false
@@ -376,8 +409,7 @@ let run ~system (functions : Function.t String.Map.t) =
         | false, false, Some else_cb ->
           emit_branch condition (label_of_call_block cb);
           emit_instruction (sprintf "b %s" (label_of_call_block else_cb))
-        | false, false, None ->
-          emit_branch condition (label_of_call_block cb)
+        | false, false, None -> emit_branch condition (label_of_call_block cb)
       in
       let process_instruction ~current_idx instr =
         match lower_instruction ~current_idx instr with

@@ -41,38 +41,38 @@ module Raw = struct
     | X28
     | X29
     | X30
-    | V0
-    | V1
-    | V2
-    | V3
-    | V4
-    | V5
-    | V6
-    | V7
-    | V8
-    | V9
-    | V10
-    | V11
-    | V12
-    | V13
-    | V14
-    | V15
-    | V16
-    | V17
-    | V18
-    | V19
-    | V20
-    | V21
-    | V22
-    | V23
-    | V24
-    | V25
-    | V26
-    | V27
-    | V28
-    | V29
-    | V30
-    | V31
+    | D0
+    | D1
+    | D2
+    | D3
+    | D4
+    | D5
+    | D6
+    | D7
+    | D8
+    | D9
+    | D10
+    | D11
+    | D12
+    | D13
+    | D14
+    | D15
+    | D16
+    | D17
+    | D18
+    | D19
+    | D20
+    | D21
+    | D22
+    | D23
+    | D24
+    | D25
+    | D26
+    | D27
+    | D28
+    | D29
+    | D30
+    | D31
     | Unallocated of Var.t
     | Allocated of Var.t * t option
   [@@deriving sexp, equal, compare, hash, variants]
@@ -110,38 +110,38 @@ module Raw = struct
     ; X28
     ; X29
     ; X30
-    ; V0
-    ; V1
-    ; V2
-    ; V3
-    ; V4
-    ; V5
-    ; V6
-    ; V7
-    ; V8
-    ; V9
-    ; V10
-    ; V11
-    ; V12
-    ; V13
-    ; V14
-    ; V15
-    ; V16
-    ; V17
-    ; V18
-    ; V19
-    ; V20
-    ; V21
-    ; V22
-    ; V23
-    ; V24
-    ; V25
-    ; V26
-    ; V27
-    ; V28
-    ; V29
-    ; V30
-    ; V31
+    ; D0
+    ; D1
+    ; D2
+    ; D3
+    ; D4
+    ; D5
+    ; D6
+    ; D7
+    ; D8
+    ; D9
+    ; D10
+    ; D11
+    ; D12
+    ; D13
+    ; D14
+    ; D15
+    ; D16
+    ; D17
+    ; D18
+    ; D19
+    ; D20
+    ; D21
+    ; D22
+    ; D23
+    ; D24
+    ; D25
+    ; D26
+    ; D27
+    ; D28
+    ; D29
+    ; D30
+    ; D31
     ]
   ;;
 
@@ -159,38 +159,38 @@ module Raw = struct
   let phys_reg_limit = List.length all_physical
 
   let rec class_ = function
-    | V0
-    | V1
-    | V2
-    | V3
-    | V4
-    | V5
-    | V6
-    | V7
-    | V8
-    | V9
-    | V10
-    | V11
-    | V12
-    | V13
-    | V14
-    | V15
-    | V16
-    | V17
-    | V18
-    | V19
-    | V20
-    | V21
-    | V22
-    | V23
-    | V24
-    | V25
-    | V26
-    | V27
-    | V28
-    | V29
-    | V30
-    | V31 -> `Physical Class.F64
+    | D0
+    | D1
+    | D2
+    | D3
+    | D4
+    | D5
+    | D6
+    | D7
+    | D8
+    | D9
+    | D10
+    | D11
+    | D12
+    | D13
+    | D14
+    | D15
+    | D16
+    | D17
+    | D18
+    | D19
+    | D20
+    | D21
+    | D22
+    | D23
+    | D24
+    | D25
+    | D26
+    | D27
+    | D28
+    | D29
+    | D30
+    | D31 -> `Physical Class.F64
     | Allocated (_, Some forced) -> class_ forced
     | SP
     | X0
@@ -260,38 +260,38 @@ module Raw = struct
     | X28 -> 29
     | X29 -> 30
     | X30 -> 31
-    | V0 -> 32
-    | V1 -> 33
-    | V2 -> 34
-    | V3 -> 35
-    | V4 -> 36
-    | V5 -> 37
-    | V6 -> 38
-    | V7 -> 39
-    | V8 -> 40
-    | V9 -> 41
-    | V10 -> 42
-    | V11 -> 43
-    | V12 -> 44
-    | V13 -> 45
-    | V14 -> 46
-    | V15 -> 47
-    | V16 -> 48
-    | V17 -> 49
-    | V18 -> 50
-    | V19 -> 51
-    | V20 -> 52
-    | V21 -> 53
-    | V22 -> 54
-    | V23 -> 55
-    | V24 -> 56
-    | V25 -> 57
-    | V26 -> 58
-    | V27 -> 59
-    | V28 -> 60
-    | V29 -> 61
-    | V30 -> 62
-    | V31 -> 63
+    | D0 -> 32
+    | D1 -> 33
+    | D2 -> 34
+    | D3 -> 35
+    | D4 -> 36
+    | D5 -> 37
+    | D6 -> 38
+    | D7 -> 39
+    | D8 -> 40
+    | D9 -> 41
+    | D10 -> 42
+    | D11 -> 43
+    | D12 -> 44
+    | D13 -> 45
+    | D14 -> 46
+    | D15 -> 47
+    | D16 -> 48
+    | D17 -> 49
+    | D18 -> 50
+    | D19 -> 51
+    | D20 -> 52
+    | D21 -> 53
+    | D22 -> 54
+    | D23 -> 55
+    | D24 -> 56
+    | D25 -> 57
+    | D26 -> 58
+    | D27 -> 59
+    | D28 -> 60
+    | D29 -> 61
+    | D30 -> 62
+    | D31 -> 63
     | Unallocated var | Allocated (var, _) -> phys_reg_limit + var_id var
   ;;
 
@@ -329,38 +329,38 @@ module Raw = struct
     | 29 -> x28
     | 30 -> x29
     | 31 -> x30
-    | 32 -> v0
-    | 33 -> v1
-    | 34 -> v2
-    | 35 -> v3
-    | 36 -> v4
-    | 37 -> v5
-    | 38 -> v6
-    | 39 -> v7
-    | 40 -> v8
-    | 41 -> v9
-    | 42 -> v10
-    | 43 -> v11
-    | 44 -> v12
-    | 45 -> v13
-    | 46 -> v14
-    | 47 -> v15
-    | 48 -> v16
-    | 49 -> v17
-    | 50 -> v18
-    | 51 -> v19
-    | 52 -> v20
-    | 53 -> v21
-    | 54 -> v22
-    | 55 -> v23
-    | 56 -> v24
-    | 57 -> v25
-    | 58 -> v26
-    | 59 -> v27
-    | 60 -> v28
-    | 61 -> v29
-    | 62 -> v30
-    | 63 -> v31
+    | 32 -> d0
+    | 33 -> d1
+    | 34 -> d2
+    | 35 -> d3
+    | 36 -> d4
+    | 37 -> d5
+    | 38 -> d6
+    | 39 -> d7
+    | 40 -> d8
+    | 41 -> d9
+    | 42 -> d10
+    | 43 -> d11
+    | 44 -> d12
+    | 45 -> d13
+    | 46 -> d14
+    | 47 -> d15
+    | 48 -> d16
+    | 49 -> d17
+    | 50 -> d18
+    | 51 -> d19
+    | 52 -> d20
+    | 53 -> d21
+    | 54 -> d22
+    | 55 -> d23
+    | 56 -> d24
+    | 57 -> d25
+    | 58 -> d26
+    | 59 -> d27
+    | 60 -> d28
+    | 61 -> d29
+    | 62 -> d30
+    | 63 -> d31
     | other ->
       let id = other - phys_reg_limit in
       unallocated (id_var id)
@@ -428,55 +428,55 @@ let x27 = gp Raw.X27
 let x28 = gp Raw.X28
 let x29 = fp
 let x30 = lr
-let v0 = vec Raw.V0
-let v1 = vec Raw.V1
-let v2 = vec Raw.V2
-let v3 = vec Raw.V3
-let v4 = vec Raw.V4
-let v5 = vec Raw.V5
-let v6 = vec Raw.V6
-let v7 = vec Raw.V7
-let v8 = vec Raw.V8
-let v9 = vec Raw.V9
-let v10 = vec Raw.V10
-let v11 = vec Raw.V11
-let v12 = vec Raw.V12
-let v13 = vec Raw.V13
-let v14 = vec Raw.V14
-let v15 = vec Raw.V15
-let v16 = vec Raw.V16
-let v17 = vec Raw.V17
-let v18 = vec Raw.V18
-let v19 = vec Raw.V19
-let v20 = vec Raw.V20
-let v21 = vec Raw.V21
-let v22 = vec Raw.V22
-let v23 = vec Raw.V23
-let v24 = vec Raw.V24
-let v25 = vec Raw.V25
-let v26 = vec Raw.V26
-let v27 = vec Raw.V27
-let v28 = vec Raw.V28
-let v29 = vec Raw.V29
-let v30 = vec Raw.V30
-let v31 = vec Raw.V31
+let d0 = vec Raw.D0
+let d1 = vec Raw.D1
+let d2 = vec Raw.D2
+let d3 = vec Raw.D3
+let d4 = vec Raw.D4
+let d5 = vec Raw.D5
+let d6 = vec Raw.D6
+let d7 = vec Raw.D7
+let d8 = vec Raw.D8
+let d9 = vec Raw.D9
+let d10 = vec Raw.D10
+let d11 = vec Raw.D11
+let d12 = vec Raw.D12
+let d13 = vec Raw.D13
+let d14 = vec Raw.D14
+let d15 = vec Raw.D15
+let d16 = vec Raw.D16
+let d17 = vec Raw.D17
+let d18 = vec Raw.D18
+let d19 = vec Raw.D19
+let d20 = vec Raw.D20
+let d21 = vec Raw.D21
+let d22 = vec Raw.D22
+let d23 = vec Raw.D23
+let d24 = vec Raw.D24
+let d25 = vec Raw.D25
+let d26 = vec Raw.D26
+let d27 = vec Raw.D27
+let d28 = vec Raw.D28
+let d29 = vec Raw.D29
+let d30 = vec Raw.D30
+let d31 = vec Raw.D31
 
 let arguments ~(call_conv : Call_conv.t) (class_ : Class.t) =
   match class_, call_conv with
   | I64, Default -> [ x0; x1; x2; x3; x4; x5; x6; x7 ]
-  | F64, Default -> [ v0; v1; v2; v3; v4; v5; v6; v7 ]
+  | F64, Default -> [ d0; d1; d2; d3; d4; d5; d6; d7 ]
 ;;
 
 let callee_saved ~(call_conv : Call_conv.t) (class_ : Class.t) =
   match class_, call_conv with
   | I64, Default -> [ x19; x20; x21; x22; x23; x24; x25; x26; x27; x28; fp ]
-  | F64, Default -> [ v8; v9; v10; v11; v12; v13; v14; v15 ]
+  | F64, Default -> [ d8; d9; d10; d11; d12; d13; d14; d15 ]
 ;;
 
 let results ~(call_conv : Call_conv.t) (class_ : Class.t) =
   match class_, call_conv with
   | I64, Default -> [ x0; x1 ]
-  | F64, Default -> [ v0; v1 ]
+  | F64, Default -> [ d0; d1 ]
 ;;
 
 let all_physical =
@@ -519,38 +519,38 @@ let allocable ~class_ =
     ; x28
     ]
   | Class.F64 ->
-    [ v0
-    ; v1
-    ; v2
-    ; v3
-    ; v4
-    ; v5
-    ; v6
-    ; v7
-    ; v8
-    ; v9
-    ; v10
-    ; v11
-    ; v12
-    ; v13
-    ; v14
-    ; v15
-    ; v16
-    ; v17
-    ; v18
-    ; v19
-    ; v20
-    ; v21
-    ; v22
-    ; v23
-    ; v24
-    ; v25
-    ; v26
-    ; v27
-    ; v28
-    ; v29
-    ; v30
-    ; v31
+    [ d0
+    ; d1
+    ; d2
+    ; d3
+    ; d4
+    ; d5
+    ; d6
+    ; d7
+    ; d8
+    ; d9
+    ; d10
+    ; d11
+    ; d12
+    ; d13
+    ; d14
+    ; d15
+    ; d16
+    ; d17
+    ; d18
+    ; d19
+    ; d20
+    ; d21
+    ; d22
+    ; d23
+    ; d24
+    ; d25
+    ; d26
+    ; d27
+    ; d28
+    ; d29
+    ; d30
+    ; d31
     ]
 ;;
 
