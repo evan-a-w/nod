@@ -368,7 +368,7 @@ root(%init:i64) {
     ; {|
 first(%x:i64) {
     add %one:i64, %x, 1
-    call fourth(%one, %x) -> %fourth:i64
+ call fourth(%one, %x) -> %fourth:i64
     ret %fourth
 }
 |}
