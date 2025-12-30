@@ -486,6 +486,12 @@ let all_physical =
     | `Variable -> failwith "raw register should be physical")
 ;;
 
+let scratch ~class_ =
+  match class_ with
+  | Class.I64 -> [ x14; x15; x16 ]
+  | Class.F64 -> [ d29; d30; d31 ]
+;;
+
 let allocable ~class_ =
   match class_ with
   | Class.I64 ->
@@ -503,9 +509,6 @@ let allocable ~class_ =
     ; x11
     ; x12
     ; x13
-    ; x14
-    ; x15
-    ; x16
     ; x17
     ; x19
     ; x20
@@ -548,9 +551,6 @@ let allocable ~class_ =
     ; d26
     ; d27
     ; d28
-    ; d29
-    ; d30
-    ; d31
     ]
 ;;
 
