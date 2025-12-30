@@ -103,8 +103,8 @@ let string_of_operand = function
   | Mem (reg, disp) -> string_of_mem reg disp
 ;;
 
-let gpr_scratch_pool = [ Reg.x16; Reg.x17; Reg.x15; Reg.x14 ]
-let fpr_scratch_pool = [ Reg.d31; Reg.d30; Reg.d29 ]
+let gpr_scratch_pool = Arm64_reg.scratch ~class_:I64
+let fpr_scratch_pool = Arm64_reg.scratch ~class_:F64
 
 let rec pick_scratch pool avoid =
   match pool with
@@ -367,11 +367,31 @@ let run ~system (functions : Function.t String.Map.t) =
                 (string_of_jump_target target)
             ]
         | Comp { kind; lhs; rhs } ->
-          let lhs = string_of_operand lhs in
+          let lhs_s = string_of_operand lhs in
           let rhs = string_of_operand rhs in
           (match kind with
-           | Comp_kind.Int -> `Emit [ sprintf "cmp %s, %s" lhs rhs ]
-           | Float -> `Emit [ sprintf "fcmp %s, %s" lhs rhs ])
+           | Comp_kind.Int ->
+             (match lhs with
+              | Reg _ -> `Emit [ sprintf "cmp %s, %s" lhs_s rhs ]
+              | _ ->
+                let scratch =
+                  Reg (pick_scratch gpr_scratch_pool []) |> string_of_operand
+                in
+                `Emit
+                  [ sprintf "mov %s, %s" scratch lhs_s
+                  ; sprintf "cmp %s, %s" scratch rhs
+                  ])
+           | Float ->
+             (match lhs with
+              | Reg _ -> `Emit [ sprintf "fcmp %s, %s" lhs_s rhs ]
+              | _ ->
+                let scratch =
+                  Reg (pick_scratch fpr_scratch_pool []) |> string_of_operand
+                in
+                `Emit
+                  [ sprintf "fmov %s, %s" scratch lhs_s
+                  ; sprintf "fcmp %s, %s" scratch rhs
+                  ]))
         | Conditional_branch { condition; then_; else_ } ->
           `Branch (condition, then_, else_)
         | Jump cb ->
