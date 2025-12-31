@@ -35,38 +35,50 @@ module Lit_or_var = struct
 end
 
 module Mem = struct
+  type address =
+    { base : Lit_or_var.t
+    ; offset : int
+    }
+  [@@deriving sexp, compare, equal, hash]
+
   type t =
     | Stack_slot of int (* bytes *)
-    | Lit_or_var of Lit_or_var.t
+    | Address of address
   [@@deriving sexp, compare, equal, hash]
 
   let vars = function
-    | Lit_or_var l -> Lit_or_var.vars l
+    | Address { base; _ } -> Lit_or_var.vars base
     | Stack_slot _ -> []
   ;;
 
   let map_vars t ~f =
     match t with
-    | Lit_or_var l -> Lit_or_var (Lit_or_var.map_vars l ~f)
+    | Address { base; offset } -> Address { base = Lit_or_var.map_vars base ~f; offset }
     | Stack_slot _ -> t
   ;;
 
   let map_lit_or_vars t ~f =
     match t with
-    | Lit_or_var l -> Lit_or_var (f l)
+    | Address { base; offset } -> Address { base = f base; offset }
     | Stack_slot _ -> t
   ;;
 
+  let address ?(offset = 0) base = Address { base; offset }
+
   let to_x86_ir_operand t : X86_ir.operand =
     match t with
-    | Lit_or_var l -> Lit_or_var.to_x86_ir_operand l
+    | Address { base = Lit_or_var.Var v; offset } -> Mem (X86_reg.unallocated v, offset)
     | Stack_slot i -> Mem (X86_reg.rbp, i)
+    | Address { base = Lit_or_var.Lit _; _ } ->
+      failwith "cannot convert literal address without lowering"
   ;;
 
-  let to_arm64_ir_operand t : Arm64_ir.operand =
-    match t with
-    | Lit_or_var l -> Lit_or_var.to_arm64_ir_operand l
+  let to_arm64_ir_operand = function
     | Stack_slot i -> Arm64_ir.Mem (Arm64_reg.fp, i)
+    | Address { base = Lit_or_var.Var v; offset } ->
+      Arm64_ir.Mem (Arm64_reg.unallocated v, offset)
+    | Address { base = Lit_or_var.Lit _; _ } ->
+      failwith "cannot convert literal address without lowering"
   ;;
 end
 

@@ -193,28 +193,28 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre, mem_op =
       match mem with
       | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
-      | Ir.Mem.Lit_or_var (Var v) ->
+      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
         let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, 0)
-      | Ir.Mem.Lit_or_var (Lit addr) ->
+        [], Mem (base, offset)
+      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
         let tmp_addr =
           Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
         in
-        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
+        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, offset)
     in
     pre @ [ mov (reg v) mem_op ]
   | Store (lit_or_var, mem) ->
     let pre, mem_op =
       match mem with
       | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
-      | Ir.Mem.Lit_or_var (Var v) ->
+      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
         let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, 0)
-      | Ir.Mem.Lit_or_var (Lit addr) ->
+        [], Mem (base, offset)
+      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
         let tmp_addr =
           Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
         in
-        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
+        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, offset)
     in
     pre @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul

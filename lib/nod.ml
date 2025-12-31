@@ -123,10 +123,11 @@ let host_arch = lazy (architecture ())
 
 let use_qemu_arm64 =
   lazy
-    (Array.find
-       (Core_unix.environment ())
-       ~f:(String.is_prefix ~prefix:"USE_QEMU_ARM64")
-     |> Option.is_some)
+    (Std.Sys.command "which qemu-aarch64 > /dev/null" = 0
+     || Array.find
+          (Core_unix.environment ())
+          ~f:(String.is_prefix ~prefix:"USE_QEMU_ARM64")
+        |> Option.is_some)
 ;;
 
 let compile_and_lower_functions
