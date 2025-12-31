@@ -206,6 +206,36 @@ ret %result
     "64"
 ;;
 
+let%expect_test "load_field/store_field execute" =
+  check_program
+    {|
+alloca %buf:ptr, (i64, f64)
+store_field %buf, 123, (i64, f64), 0
+load_field %result:i64, %buf, (i64, f64), 0
+ret %result
+|}
+    "123"
+;;
+
+let%expect_test "memcpy executes for nested aggregate" =
+  check_program
+    {|
+alloca %src:ptr, (i64, (i64, i64))
+alloca %dst:ptr, (i64, (i64, i64))
+store_field %src, 5, (i64, (i64, i64)), 0
+store_field %src, 6, (i64, (i64, i64)), 1, 0
+store_field %src, 7, (i64, (i64, i64)), 1, 1
+memcpy %dst, %src, (i64, (i64, i64))
+load_field %a:i64, %dst, (i64, (i64, i64)), 0
+load_field %b:i64, %dst, (i64, (i64, i64)), 1, 0
+load_field %c:i64, %dst, (i64, (i64, i64)), 1, 1
+add %tmp:i64, %a, %b
+add %sum:i64, %tmp, %c
+ret %sum
+|}
+    "18"
+;;
+
 (* Float arithmetic tests *)
 
 let%expect_test "basic float addition" =
