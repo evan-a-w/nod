@@ -242,6 +242,26 @@ let%expect_test "memcpy expands to loads and stores" =
   [%expect {| OK |}]
 ;;
 
+let%expect_test "alloca sizeof tuple" =
+  test
+    {|
+    alloca %buf:ptr, sizeof[(i64, f64)]
+    return %buf
+  |};
+  [%expect {| OK |}]
+;;
+
+let%expect_test "sizeof works in arithmetic" =
+  test
+    {|
+    alloca %buf:ptr, sizeof[(i64, f64)]
+    add %ptr:ptr, %buf, sizeof[i64]
+    sub %diff:i64, %ptr, %buf
+    return %diff
+  |};
+  [%expect {| OK |}]
+;;
+
 (* All arithmetic operations with integers *)
 
 let%expect_test "sub i64" =

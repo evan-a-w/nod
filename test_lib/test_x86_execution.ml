@@ -236,6 +236,17 @@ ret %sum
     "18"
 ;;
 
+let%expect_test "sizeof literal used in pointer arithmetic" =
+  check_program
+    {|
+alloca %buf:ptr, sizeof[(i64, i64)]
+add %ptr:ptr, %buf, sizeof[i64]
+sub %diff:i64, %ptr, %buf
+ret %diff
+|}
+    "8"
+;;
+
 (* Float arithmetic tests *)
 
 let%expect_test "basic float addition" =

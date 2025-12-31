@@ -174,6 +174,29 @@ memcpy %ptr, %ptr, (i64, (f64, i32))
     |}]
 ;;
 
+let%expect_test "sizeof literal" =
+  {|
+mov %a:i64, sizeof[i64]
+alloca %buf:ptr, sizeof[(i64, f64)]
+ret %a
+|}
+  |> test;
+  [%expect
+    {|
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move ((name a) (type_ I64)) (Lit 8))
+             (Alloca ((dest ((name buf) (type_ Ptr))) (size (Lit 16))))
+             (Return (Var ((name a) (type_ I64))))))))
+         (~labels (%root))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+    |}]
+;;
+
 let%expect_test "all examples" =
   List.iter Examples.Textual.all ~f:(fun s ->
     print_endline "---------------------------------";
