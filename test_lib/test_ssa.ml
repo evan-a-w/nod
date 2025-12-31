@@ -33,13 +33,13 @@ let%expect_test "funs" =
     {| a(%x:i64, %y:i64, %z:i64) {add %a:i64, %x, %y add %a, %a, %z return %a} |};
   [%expect
     {|
-    Error: errors in choices `Error: unexpected token (Ident a) at ((line 0)(col 1)(file""))
-    , Error: unknown instruction 'a'
+    Error: errors in choices `Error: unknown instruction 'a'
+    , Error: unexpected token (Ident a) at ((line 0)(col 1)(file""))
     `
 
     =================================
-    Error: errors in choices `Error: unexpected token (Ident a) at ((line 0)(col 1)(file""))
-    , Error: unknown instruction 'a'
+    Error: errors in choices `Error: unknown instruction 'a'
+    , Error: unexpected token (Ident a) at ((line 0)(col 1)(file""))
     `
     |}]
 ;;

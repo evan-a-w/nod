@@ -46,7 +46,7 @@ let%expect_test "alloca passed to child; child loads value" =
     in
     Vec.push
       child_root.instructions
-      (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
@@ -60,7 +60,7 @@ let%expect_test "alloca passed to child; child loads value" =
       root_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 41L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
     Vec.push
       root_root.instructions
       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
@@ -83,7 +83,7 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
       child_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 99L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     Vec.push child_root.instructions (Ir.move child_ret (Ir.Lit_or_var.Lit 0L));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
@@ -101,13 +101,13 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
       root_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 1L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
     Vec.push
       root_root.instructions
       (Ir.call ~fn:"child" ~results:[ tmp ] ~args:[ Ir.Lit_or_var.Var slot ]);
     Vec.push
       root_root.instructions
-      (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
     let root = make_fn ~name:"root" ~args:[] ~root:root_root in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
@@ -125,7 +125,7 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
     in
     Vec.push
       child_root.instructions
-      (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let base = Var.create ~name:"base" ~type_:Type.Ptr in
     let elem1 = Var.create ~name:"elem1" ~type_:Type.Ptr in
@@ -141,7 +141,7 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
       root_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 7L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var base)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var base)));
     Vec.push
       root_root.instructions
       (Ir.add
@@ -153,7 +153,7 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
       root_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 123L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var elem1)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var elem1)));
     Vec.push
       root_root.instructions
       (Ir.call ~fn:"child" ~results:[ tmp ] ~args:[ Ir.Lit_or_var.Var elem1 ]);
