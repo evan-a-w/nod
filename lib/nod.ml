@@ -25,11 +25,24 @@ module X86_backend = Nod_x86_backend.X86_backend
 module Arm64_backend = Nod_arm64_backend.Arm64_backend
 module Examples = Nod_examples.Examples
 
-let architecture () : [ `Arm64 | `X86_64 | `Other ] =
-  match Core_unix.uname () |> Core_unix.Utsname.machine |> String.lowercase with
+type arch =
+  [ `Arm64
+  | `X86_64
+  | `Other
+  ]
+
+let parse_arch s : arch =
+  match s with
   | "x86_64" | "amd64" -> `X86_64
   | "arm64" | "aarch64" -> `Arm64
   | _ -> `Other
+;;
+
+let architecture () : arch =
+  Core_unix.uname ()
+  |> Core_unix.Utsname.machine
+  |> String.lowercase
+  |> parse_arch
 ;;
 
 let only_on_arch arch f = if Poly.(architecture () = arch) then f () else ()
@@ -108,6 +121,14 @@ let host_system =
 
 let host_arch = lazy (architecture ())
 
+let use_qemu_arm64 =
+  lazy
+    (Array.find
+       (Core_unix.environment ())
+       ~f:(String.is_prefix ~prefix:"USE_QEMU_ARM64")
+     |> Option.is_some)
+;;
+
 let compile_and_lower_functions
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
@@ -149,23 +170,29 @@ let compile_and_execute
   let compiler =
     match system with
     | `Darwin -> "clang"
-    | `Linux | `Other -> "gcc"
+    | `Linux | `Other -> "clang"
   in
   let arch_args =
-    match arch, system with
-    | `X86_64, `Darwin ->
+    match host_architecture, arch, system with
+    | `Arm64, `X86_64, `Darwin ->
       [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
-    | `Arm64, `Darwin -> [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
+    | `Arm64, `Arm64, `Darwin ->
+      [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
+    | `X86_64, `Arm64, `Linux when Lazy.force use_qemu_arm64 ->
+      [ "--target=aarch64-linux-gnu" ]
     | _ -> []
   in
   let run_shell_runtime ?cwd command =
-    if use_rosetta
-    then (
+    match host_architecture, arch, system with
+    | `Arm64, `X86_64, `Darwin when use_rosetta ->
       let command =
         quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
       in
-      run_shell_exn ?cwd command)
-    else run_shell_exn ?cwd command
+      run_shell_exn ?cwd command
+    | `X86_64, `Arm64, `Linux when Lazy.force use_qemu_arm64 ->
+      let command = quote_command "qemu-aarch64" [ "bash"; "-lc"; command ] in
+      run_shell_exn ?cwd command
+    | _ -> run_shell_exn ?cwd command
   in
   Exn.protect
     ~f:(fun () ->
@@ -177,6 +204,7 @@ let compile_and_execute
        | `X86_64, `X86_64 -> ()
        | `X86_64, `Arm64 when use_rosetta -> ()
        | `Arm64, `Arm64 -> ()
+       | `Arm64, `X86_64 when Lazy.force use_qemu_arm64 -> ()
        | _ -> failwith "execution is not supported on this host");
       run_shell_exn
         ~cwd:temp_dir

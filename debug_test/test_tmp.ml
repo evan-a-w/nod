@@ -192,33 +192,6 @@ let%expect_test "alloca passed to child; child loads value" =
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   run_functions (String.Map.of_alist_exn [ "root", root; "child", child ]) "41"
-[@@expect.uncaught_exn
-  {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Failure
-    "command failed (139): cd 'nod-exec-ir.tmp.iRNx9g' && './program' > 'stdout.txt'")
-  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
-  Called from Nod.run_shell_exn in file "lib/nod.ml", line 96, characters 12-69
-  Called from Nod_debug_test__Test_tmp.(fun).execute_functions.(fun) in file "debug_test/test_tmp.ml", lines 141-146, characters 8-178
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 57, characters 8-11
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 70, characters 26-49
-  Called from Nod_debug_test__Test_tmp.(fun).execute_functions in file "debug_test/test_tmp.ml", lines 121-150, characters 4-1186
-  Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 33, characters 2-50
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 64, characters 13-49
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 70, characters 26-49
-  Called from Nod_debug_test__Test_tmp.(fun).execute_functions in file "debug_test/test_tmp.ml", lines 121-150, characters 4-1186
-  Called from Nod_debug_test__Test_tmp.(fun).run_functions.(fun) in file "debug_test/test_tmp.ml", line 155, characters 21-63
-  Called from Base__List0.iter.loop in file "src/list0.ml" (inlined), line 99, characters 6-9
-  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 102, characters 2-11
-  Called from Nod_debug_test__Test_tmp.(fun).run_functions in file "debug_test/test_tmp.ml", lines 153-164, characters 4-387
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
-
-  Trailing output
-  ---------------
-  sh: line 1: 47696 Segmentation fault: 11  './program' > 'stdout.txt'
-  |}]
 ;;
 
 let%expect_test "print helper" =
