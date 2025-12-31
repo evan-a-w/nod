@@ -152,14 +152,29 @@ let compile_and_lower
   | Ok functions -> compile_and_lower_functions ~arch ~system functions
 ;;
 
-let compile_and_execute
+let qemu_aarch64_ld_prefix =
+  lazy
+    (let candidates =
+       [ Std.Sys.getenv_opt "QEMU_AARCH64_LD_PREFIX"
+       ; Some "/usr/aarch64-linux-gnu"
+       ]
+     in
+     List.filter_opt candidates
+     |> List.find ~f:(fun dir ->
+       try
+         match (Core_unix.stat dir).st_kind with
+         | Core_unix.S_DIR -> true
+         | _ -> false
+       with
+       | _ -> false))
+;;
+
+let execute_asm
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
   ?(harness = harness_source)
-  ?(opt_flags = Eir.Opt_flags.no_opt)
-  program
+  asm
   =
-  let asm = compile_and_lower ~arch ~system ~opt_flags program in
   let temp_dir = Core_unix.mkdtemp "nod-exec" in
   let host_architecture = Lazy.force host_arch in
   let use_rosetta =
@@ -190,7 +205,14 @@ let compile_and_execute
       in
       run_shell_exn ?cwd command
     | `X86_64, `Arm64, `Linux when Lazy.force use_qemu_arm64 ->
-      let command = quote_command "qemu-aarch64" [ "bash"; "-lc"; command ] in
+      let qemu_args =
+        match Lazy.force qemu_aarch64_ld_prefix with
+        | None -> []
+        | Some dir -> [ "-L"; dir ]
+      in
+      let command =
+        sprintf "%s %s" (quote_command "qemu-aarch64" qemu_args) command
+      in
       run_shell_exn ?cwd command
     | _ -> run_shell_exn ?cwd command
   in
@@ -225,4 +247,15 @@ let compile_and_execute
     ~finally:(fun () ->
       let _ = Std.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
       ())
+;;
+
+let compile_and_execute
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(harness = harness_source)
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  =
+  let asm = compile_and_lower ~arch ~system ~opt_flags program in
+  execute_asm ~arch ~system ~harness asm
 ;;
