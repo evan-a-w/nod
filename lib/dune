@@ -11,6 +11,7 @@
   vec
   feel
   nod_x86_backend
+  nod_arm64_backend
   nod_examples)
  (flags
   (:standard -extension-universe beta)))
