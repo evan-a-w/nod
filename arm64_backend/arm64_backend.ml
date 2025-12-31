@@ -108,7 +108,7 @@ module For_testing = struct
   let compute_assignments (fn : Function.t) =
     let var_classes = Regalloc.collect_var_classes fn.root in
     let class_of_var var =
-      Hashtbl.find var_classes var |> Option.value ~default:X86_reg.Class.I64
+      Hashtbl.find var_classes var |> Option.value ~default:Reg.Class.I64
     in
     let reg_numbering = Reg_numbering.create fn.root in
     let (module Calc_liveness) =
@@ -122,7 +122,7 @@ module For_testing = struct
         ~root:fn.root
     in
     let ~assignments, ~don't_spill = Regalloc.initialize_assignments fn.root in
-    List.iter [ X86_reg.Class.I64; X86_reg.Class.F64 ] ~f:(fun class_ ->
+    List.iter [ Reg.Class.I64; Reg.Class.F64 ] ~f:(fun class_ ->
       Regalloc.run_sat
         ~dump_crap:false
         ~reg_numbering

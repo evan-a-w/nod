@@ -1,24 +1,35 @@
 open! Core
 open! Import
 
+let check_program ?harness ?opt_flags program expected =
+  List.iter test_architectures ~f:(fun arch ->
+    let output =
+      compile_and_execute_on_arch arch ?harness ?opt_flags program
+    in
+    if not (String.equal output expected)
+    then
+      failwithf
+        "arch %s produced %s, expected %s"
+        (arch_to_string arch)
+        output
+        expected
+        ())
+;;
+
 let%expect_test "simple execution" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 mov %a:i64, 5
 mov %b:i64, 7
 add %res:i64, %a, %b
 ret %res
 |}
-  in
-  print_endline output;
-  [%expect {| 12 |}]
+    "12"
 ;;
 
 let%expect_test "branch execution" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 mov %cond:i64, 3
 sub %cond:i64, %cond, 3
 branch %cond, nonzero, zero
@@ -31,47 +42,38 @@ zero:
   mov %value:i64, 42
   ret %value
 |}
-  in
-  print_endline output;
-  [%expect {|42|}]
+    "42"
 ;;
 
 let%expect_test "recursive fib" =
-  let output =
-    compile_and_execute
-      ~harness:
-        (make_harness_source
-           ~fn_name:"fib"
-           ~fn_arg_type:"int64_t"
-           ~fn_arg:"6"
-           ())
-      Examples.Textual.fib_recursive
-  in
-  print_endline output;
-  [%expect {| 13 |}]
+  check_program
+    ~harness:
+      (make_harness_source
+         ~fn_name:"fib"
+         ~fn_arg_type:"int64_t"
+         ~fn_arg:"6"
+         ())
+    Examples.Textual.fib_recursive
+    "13"
 ;;
 
 (* Pointer arithmetic tests *)
 
 let%expect_test "basic pointer arithmetic - adding offset" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %base:ptr, 64
 mov %offset:i64, 8
 add %ptr:ptr, %base, %offset
 sub %result:i64, %ptr, %base
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 8 |}]
+    "8"
 ;;
 
 let%expect_test "pointer arithmetic - array indexing" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %array:ptr, 80
 mov %idx:i64, 3
 mul %byte_offset:i64, %idx, 8
@@ -79,15 +81,12 @@ add %element_ptr:ptr, %array, %byte_offset
 sub %result:i64, %element_ptr, %array
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 24 |}]
+    "24"
 ;;
 
 let%expect_test "pointer arithmetic - multiple operations" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %buf:ptr, 100
 add %p1:ptr, %buf, 10
 add %p2:ptr, %p1, 15
@@ -95,15 +94,12 @@ add %p3:ptr, %p2, 5
 sub %total_offset:i64, %p3, %buf
 ret %total_offset
 |}
-  in
-  print_endline output;
-  [%expect {| 30 |}]
+    "30"
 ;;
 
 let%expect_test "pointer arithmetic in loop" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %array:ptr, 80
 mov %i:i64, 0
 mov %sum:i64, 0
@@ -119,30 +115,24 @@ loop:
 done:
   ret %sum
 |}
-  in
-  print_endline output;
-  [%expect {| 45 |}]
+    "45"
 ;;
 
 let%expect_test "pointer arithmetic - subtracting from pointer" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %buf:ptr, 100
 add %end:ptr, %buf, 50
 sub %middle:ptr, %end, 25
 sub %result:i64, %middle, %buf
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 25 |}]
+    "25"
 ;;
 
 let%expect_test "pointer arithmetic - complex calculation" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %data:ptr, 200
 mov %base_idx:i64, 5
 mul %base_offset:i64, %base_idx, 8
@@ -153,30 +143,24 @@ add %final_ptr:ptr, %base_ptr, %extra_offset
 sub %total:i64, %final_ptr, %data
 ret %total
 |}
-  in
-  print_endline output;
-  [%expect {| 64 |}]
+    "64"
 ;;
 
 let%expect_test "alloca with dynamic size" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 mov %size:i64, 32
 alloca %buf:ptr, %size
 add %end:ptr, %buf, %size
 sub %actual_size:i64, %end, %buf
 ret %actual_size
 |}
-  in
-  print_endline output;
-  [%expect {| 32 |}]
+    "32"
 ;;
 
 let%expect_test "nested pointer arithmetic" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %outer:ptr, 128
 mov %outer_idx:i64, 2
 mul %outer_off:i64, %outer_idx, 16
@@ -187,15 +171,12 @@ add %element:ptr, %inner_base, %inner_off
 sub %total_off:i64, %element, %outer
 ret %total_off
 |}
-  in
-  print_endline output;
-  [%expect {| 56 |}]
+    "56"
 ;;
 
 let%expect_test "pointer arithmetic with mixed operations" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 alloca %arr:ptr, 100
 mov %a:i64, 10
 mov %b:i64, 20
@@ -206,15 +187,12 @@ sub %ptr2:ptr, %ptr1, %diff
 sub %result:i64, %ptr2, %arr
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 20 |}]
+    "20"
 ;;
 
 let%expect_test "pointer arithmetic - boundary calculation" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 mov %size:i64, 64
 alloca %buffer:ptr, %size
 add %ptr:ptr, %buffer, 0
@@ -225,103 +203,83 @@ mul %result:i64, %at_start, 100
 add %result:i64, %result, %range
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 64 |}]
+    "64"
 ;;
 
 (* Float arithmetic tests *)
 
 let%expect_test "basic float addition" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %x:f64, 3
 cast %y:f64, 7
 fadd %sum:f64, %x, %y
 cast %result:i64, %sum
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 10 |}]
+    "10"
 ;;
 
 let%expect_test "float subtraction" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %x:f64, 10
 cast %y:f64, 3
 fsub %diff:f64, %x, %y
 cast %result:i64, %diff
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 7 |}]
+    "7"
 ;;
 
 let%expect_test "float multiplication" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %x:f64, 3
 cast %y:f64, 4
 fmul %prod:f64, %x, %y
 cast %result:i64, %prod
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 12 |}]
+    "12"
 ;;
 
 let%expect_test "float division" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %x:f64, 20
 cast %y:f64, 4
 fdiv %quot:f64, %x, %y
 cast %result:i64, %quot
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 5 |}]
+    "5"
 ;;
 
 let%expect_test "cast i64 to f64 and back" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 mov %i:i64, 42
 cast %f:f64, %i
 cast %result:i64, %f
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 42 |}]
+    "42"
 ;;
 
 let%expect_test "cast with float literal to i64" =
-  let output =
-    compile_and_execute {|
+  check_program
+    {|
 cast %f:f64, 7
 cast %i:i64, %f
 ret %i
 |}
-  in
-  print_endline output;
-  [%expect {| 7 |}]
+    "7"
 ;;
 
 let%expect_test "complex float calculation" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %a:f64, 10
 cast %b:f64, 5
 fadd %sum:f64, %a, %b
@@ -330,30 +288,24 @@ fmul %product:f64, %sum, %diff
 cast %result:i64, %product
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 75 |}]
+    "75"
 ;;
 
 let%expect_test "float division truncates toward zero" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %x:f64, 7
 cast %y:f64, 2
 fdiv %quot:f64, %x, %y
 cast %result:i64, %quot
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| 3 |}]
+    "3"
 ;;
 
 let%expect_test "float division truncates toward zero (negative)" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 cast %zero:f64, 0
 cast %seven:f64, 7
 fsub %neg_seven:f64, %zero, %seven
@@ -362,15 +314,12 @@ fdiv %quot:f64, %neg_seven, %two
 cast %result:i64, %quot
 ret %result
 |}
-  in
-  print_endline output;
-  [%expect {| -3 |}]
+    "-3"
 ;;
 
 let%expect_test "call with stack arguments" =
-  let output =
-    compile_and_execute
-      {|
+  check_program
+    {|
 sum8(%a:i64, %b:i64, %c:i64, %d:i64, %e:i64, %f:i64, %g:i64, %h:i64) {
   add %t0:i64, %a, %b
   add %t1:i64, %t0, %c
@@ -387,7 +336,5 @@ root() {
   ret %res
 }
 |}
-  in
-  print_endline output;
-  [%expect {| 36 |}]
+    "36"
 ;;

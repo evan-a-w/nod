@@ -22,7 +22,30 @@ module Ssa = Nod_core.Ssa
 module Var = Nod_core.Var
 module X86_ir = Nod_core.X86_ir
 module X86_backend = Nod_x86_backend.X86_backend
+module Arm64_backend = Nod_arm64_backend.Arm64_backend
 module Examples = Nod_examples.Examples
+
+type arch =
+  [ `Arm64
+  | `X86_64
+  | `Other
+  ]
+
+let parse_arch s : arch =
+  match s with
+  | "x86_64" | "amd64" -> `X86_64
+  | "arm64" | "aarch64" -> `Arm64
+  | _ -> `Other
+;;
+
+let architecture () : arch =
+  Core_unix.uname ()
+  |> Core_unix.Utsname.machine
+  |> String.lowercase
+  |> parse_arch
+;;
+
+let only_on_arch arch f = if Poly.(architecture () = arch) then f () else ()
 
 module Eir = struct
   include Nod_core.Eir
@@ -86,37 +109,153 @@ let run_shell_exn ?cwd command =
   | code -> failwith (sprintf "command failed (%d): %s" code command)
 ;;
 
-let compile_and_execute
-  ?(harness = harness_source)
+let host_system =
+  lazy
+    (match
+       String.lowercase (Core_unix.uname () |> Core_unix.Utsname.sysname)
+     with
+     | "darwin" -> `Darwin
+     | "linux" -> `Linux
+     | _ -> `Other)
+;;
+
+let host_arch = lazy (architecture ())
+
+let use_qemu_arm64 =
+  lazy
+    (Array.find
+       (Core_unix.environment ())
+       ~f:(String.is_prefix ~prefix:"USE_QEMU_ARM64")
+     |> Option.is_some)
+;;
+
+let compile_and_lower_functions
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  functions
+  =
+  match arch with
+  | `X86_64 -> X86_backend.compile_to_asm ~system functions
+  | `Arm64 -> Arm64_backend.compile_to_asm ~system functions
+  | `Other -> failwith "unsupported target architecture"
+;;
+
+let compile_and_lower
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
   ?(opt_flags = Eir.Opt_flags.no_opt)
   program
   =
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok functions ->
-    let asm = X86_backend.compile_to_asm functions in
-    let temp_dir = Core_unix.mkdtemp "nod-exec" in
-    Exn.protect
-      ~f:(fun () ->
-        let asm_path = Filename.concat temp_dir "program.s" in
-        Out_channel.write_all asm_path ~data:asm;
-        let harness_path = Filename.concat temp_dir "main.c" in
-        Out_channel.write_all harness_path ~data:harness;
-        run_command_exn
-          ~cwd:temp_dir
-          "gcc"
-          [ "-Wall"; "-Werror"; "-O0"; "main.c"; "program.s"; "-o"; "program" ];
-        let output_file = "stdout.txt" in
-        let output_path = Filename.concat temp_dir output_file in
-        run_shell_exn
-          ~cwd:temp_dir
-          (sprintf
-             "%s > %s"
-             (quote_command "./program" [])
-             (Filename.quote output_file));
-        In_channel.read_all output_path |> String.strip)
-      ~finally:(fun () ->
-        let _ = Std.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
-        ())
+  | Ok functions -> compile_and_lower_functions ~arch ~system functions
+;;
+
+let qemu_aarch64_ld_prefix =
+  lazy
+    (let candidates =
+       [ Std.Sys.getenv_opt "QEMU_AARCH64_LD_PREFIX"
+       ; Some "/usr/aarch64-linux-gnu"
+       ]
+     in
+     List.filter_opt candidates
+     |> List.find ~f:(fun dir ->
+       try
+         match (Core_unix.stat dir).st_kind with
+         | Core_unix.S_DIR -> true
+         | _ -> false
+       with
+       | _ -> false))
+;;
+
+let execute_asm
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(harness = harness_source)
+  asm
+  =
+  let temp_dir = Core_unix.mkdtemp "nod-exec" in
+  let host_architecture = Lazy.force host_arch in
+  let use_rosetta =
+    Poly.(arch = `X86_64)
+    && Poly.(host_architecture = `Arm64)
+    && Poly.(system = `Darwin)
+  in
+  let compiler =
+    match system with
+    | `Darwin -> "clang"
+    | `Linux | `Other -> "clang"
+  in
+  let arch_args =
+    match host_architecture, arch, system with
+    | `Arm64, `X86_64, `Darwin ->
+      [ "-arch"; "x86_64"; "-target"; "x86_64-apple-macos11" ]
+    | `Arm64, `Arm64, `Darwin ->
+      [ "-arch"; "arm64"; "-target"; "arm64-apple-macos11" ]
+    | `X86_64, `Arm64, `Linux when Lazy.force use_qemu_arm64 ->
+      [ "--target=aarch64-linux-gnu" ]
+    | _ -> []
+  in
+  let run_shell_runtime ?cwd command =
+    match host_architecture, arch, system with
+    | `Arm64, `X86_64, `Darwin when use_rosetta ->
+      let command =
+        quote_command "arch" [ "-x86_64"; "/bin/zsh"; "-c"; command ]
+      in
+      run_shell_exn ?cwd command
+    | `X86_64, `Arm64, `Linux when Lazy.force use_qemu_arm64 ->
+      let qemu_args =
+        match Lazy.force qemu_aarch64_ld_prefix with
+        | None -> []
+        | Some dir -> [ "-L"; dir ]
+      in
+      let command =
+        sprintf "%s %s" (quote_command "qemu-aarch64" qemu_args) command
+      in
+      run_shell_exn ?cwd command
+    | _ -> run_shell_exn ?cwd command
+  in
+  Exn.protect
+    ~f:(fun () ->
+      let asm_path = Filename.concat temp_dir "program.s" in
+      Out_channel.write_all asm_path ~data:asm;
+      let harness_path = Filename.concat temp_dir "main.c" in
+      Out_channel.write_all harness_path ~data:harness;
+      (match arch, host_architecture with
+       | `X86_64, `X86_64 -> ()
+       | `X86_64, `Arm64 when use_rosetta -> ()
+       | `Arm64, `Arm64 -> ()
+       | `Arm64, `X86_64 when Lazy.force use_qemu_arm64 -> ()
+       | _ -> failwith "execution is not supported on this host");
+      run_shell_exn
+        ~cwd:temp_dir
+        (quote_command
+           compiler
+           ([ "-Wall"; "-Werror"; "-O0" ]
+            @ arch_args
+            @ [ "main.c"; "program.s"; "-o"; "program" ]));
+      let output_file = "stdout.txt" in
+      let output_path = Filename.concat temp_dir output_file in
+      run_shell_runtime
+        ~cwd:temp_dir
+        (sprintf
+           "%s > %s"
+           (quote_command "./program" [])
+           (Filename.quote output_file));
+      In_channel.read_all output_path |> String.strip)
+    ~finally:(fun () ->
+      let _ = Std.Sys.command (quote_command "rm" [ "-rf"; temp_dir ]) in
+      ())
+;;
+
+let compile_and_execute
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(harness = harness_source)
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  =
+  let asm = compile_and_lower ~arch ~system ~opt_flags program in
+  execute_asm ~arch ~system ~harness asm
 ;;

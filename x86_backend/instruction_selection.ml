@@ -39,11 +39,13 @@ let type_of_class = function
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
-  Var.create ~name:(new_name t.var_names base) ~type_
+  Var.create ~name:(Util.new_name t.var_names base) ~type_
 ;;
 
 let fresh_like_var t var =
-  Var.create ~name:(new_name t.var_names (Var.name var)) ~type_:(Var.type_ var)
+  Var.create
+    ~name:(Util.new_name t.var_names (Var.name var))
+    ~type_:(Var.type_ var)
 ;;
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
@@ -104,6 +106,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   match ir with
   | X86 x -> [ x ]
   | X86_terminal xs -> xs
+  | Arm64 _ | Arm64_terminal _ -> []
   | Noop | Unreachable -> []
   | And arith -> make_arith and_ arith
   | Or arith -> make_arith or_ arith
@@ -213,14 +216,13 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         in
         [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, 0)
     in
-    pre
-    @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
+    pre @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs = Reg.arguments Class.I64 in
+    let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
     let reg_args, stack_args = List.split_n args (List.length gp_arg_regs) in
     let stack_arg_pushes =
       List.rev stack_args
@@ -239,7 +241,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre_moves = stack_arg_pushes @ reg_arg_moves in
     (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
-    let gp_result_regs = Reg.results Class.I64 in
+    let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
     let post_moves, results_with_physical =
       Sequence.zip_full
         (Sequence.of_list results)
@@ -316,7 +318,7 @@ let mint_intermediate
   =
   let id_hum =
     "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
-    |> new_name t.block_names
+    |> Util.new_name t.block_names
   in
   let block = Block.create ~id_hum ~terminal:(X86 (X86_ir.jmp to_call_block)) in
   (* I can't be bothered to make this not confusing, but we want to set this
@@ -329,18 +331,20 @@ let mint_intermediate
 ;;
 
 let make_prologue t =
-  let id_hum = t.fn.name ^ "__prologue" |> new_name t.block_names in
+  let id_hum = t.fn.name ^ "__prologue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
   let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
-  let gp_arg_regs = Reg.arguments Class.I64 in
+  let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_args, args_on_stack = List.split_n args (List.length gp_arg_regs) in
   let reg_arg_moves =
     List.zip_with_remainder reg_args gp_arg_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg (Reg.allocated arg (Some reg))) (Reg reg))
+      mov
+        (Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
+        (Reg reg))
   in
   let stack_arg_moves =
     args_on_stack
@@ -369,7 +373,7 @@ let make_prologue t =
 ;;
 
 let make_epilogue t ~ret_shape =
-  let id_hum = t.fn.name ^ "__epilogue" |> new_name t.block_names in
+  let id_hum = t.fn.name ^ "__epilogue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
   *)
@@ -377,17 +381,20 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       fresh_var t ("res__" ^ Int.to_string i))
   in
-  let gp_res_regs = Reg.results Class.I64 in
+  let gp_res_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_res_moves =
     List.zip_with_remainder args gp_res_regs
     |> fst
     |> List.map ~f:(fun (arg, reg) ->
-      mov (Reg reg) (Reg (Reg.allocated arg (Some reg))))
+      mov
+        (Reg reg)
+        (Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg))))
   in
   let args' =
     List.zip_with_remainder args gp_res_regs
     |> fst
-    |> List.map ~f:(fun (arg, reg) -> Reg (Reg.allocated arg (Some reg)))
+    |> List.map ~f:(fun (arg, reg) ->
+      Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
   in
   let block = Block.create ~id_hum ~terminal:(X86 (RET args')) in
   assert (Call_conv.(equal t.fn.call_conv default));
@@ -418,7 +425,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | Some _, Some _ -> failwith "diff ret shape"
       | None, Some _ -> r := this
     in
-    Block.iter_instructions t.fn.root ~f:(on_x86_irs ~f:update);
+    Block.iter_instructions t.fn.root ~f:(on_arch_irs ~f:update);
     !r
   in
   let prologue = make_prologue t in

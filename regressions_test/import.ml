@@ -1,3 +1,1 @@
-include Nod_core
-include Nod_common
-include Nod
+include Nod_test.Import

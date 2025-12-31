@@ -175,6 +175,16 @@ let branch () =
 ;;
 
 let instr' = function
+  | "load" ->
+    let%bind dest = var_decl () in
+    let%bind (_ : Pos.t) = comma () in
+    let%map src = lit_or_var () in
+    Ir.load dest (Lit_or_var src)
+  | "store" ->
+    let%bind mem = var_use () in
+    let%bind (_ : Pos.t) = comma () in
+    let%map src = lit_or_var () in
+    Ir.store src (Lit_or_var (Var mem))
   | "add" ->
     let%map a = arith () in
     Ir.add a

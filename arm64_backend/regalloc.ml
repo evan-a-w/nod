@@ -1,6 +1,7 @@
 open! Core
 open! Import
 open! Common
+module Raw = Arm64_reg.Raw
 
 let note_var_class table var class_ =
   match Hashtbl.find table var with
@@ -18,7 +19,7 @@ let note_var_class table var class_ =
 let collect_var_classes root =
   let classes = Var.Table.create () in
   Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Unallocated var | Raw.Allocated (var, _) ->
@@ -44,7 +45,7 @@ let initialize_assignments root =
   let assignments = Var.Table.create () in
   let don't_spill = Var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Allocated (_, Some (Raw.Allocated _))
@@ -67,14 +68,14 @@ let run_sat
   ~class_
   =
   (* let dump_crap = dump_crap || true in *)
-  let reg_pool = Reg.allocable ~class_ |> Iarray.of_list in
+  let reg_pool = Reg.allocable ~class_ |> Array.of_list in
   let var_states =
     Reg_numbering.vars reg_numbering
     |> Hashtbl.data
     |> List.filter ~f:(fun state ->
       Reg.Class.equal (class_of_var state.var) class_)
   in
-  let sat_vars_per_var_id = Iarray.length reg_pool + 1 in
+  let sat_vars_per_var_id = Array.length reg_pool + 1 in
   (* if dump_crap *)
   (* then ( *)
   (*   let var_to_id = *)
@@ -95,12 +96,10 @@ let run_sat
     let backout_sat_var var =
       let var_id = (var - 1) / sat_vars_per_var_id in
       let reg = (var - 1) mod sat_vars_per_var_id in
-      if reg = 0
-      then var_id, `Spill
-      else var_id, `Assignment reg_pool.:(reg - 1)
+      if reg = 0 then var_id, `Spill else var_id, `Assignment reg_pool.(reg - 1)
     in
     let all_reg_assignments var_id =
-      Array.init (Iarray.length reg_pool) ~f:(reg_sat var_id)
+      Array.init (Array.length reg_pool) ~f:(reg_sat var_id)
     in
     let sat_constraints =
       let open Feel.Logic in
@@ -144,7 +143,7 @@ let run_sat
         | Some Assignment.Spill -> spill id
         | Some (Reg reg) ->
           (match
-             Iarray.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
+             Array.findi reg_pool ~f:(fun _i reg' -> Reg.equal reg reg')
            with
            | None -> spill id
            | Some (i, _) -> reg_sat id i)
@@ -275,27 +274,27 @@ let replace_regs
            let offset =
              fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
-           Mem (Reg.rbp, offset)
-         | Some (Assignment.Reg phys) -> Reg phys
-         | None -> Reg reg)
+           Arm64_ir.Mem (Reg.fp, offset)
+         | Some (Assignment.Reg phys) -> Arm64_ir.Reg phys
+         | None -> Arm64_ir.Reg reg)
       | Raw.Allocated (v, _) ->
         let phys =
           Hashtbl.find_exn assignments v
           |> Assignment.reg_val
           |> Option.value_exn
         in
-        Reg phys
-      | _ -> Reg reg
+        Arm64_ir.Reg phys
+      | _ -> Arm64_ir.Reg reg
     in
-    Ir.map_x86_operands ir ~f:(function
-      | Reg r -> map_reg r
-      | Mem (r, offset) ->
-        Mem
+    Ir.map_arm64_operands ir ~f:(function
+      | Arm64_ir.Reg r -> map_reg r
+      | Arm64_ir.Mem (r, offset) ->
+        Arm64_ir.Mem
           ( map_reg r
             |> (* safe because we enforce no spills on the mem regs *)
-            reg_of_operand_exn
+            Arm64_ir.reg_of_operand_exn
           , offset )
-      | Imm _ as t -> t)
+      | Arm64_ir.Imm _ as t -> t)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in

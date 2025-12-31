@@ -1,0 +1,309 @@
+ARM64 ARCHITECTURE AND ASSEMBLY NOTES
+=====================================
+
+Scope
+-----
+This document collects the requirements for targeting 64-bit ARMv8-A/AArch64
+CPUs (a.k.a. ARM64) on Linux/ELF platforms using the standard Procedure Call
+Standard for the ARM 64-bit Architecture (AAPCS64). It highlights register
+conventions, data layout, instruction selection constraints, and codegen
+patterns relevant to the Nod compiler backend.
+
+Execution Model
+---------------
+- Little-endian mode (most desktop/server OSes). Big-endian exists but is not a
+  current target.
+- Load-store architecture: arithmetic/logic operate only on registers; memory is
+  accessed via explicit load/store instructions.
+- Fixed-length 32-bit instructions; no variable-length encoding.
+- Program counter is `pc`; most instructions support PC-relative addressing via
+  immediates or `adrp`/`adr` pairs.
+- Condition flags live in `nzcv` bits inside `pstate`, updated by arithmetic and
+  `cmp` (which is an alias of `subs`). They feed conditional branches and select
+  instructions (`csel`, `csinv`, etc.).
+
+Registers
+---------
+- 31 general-purpose registers: `x0`–`x30` (64-bit). Lower 32-bit views use
+  `w0`–`w30`; writes to `wN` zero-extend into `xN` (unlike x86's 16-bit writes).
+- `x30` doubles as the link register (`lr`), implicitly written by `bl`/`blr`.
+- `sp` is a dedicated stack pointer, not addressable as `x31`. There is also a
+  pseudo-register `xzr/wzr` representing zero (reads yield 0, writes discarded).
+- SIMD/floating-point registers: `v0`–`v31`. Views: `b`, `h`, `s`, `d`, `q` for
+  8/16/32/64/128-bit lanes. Most ABI rules treat them as caller-saved except for
+  `v8`–`v15` (callee-saved) under AAPCS64.
+- Special system registers (e.g., `fp`, `lr`, `sp`, `nzcv`) accessed via `msr`
+  and `mrs` when required.
+
+Register Conventions (AAPCS64)
+------------------------------
+- Caller-saved: `x0`–`x17`, `v0`–`v7`, `v16`–`v31`.
+- Callee-saved: `x19`–`x28`, `fp` (`x29`), `lr` (`x30`), `sp`, `v8`–`v15`.
+- Temporary registers for veneers/thunks: `x16` (`ip0`) and `x17` (`ip1`).
+- Return registers: `x0` (and `x1` for 128-bit / aggregate splits). Floating
+  point returns use `v0`/`v1`.
+- Frame pointer: `x29` (`fp`). Not mandatory but required for unwinding/debug.
+- Stack pointer must remain 16-byte aligned at all public interfaces.
+
+Data Layout
+-----------
+- 64-bit little-endian. Natural alignment is enforced (e.g., 8-byte alignment
+  for 64-bit types). Misaligned accesses may fault; use byte/halfword loads if
+  necessary.
+- Struct layout follows AAPCS64 rules (similar to C11). Aggregates align to
+  their most stringent member, padded as needed.
+- The stack grows toward lower addresses. No red zone: memory below `sp` is not
+  safe for temporary storage across calls/interrupts.
+
+Calling Convention
+------------------
+- Argument passing classes:
+  - Integer/pointer: registers `x0`–`x7` in order.
+  - Floating-point/vector: `v0`–`v7` in order. Homogeneous aggregates up to four
+    members may also use the vector registers.
+  - Extra arguments spill to the stack at 16-byte aligned slots.
+- Return values: `x0` (and `x1`) for integers/pointers; `v0` (and `v1`) for
+  float/vector data. Larger aggregates returned via hidden pointer argument in
+  `x8` (the Indirect Result register).
+- Varargs: `x0`–`x7`/`v0`–`v7` still used first; the caller also allocates a
+  stack argument area sufficient to store those registers so the callee can copy
+  them when walking the va_list (`va_list` points to a register save area and
+  stack args).
+- Callee responsibilities:
+  1. Save any callee-saved registers that will be clobbered.
+  2. Create a stack frame: `stp fp, lr, [sp, #-16]!` to push FP/LR and update
+     `sp` in one instruction, then allocate locals via `sub sp, sp, size` (size
+     must keep `sp` 16-byte aligned).
+  3. Optionally set `fp = sp + frame_size` to maintain a frame pointer.
+- Epilogue: release locals (`add sp, sp, size`), restore callee-saved registers,
+  `ldp fp, lr, [sp], #16`, and return with `ret` (or `ret xN` for tail-calls).
+
+Stack Frame Shape
+-----------------
+```
+| Higher addresses |
+-------------------
+| arguments>8      | <- caller push spills (16-byte aligned)
+-------------------
+| saved fp (x29)   |
+| saved lr (x30)   |
+-------------------
+| locals / spills  | <- multiples of 16 bytes
+-------------------
+| Lower addresses  |
+```
+No red zone: `sp` adjustments are required for any temporaries. Maintain
+`sp % 16 == 0` at all call boundaries.
+
+Instruction Selection Notes
+---------------------------
+- All memory accesses occur via explicit load/store. Base+offset (signed 12-bit)
+  or scaled register offsets via `ldr/str` variants. For large offsets, use
+  `adrp` + `add` or `sub sp, sp, imm` patterns.
+- Immediate encoding: many ALU instructions accept 12-bit immediates shifted by
+  0 or 12 (`add x0, x1, #imm`). Others use bitmask-immediate encodings
+  (`orr`, `and`, `eor`). Use `movz/movk/movn` to materialize full 64-bit constants.
+- Multiplication/division: `mul`, `smull`, `umull`, `sdiv`, `udiv`. Multiply
+  accumulate instructions (`madd`, `msub`) allow fused multiply/add with
+  three-operand semantics.
+- Comparisons: `cmp`/`cmn` (aliases of `subs/adds` with zero register). Branches
+  use `b.<cond>`, `cbz/cbnz`, `tbz/tbnz` for bit tests.
+- Conditional execution via select ops (`csel`, `csinc`, `csinv`) or conditional
+  compare/branch instructions; no pervasive predication like ARM32.
+- Shift/rotate by immediate encoded in instruction; variable shifts take count
+  from another register (`lsl x0, x1, x2`).
+- Atomic operations rely on load-store exclusives (`ldxr/stxr`) or LSE
+  instructions (`ldadd`, `ldset`, etc.) where available.
+- PC-relative addressing uses `adr` (within ±1MB) or `adrp` + `add` (page-based)
+  to form full addresses.
+
+SIMD / Floating-Point
+---------------------
+- IEEE-754 compliant FP support using `v` registers. Scalar instructions operate
+  on the lower lanes (`s`/`d`).
+- Use `fmov`, `scvtf`, `fcvtzs`, etc., for conversions. Vector operations follow
+  NEON semantics; 128-bit `q` registers are always available.
+- Callee must preserve `v8`–`v15`; others are volatile.
+
+Memory Model & Atomics
+----------------------
+- Weakly ordered relative to x86: explicit memory barriers may be required.
+- Acquire/release provided by instruction suffixes (`ldar`, `stlr`), or
+  `dmb ish` fences for stronger ordering. Atomic RMW uses `ldxr/stxr` loops or
+  LSE instructions with ordering specifiers (`ldaddal`, etc.).
+
+Exception Handling / Unwinding
+------------------------------
+- AAPCS64 requires unwind tables describing prologues. Typical prologue pattern
+  (`stp fp, lr, [sp, #-16]!; mov fp, sp; ...`) is automatically understood by
+  assemblers when annotated with `.cfi` directives.
+
+Assembler Pragmatics
+--------------------
+- Default GNU assembler syntax (no Intel/AT&T split). Comments start with `//`
+  or `#` depending on assembler; `.text`, `.data`, `.bss` sections available.
+- Labels end with `:`. Immediates use `#value`. Register names are lowercase.
+- Common directives: `.global sym`, `.align n`, `.word`, `.quad`, `.byte`.
+- Position-independent code uses `adrp`/`add` or `adr` for addresses, with GOT
+  access macros (`:got:`) when needed.
+
+Validation Checklist
+--------------------
+- Track stack alignment (16-byte) at every call site.
+- Preserve `x19`–`x28`, `fp`, `lr`, and `v8`–`v15` when used.
+- Use correct register classes for argument passing (integer vs vector).
+- Materialize 64-bit immediates via `movz`/`movk` sequences, not single mov.
+- Avoid implicit red zones; always allocate explicit stack space.
+- When using `blr`, ensure the target register holds a canonical pointer (low
+  bits zeroed per AArch64 requirements).
+
+Glossary / Quick Reference
+--------------------------
+- `bl label`: call with link (stores return addr in `lr`).
+- `ret`: branch to `lr` (or register operand).
+- `stp/ldp`: store/load pair with pre/post indexing — ideal for saving/restoring
+  registers in prologues.
+- `adrp`: form page address of label; must be paired with `add` or load to get
+  full address.
+- `csel`: conditional select between two registers.
+
+Common Instruction Reference
+---------------------------
+- **`movz xd, #imm {, lsl #shift}`**: Load 16-bit immediate into register, zeroing other bits; shift selects 16-bit chunk (0/16/32/48 bits).
+- **`movk xd, #imm {, lsl #shift}`**: Insert 16-bit immediate into register without clearing other bits (keep previously loaded chunks).
+- **`movn xd, #imm {, lsl #shift}`**: Load bitwise NOT of 16-bit immediate into selected chunk (useful for forming constants).
+- **`adr xd, label`**: Materialize PC-relative address within ±1MB of current PC.
+- **`adrp xd, label` + `add xd, xd, #imm12`**: Form full 64-bit address using page-aligned high bits plus low offset.
+- **`ldr xt, [base, #imm]` / `str xt, [base, #imm]`**: Load/store 64-bit values with 12-bit signed immediate offsets.
+- **`ldur/stur xt, [base, #imm9]`**: Unscaled load/store for small negative or non-multiple-of-8 offsets.
+- **`ldp/stp xt1, xt2, [base, #imm]`**: Load/store register pairs, supporting pre/post indexing for frame saves.
+- **`add/sub xd, xn, #imm12{, lsl #12}`**: Add/subtract 12-bit immediate optionally shifted by 12; update flags with `adds/subs`.
+- **`add/sub xd, xn, xm {, lsl #shift}`**: Register forms with optional left shift on the third operand.
+- **`cmp xn, xm/#imm`**: Alias for `subs xzr, xn, xm/#imm`; sets flags for comparisons.
+- **`cmn xn, xm/#imm`**: Alias for `adds xzr, xn, xm/#imm`; useful for checking negatives.
+- **`and/or/xor/bic xd, xn, xm`**: Bitwise logical ops; immediate forms accept bitmask literals (`and x0, x1, #mask`).
+- **`eon/eor`**: Exclusive OR variants (`eon` uses operand complement).
+- **`orn`**: Bitwise OR with operand complement.
+- **`lsl/lsr/asr xd, xn, xm/#imm`**: Logical/arithmetic shifts by register or immediate counts.
+- **`ror xd, xn, xm/#imm`**: Rotate right.
+- **`extr xd, xn, xm, #imm`**: Extract bitfields across two registers with rotation semantics.
+- **`ubfm/sbfm xd, xn, #lsb, #msb`**: General bitfield insert/extract (aliases `ubfx`, `sbfx`, `bfi`, etc.).
+- **`mul xd, xn, xm`**: 64-bit multiply (low product); `umulh/smulh` return high 64 bits.
+- **`madd/msub xd, xn, xm, xa`**: Multiply-add/subtract fused instructions.
+- **`smaddl/umaddl`**: Multiply 32-bit operands, accumulate into 64-bit destination.
+- **`udiv/sdiv xd, xn, xm`**: Unsigned/signed division.
+- **`csel xd, xn, xm, cond`**: Select between registers based on condition; `csinc/csinv/csneg` variants produce incremented/inverted/negated forms.
+- **`cset xd, cond` / `csetm xd, cond`**: Set register to 0/1 (or all ones) based on condition.
+- **`ccmp xn, xm/#imm, nzcv, cond`**: Conditional compare that updates flags only when predicate true.
+- **`b label` / `b.<cond> label`**: Unconditional and conditional branches using standard condition codes (`eq`, `ne`, `gt`, etc.).
+- **`cbz/cbnz xn, label`**: Compare register to zero and branch on equality/inequality.
+- **`tbz/tbnz xn, #bit, label`**: Test bit and branch if zero/non-zero.
+- **`br xn` / `blr xn` / `ret {xn}`**: Indirect branch/call/return (`blr` saves return in `lr`).
+- **`svc #imm`**: Supervisor call (system call instruction on Linux/AArch64).
+- **`prfm op, [base, #imm]`**: Prefetch memory with cache hint (e.g., `prfm pstl1keep`).
+- **`ldxr/stxr xt, [addr]`**: Exclusive load/store pair for atomic sequences (`stxr` writes status to register).
+- **`ldaxr/stlxr`**: Acquire/release variants of exclusive loads/stores.
+- **`ldadd/ldclr/ldset/ldeor`**: LSE atomic read-modify-write instructions (order variants via suffix `a`, `l`, `al`).
+- **`dmb ish` / `dsb sy` / `isb`**: Memory barriers (data memory barrier, data synchronization barrier, instruction sync barrier).
+- **`fmov vd, xn` / `fmov xn, vd`**: Move between FP/SIMD and general registers.
+- **`scvtf/dcvtf`**: Convert signed integers to floating-point (single/double) and vice versa (`fcvtzs`, `fcvtzu`).
+- **`fadd/fsub/fmul/fdiv vs, vt, vu`**: Scalar floating-point arithmetic (single/double via `s`/`d` mnemonics).
+- **`fabd/fneg/fsqrt`**: Additional scalar FP instructions for abs-diff, negate, reciprocal sqrt.
+- **`addv vmax` / `umaxv`**: Vector reductions for NEON operations.
+- **`dup vN.16b, wM`**: Duplicate scalar into vector lanes; used when materializing constants in NEON.
+- **`mov vN.d[elem], xd`**: Move GPR into specific SIMD lane.
+- **`mrs xd, sys_reg` / `msr sys_reg, xd`**: Read/write system registers (e.g., `nzcv`, `fpcr`).
+
+Assembler Syntax & Directives Reference
+--------------------------------------
+- **Labels**: Symbol names followed by `:` designate addresses. Use `.size sym, .-sym` to annotate function lengths for ELF unwinding.
+- **Sections**: `.text` for code, `.data` for writable data, `.rodata` for read-only constants, `.bss` for zero-initialized storage. Switch using `.section name, "ax"` etc. as needed.
+- **Visibility & types**: `.global sym` (or `.globl`) exports a label; pair with `.type sym, %function` or `%object` (GNU as uses `%`). Local symbols remain private by default.
+- **Alignment**: `.p2align n` or `.align n` ensures 2^n byte alignment (GNU as accepts `.balign`). Functions typically align to 4 or 16, data to natural sizes.
+- **Data emission**: `.byte`, `.hword` (16-bit), `.word` (32-bit), `.xword` (64-bit). Strings via `.ascii` / `.asciz`. `.quad` is also accepted for 64-bit constants.
+- **Space reservation**: `.zero N` emits N zero bytes; `.skip N` reserves uninitialized padding. `.comm sym, size, align` defines global BSS storage.
+- **Literal pools**: `.ltorg` flushes pending literal pools generated by `ldr xt, =imm`. Use when large immediates require pool entries near code.
+- **Expressions & constants**: `.equ name, expr` or `.set name, expr` define assembler-time constants. Expressions can reference labels, arithmetic, or relocations (`:got:foo`, `:got_lo12:foo`).
+- **Immediate syntax**: Prefix numeric literals with `#` in instructions (e.g., `mov x0, #42`). Hex uses `0x`. Character constants `'A'` valid in data directives.
+- **Function prologues**: Standard template—emit `.cfi_startproc`, `stp fp, lr, [sp, #-16]!`, `mov fp, sp`, allocate locals, then mark `.cfi_endproc` near `ret`. Ensure `.size func, .-func` closes block.
+- **Example skeleton**:
+  ```asm
+  .text
+  .global foo
+  .type foo, %function
+  foo:
+      stp x29, x30, [sp, #-16]!
+      mov x29, sp
+      sub sp, sp, #16
+      str w0, [sp, #12]
+      adrp x0, msg@PAGE
+      add  x0, x0, msg@PAGEOFF
+      bl puts
+      add sp, sp, #16
+      ldp x29, x30, [sp], #16
+      ret
+  .size foo, .-foo
+
+  .section .rodata
+  .align 2
+  msg:
+      .asciz "hello"
+  ```
+This template highlights how labels, directives, and PC-relative addressing fit
+into gas-compatible AArch64 output so the backend can emit fully formed object
+files.
+
+ABI Edge Cases & Aggregates
+---------------------------
+- **Composite argument rules**: Aggregates up to 16 bytes may be split across multiple registers. They are divided into 8-byte chunks; each chunk is assigned either an integer register (`xN`) or, for homogeneous floating/vector aggregates, a SIMD register (`vN`). More than two chunks or mixtures requiring both classes fall back to memory.
+- **Homogeneous Floating-Point Aggregates (HFAs)**: Structs/arrays of 1–4 identical FP values (`float`/`double`) are passed in vector registers (`v0`–`v7`) even when total size exceeds 16 bytes, as long as there are ≤4 members. Homogeneous short-vector aggregates (HSVAs) follow the same rule for NEON vectors.
+- **Large aggregates / non-HFA composites**: Passed by reference; caller allocates storage and passes pointer in the normal integer-argument slot. The callee treats that slot as a hidden first parameter when returning large structs.
+- **Return classification**: Values that fit in one register return in `x0` (or `v0`). Two-register integers split across `x0`/`x1`. Aggregates beyond 16 bytes return indirectly via pointer passed in `x8` (which does not count toward user arguments).
+- **Varargs handling**: Variadic callees allocate a register save area containing 8×8-byte slots for `x0`–`x7` and 8×16-byte slots for `v0`–`v7`. The `va_list` structure stores pointers to this save area plus the overflow stack area so `va_arg` can pull sequentially-classified arguments. Ensure backend spills the used register arguments into that area before invoking user va_list helpers.
+- **Stack argument home area**: Each stack argument is stored at 16-byte aligned addresses, even if actual width is smaller. Keep the outgoing-call stack region aligned to 16 bytes when staging parameters beyond register limits.
+
+CFI / Unwind Directives
+-----------------------
+- Emit DWARF CFI markers mirroring the canonical AArch64 prologue:
+  ```asm
+  .cfi_startproc
+      stp x29, x30, [sp, #-16]!
+      .cfi_def_cfa_offset 16
+      .cfi_offset x29, -16
+      .cfi_offset x30, -8
+      mov x29, sp
+      .cfi_def_cfa_register x29
+      sub sp, sp, #32
+  ```
+  Epilogue should restore CFA and registers (`add sp, sp, #32`, `ldp x29, x30, [sp], #16`, `.cfi_restore x29`, `.cfi_restore x30`, `.cfi_endproc`).
+- Frameless functions: after `sub sp, sp, #frame`, emit `.cfi_def_cfa sp, 16+frame` so unwinder knows CFA relative to `sp`.
+- Additional callee-saved spills (`x19`–`x28`, `v8`–`v15`) require `.cfi_offset` annotations matching their stack slots. Restore directives before returning or tail-calling.
+
+Relocation Cookbook
+-------------------
+- **Local data (PIC)**: Use `adrp x0, symbol@PAGE` / `add x0, x0, symbol@PAGEOFF` to form addresses irrespective of load location. `ldr w0, [x0, #offset]` then accesses fields.
+- **Literal pools**: `ldr x0, =constant` may create a pool entry; flush with `.ltorg` near code to keep PC-relative range under 1MB.
+- **GOT-indirected data**: `adrp x0, :got:symbol` followed by `ldr x0, [x0, :got_lo12:symbol]` produces the absolute address via the GOT—required for interposable globals.
+- **Function calls**: `bl symbol` for local definitions; `bl symbol@plt` when referencing dynamic symbols that may be interposed (GNU as accepts `bl symbol` and relocates automatically when building PIEs).
+- **Jump tables**: Emit `.xword label - .Lbase` entries and compute `adrp x0, .Lbase; add x0, x0, :lo12:.Lbase; add x1, x0, index, lsl #3` before `br x1`.
+- **Thread-local storage**:
+  - *Local Exec*: `mrs x0, tpidr_el0` (thread pointer) + `add x0, x0, :tprel_hi12:symbol` / `add x0, x0, :tprel_lo12:symbol`. Requires static TLS.
+  - *Initial Exec*: `adrp x0, :gottprel:symbol; ldr x0, [x0, :gottprel_lo12:symbol]; add x0, x0, tp` where `tp = mrs x1, tpidr_el0`.
+  - *General/Local Dynamic*: Use `adrp/add` pairs with `:tlsdesc:` modifiers then call `__tls_get_addr@plt` per ELF TLS ABI when shared objects need late binding.
+
+Linux Syscall Interface (AArch64)
+---------------------------------
+- Instruction: `svc #0`. No dedicated syscall gate; immediate value normally zero on Linux.
+- **Register mapping**:
+  - `x8`: syscall number
+  - `x0`–`x5`: arguments 1–6 (additional arguments placed on stack and addressed manually)
+  - `x0`: return value (with `x1` holding upper 64 bits for operations producing 128-bit results)
+- Negative return values in range −1..−4095 signal errors (`errno = -x0`). No condition flags are set automatically; caller must test sign.
+- Kernel treats `sp` as 16-byte aligned on entry; maintain alignment before invoking `svc`.
+- Example exit sequence:
+  ```asm
+  mov w8, #93      // __NR_exit
+  mov w0, #0
+  svc #0
+  ```
+- When integrating with libc, prefer wrapper calls; direct syscalls must account for restartable sequences and signal masks manually.

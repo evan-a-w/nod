@@ -1,5 +1,12 @@
 open Core
 
+module Class = struct
+  type t =
+    | I64
+    | F64
+  [@@deriving sexp, equal, compare, hash, variants, enumerate]
+end
+
 module Raw = struct
   type t =
     | RBP (* frame pointer *)
@@ -40,78 +47,169 @@ module Raw = struct
   [@@deriving sexp, equal, compare, hash, variants]
 
   let all_physical =
-    [| RBP
-     ; RSP
-     ; RAX
-     ; RBX
-     ; RCX
-     ; RDX
-     ; RSI
-     ; RDI
-     ; R8
-     ; R9
-     ; R10
-     ; R11
-     ; R12
-     ; R13
-     ; R14
-     ; R15
-     ; XMM0
-     ; XMM1
-     ; XMM2
-     ; XMM3
-     ; XMM4
-     ; XMM5
-     ; XMM6
-     ; XMM7
-     ; XMM8
-     ; XMM9
-     ; XMM10
-     ; XMM11
-     ; XMM12
-     ; XMM13
-     ; XMM14
-     ; XMM15
-    |]
+    [ RBP
+    ; RSP
+    ; RAX
+    ; RBX
+    ; RCX
+    ; RDX
+    ; RSI
+    ; RDI
+    ; R8
+    ; R9
+    ; R10
+    ; R11
+    ; R12
+    ; R13
+    ; R14
+    ; R15
+    ; XMM0
+    ; XMM1
+    ; XMM2
+    ; XMM3
+    ; XMM4
+    ; XMM5
+    ; XMM6
+    ; XMM7
+    ; XMM8
+    ; XMM9
+    ; XMM10
+    ; XMM11
+    ; XMM12
+    ; XMM13
+    ; XMM14
+    ; XMM15
+    ]
   ;;
 
-  let is_physical = function
-    | Unallocated _ | Allocated _ -> false
-    | _ -> true
+  let rec to_physical = function
+    | Allocated (_, None) | Unallocated _ -> None
+    | Allocated (_, Some reg) -> to_physical reg
+    | other -> Some other
   ;;
 
   let should_save = function
-    | RSP -> false
-    | reg -> is_physical reg
+    | RSP -> None
+    | other -> to_physical other
+  ;;
+
+  let phys_reg_limit = List.length all_physical
+
+  let rec class_ = function
+    | XMM0
+    | XMM1
+    | XMM2
+    | XMM3
+    | XMM4
+    | XMM5
+    | XMM6
+    | XMM7
+    | XMM8
+    | XMM9
+    | XMM10
+    | XMM11
+    | XMM12
+    | XMM13
+    | XMM14
+    | XMM15 -> `Physical Class.F64
+    | Allocated (_, Some forced) -> class_ forced
+    | RBP
+    | RSP
+    | RAX
+    | RBX
+    | RCX
+    | RDX
+    | RSI
+    | RDI
+    | R8
+    | R9
+    | R10
+    | R11
+    | R12
+    | R13
+    | R14
+    | R15 -> `Physical Class.I64
+    | Unallocated _ | Allocated (_, _) -> `Variable
+  ;;
+
+  let to_id ~var_id t =
+    match t with
+    | RBP -> 0
+    | RSP -> 1
+    | RAX -> 2
+    | RBX -> 3
+    | RCX -> 4
+    | RDX -> 5
+    | RSI -> 6
+    | RDI -> 7
+    | R8 -> 8
+    | R9 -> 9
+    | R10 -> 10
+    | R11 -> 11
+    | R12 -> 12
+    | R13 -> 13
+    | R14 -> 14
+    | R15 -> 15
+    | XMM0 -> 16
+    | XMM1 -> 17
+    | XMM2 -> 18
+    | XMM3 -> 19
+    | XMM4 -> 20
+    | XMM5 -> 21
+    | XMM6 -> 22
+    | XMM7 -> 23
+    | XMM8 -> 24
+    | XMM9 -> 25
+    | XMM10 -> 26
+    | XMM11 -> 27
+    | XMM12 -> 28
+    | XMM13 -> 29
+    | XMM14 -> 30
+    | XMM15 -> 31
+    | Unallocated var | Allocated (var, _) -> phys_reg_limit + var_id var
+  ;;
+
+  let of_id ~id_var id =
+    match id with
+    | 0 -> rbp
+    | 1 -> rsp
+    | 2 -> rax
+    | 3 -> rbx
+    | 4 -> rcx
+    | 5 -> rdx
+    | 6 -> rsi
+    | 7 -> rdi
+    | 8 -> r8
+    | 9 -> r9
+    | 10 -> r10
+    | 11 -> r11
+    | 12 -> r12
+    | 13 -> r13
+    | 14 -> r14
+    | 15 -> r15
+    | 16 -> xmm0
+    | 17 -> xmm1
+    | 18 -> xmm2
+    | 19 -> xmm3
+    | 20 -> xmm4
+    | 21 -> xmm5
+    | 22 -> xmm6
+    | 23 -> xmm7
+    | 24 -> xmm8
+    | 25 -> xmm9
+    | 26 -> xmm10
+    | 27 -> xmm11
+    | 28 -> xmm12
+    | 29 -> xmm13
+    | 30 -> xmm14
+    | 31 -> xmm15
+    | other ->
+      let id = other - phys_reg_limit in
+      unallocated (id_var id)
   ;;
 
   include functor Comparable.Make
   include functor Hashable.Make
-end
-
-module Class = struct
-  type t =
-    | I64
-    | F64
-  [@@deriving sexp, equal, compare, hash, variants]
-
-  let arguments ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ RDI; RSI; RDX; RCX; R8; R9 ]
-    | F64, Default -> [ XMM0; XMM1; XMM2; XMM3; XMM4; XMM5; XMM6; XMM7 ]
-  ;;
-
-  let callee_saved ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ RBX; RSP; RBP; R12; R13; R14; R15 ]
-    | F64, Default -> []
-  ;;
-
-  let results ?(call_conv = Call_conv.default) t : Raw.t list =
-    match t, call_conv with
-    | I64, Default -> [ RAX; RDX ]
-    | F64, Default -> [ XMM0; XMM1 ]
-  ;;
 end
 
 type t =
@@ -122,35 +220,7 @@ type t =
 
 let raw t = t.reg
 let class_ t = t.class_
-
-let rec default_class = function
-  | Raw.XMM0
-  | Raw.XMM1
-  | Raw.XMM2
-  | Raw.XMM3
-  | Raw.XMM4
-  | Raw.XMM5
-  | Raw.XMM6
-  | Raw.XMM7
-  | Raw.XMM8
-  | Raw.XMM9
-  | Raw.XMM10
-  | Raw.XMM11
-  | Raw.XMM12
-  | Raw.XMM13
-  | Raw.XMM14
-  | Raw.XMM15 -> Class.F64
-  | Raw.Allocated (_, Some forced) -> default_class forced
-  | _ -> Class.I64
-;;
-
-let make ?class_ reg =
-  let class_ = Option.value class_ ~default:(default_class reg) in
-  { reg; class_ }
-;;
-
-let physical ?class_ reg = make ?class_ reg
-let is_physical t = Raw.is_physical t.reg
+let create ~class_ ~raw = { reg = raw; class_ }
 let should_save t = Raw.should_save t.reg
 let with_class t class_ = { t with class_ }
 let with_raw t reg = { reg; class_ = t.class_ }
@@ -159,32 +229,8 @@ let unallocated ?(class_ = Class.I64) var =
   { reg = Raw.Unallocated var; class_ }
 ;;
 
-let allocated ?class_ var forced =
-  let class_ =
-    match class_, forced with
-    | Some class_, _ -> class_
-    | None, Some reg -> reg.class_
-    | None, None -> Class.I64
-  in
-  let forced = Option.map forced ~f:raw in
-  { reg = Raw.Allocated (var, forced); class_ }
-;;
-
-let arguments ?(call_conv = Call_conv.default) class_ =
-  Class.arguments ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let results ?(call_conv = Call_conv.default) class_ =
-  Class.results ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let callee_saved ?(call_conv = Call_conv.default) class_ =
-  Class.callee_saved ~call_conv class_ |> List.map ~f:(physical ~class_)
-;;
-
-let all_physical = Array.map Raw.all_physical ~f:make
-let gp raw = physical ~class_:Class.I64 raw
-let xmm raw = physical ~class_:Class.F64 raw
+let gp raw = create ~class_:Class.I64 ~raw
+let xmm raw = create ~class_:Class.F64 ~raw
 let rbp = gp Raw.RBP
 let rsp = gp Raw.RSP
 let rax = gp Raw.RAX
@@ -217,6 +263,88 @@ let xmm12 = xmm Raw.XMM12
 let xmm13 = xmm Raw.XMM13
 let xmm14 = xmm Raw.XMM14
 let xmm15 = xmm Raw.XMM15
+
+let arguments ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Default -> [ rdi; rsi; rdx; rcx; r8; r9 ]
+  | F64, Default -> [ xmm0; xmm1; xmm2; xmm3; xmm4; xmm5; xmm6; xmm7 ]
+;;
+
+let callee_saved ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Call_conv.Default -> [ rbx; rsp; rbp; r12; r13; r14; r15 ]
+  | F64, Default -> []
+;;
+
+let results ~(call_conv : Call_conv.t) (class_ : Class.t) =
+  match class_, call_conv with
+  | I64, Default -> [ rax; rdx ]
+  | F64, Default -> [ xmm0; xmm1 ]
+;;
+
+let allocated ~class_ var forced =
+  let forced = Option.map forced ~f:raw in
+  { reg = Raw.Allocated (var, forced); class_ }
+;;
+
+let all_physical =
+  [ rbp
+  ; rsp
+  ; rax
+  ; rbx
+  ; rcx
+  ; rdx
+  ; rsi
+  ; rdi
+  ; r8
+  ; r9
+  ; r10
+  ; r11
+  ; r12
+  ; r13
+  ; r14
+  ; r15
+  ; xmm0
+  ; xmm1
+  ; xmm2
+  ; xmm3
+  ; xmm4
+  ; xmm5
+  ; xmm6
+  ; xmm7
+  ; xmm8
+  ; xmm9
+  ; xmm10
+  ; xmm11
+  ; xmm12
+  ; xmm13
+  ; xmm14
+  ; xmm15
+  ]
+;;
+
+let allocable ~class_ =
+  match class_ with
+  | Class.I64 -> [ rax; rbx; rcx; rdx; r8; r9; r10; r11; r12; r13; r14; r15 ]
+  | Class.F64 ->
+    [ xmm0
+    ; xmm1
+    ; xmm2
+    ; xmm3
+    ; xmm4
+    ; xmm5
+    ; xmm6
+    ; xmm7
+    ; xmm8
+    ; xmm9
+    ; xmm10
+    ; xmm11
+    ; xmm12
+    ; xmm13
+    ; xmm14
+    ; xmm15
+    ]
+;;
 
 include functor Comparable.Make
 include functor Hashable.Make
