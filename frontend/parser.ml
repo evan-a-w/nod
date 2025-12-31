@@ -124,6 +124,22 @@ let rec parse_type_expr () =
   | tok, pos -> fail (`Unexpected_token (tok, pos))
 ;;
 
+let is_sizeof_token = function
+  | Token.Ident s -> String.Caseless.equal s "sizeof"
+  | _ -> false
+;;
+
+let parse_sizeof_literal () =
+  let%bind tok, pos = next () in
+  match tok with
+  | Token.Ident s when String.Caseless.equal s "sizeof" ->
+    let%bind (_ : Pos.t) = expect Token.L_bracket in
+    let%bind type_ = parse_type_expr () in
+    let%map (_ : Pos.t) = expect Token.R_bracket in
+    Ir.Lit_or_var.Lit (Int64.of_int (Type.size_in_bytes type_))
+  | _ -> fail (`Unexpected_token (tok, pos))
+;;
+
 let parse_type_annotation () =
   let%bind (_ : Pos.t) = expect Token.Colon in
   let%bind type_ = parse_type_expr () in
@@ -165,6 +181,7 @@ let lit_or_var () =
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     Ir.Lit_or_var.Var v
+  | Some (tok, _) when is_sizeof_token tok -> parse_sizeof_literal ()
   | Some (tok, pos) -> fail (`Unexpected_token (tok, pos))
   | None -> fail `Unexpected_end_of_input
 ;;
@@ -177,6 +194,9 @@ let lit_or_var_or_ident () =
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     `Lit_or_var (Ir.Lit_or_var.Var v)
+  | Some (tok, _) when is_sizeof_token tok ->
+    let%map lit = parse_sizeof_literal () in
+    `Lit_or_var lit
   | Some (Token.Ident _, _) ->
     let%map s = ident () in
     `Ident s
@@ -187,6 +207,7 @@ let lit_or_var_or_ident () =
 let parse_alloca_size_operand () =
   match%bind peek () with
   | Some (Token.Int _, _) | Some (Token.Percent, _) -> lit_or_var ()
+  | Some (tok, _) when is_sizeof_token tok -> parse_sizeof_literal ()
   | Some (Token.L_paren, _) | Some (Token.Ident _, _) ->
     let%map type_ = parse_type_expr () in
     sizeof_literal type_
