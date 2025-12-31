@@ -33,23 +33,55 @@ type emit_asm_config =
   ; output : string option
   ; no_opt : bool
   ; dump_crap : bool
+  ; arch : Nod.arch
   }
 
-let rec parse_emit_asm args ~input ~output ~no_opt ~dump_crap =
+let rec parse_emit_asm ?override_arch args ~input ~output ~no_opt ~dump_crap =
   match args with
   | [] ->
     (match input with
      | None -> Or_error.error_string "missing input program"
-     | Some input -> Or_error.return { input; output; no_opt; dump_crap })
+     | Some input ->
+       Or_error.return
+         { input
+         ; output
+         ; no_opt
+         ; dump_crap
+         ; arch =
+             (match override_arch with
+              | None -> Lazy.force Nod.host_arch
+              | Some arch -> arch)
+         })
+  | "--arch" :: arch :: rest ->
+    parse_emit_asm
+      ~override_arch:(Nod.parse_arch arch)
+      rest
+      ~input
+      ~output
+      ~no_opt:true
+      ~dump_crap
+  | "--arch" :: [] -> Or_error.error_string "flag --arch expects a filename"
   | "--no-opt" :: rest ->
-    parse_emit_asm rest ~input ~output ~no_opt:true ~dump_crap
+    parse_emit_asm ?override_arch rest ~input ~output ~no_opt:true ~dump_crap
   | "--dump-crap" :: rest ->
-    parse_emit_asm rest ~input ~output ~no_opt ~dump_crap:true
+    parse_emit_asm ?override_arch rest ~input ~output ~no_opt ~dump_crap:true
   | "-o" :: file :: rest ->
-    parse_emit_asm rest ~input ~output:(Some file) ~no_opt ~dump_crap
+    parse_emit_asm
+      ?override_arch
+      rest
+      ~input
+      ~output:(Some file)
+      ~no_opt
+      ~dump_crap
   | "-o" :: [] -> Or_error.error_string "flag -o expects a filename"
   | arg :: rest when Option.is_none input ->
-    parse_emit_asm rest ~input:(Some arg) ~output ~no_opt ~dump_crap
+    parse_emit_asm
+      ?override_arch
+      rest
+      ~input:(Some arg)
+      ~output
+      ~no_opt
+      ~dump_crap
   | arg :: _ -> Or_error.errorf "unexpected argument: %s" arg
 ;;
 
@@ -71,14 +103,14 @@ let run_run config =
   in
   let%map.Or_error program = read_program config.input in
   Nod.compile_and_execute
-    ~arch:(Lazy.force Nod.host_arch)
+    ~arch:config.arch
     ~system:(Lazy.force Nod.host_system)
     ~opt_flags
     program
 ;;
 
 let usage =
-  "Usage: nod emit-asm [--no-opt] [--dump-crap] [-o FILE] <program|->\n"
+  "Usage: nod {emit-asm, run} [--no-opt] [--dump-crap] [-o FILE] <program|->\n"
 ;;
 
 let print_usage () = Out_channel.output_string Out_channel.stderr usage
