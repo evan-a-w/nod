@@ -133,6 +133,70 @@ ret %r0
     |}]
 ;;
 
+let%expect_test "aggregate helpers parse" =
+  {|
+alloca %ptr:ptr, (i64, f64)
+load_field %hi:i64, %ptr, (i64, f64), 0
+load_field %lo:f64, %ptr, (i64, f64), 1
+store_field %ptr, %lo, (i64, f64), 1
+memcpy %ptr, %ptr, (i64, (f64, i32))
+|}
+  |> test;
+  [%expect
+    {|
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Alloca ((dest ((name ptr) (type_ Ptr))) (size (Lit 16))))
+             (Load ((name hi) (type_ I64))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 0))))
+             (Load ((name lo) (type_ F64))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 8))))
+             (Store (Var ((name lo) (type_ F64)))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 8))))
+             (Load ((name __tmp0) (type_ I64))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 0))))
+             (Store (Var ((name __tmp0) (type_ I64)))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 0))))
+             (Load ((name __tmp1) (type_ F64))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 8))))
+             (Store (Var ((name __tmp1) (type_ F64)))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 8))))
+             (Load ((name __tmp2) (type_ I32))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 16))))
+             (Store (Var ((name __tmp2) (type_ I32)))
+              (Address ((base (Var ((name ptr) (type_ Ptr)))) (offset 16))))))))
+         (~labels (%root))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+    |}]
+;;
+
+let%expect_test "sizeof literal" =
+  {|
+mov %a:i64, sizeof[i64]
+alloca %buf:ptr, sizeof[(i64, f64)]
+ret %a
+|}
+  |> test;
+  [%expect
+    {|
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Move ((name a) (type_ I64)) (Lit 8))
+             (Alloca ((dest ((name buf) (type_ Ptr))) (size (Lit 16))))
+             (Return (Var ((name a) (type_ I64))))))))
+         (~labels (%root))))
+       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
+       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+    |}]
+;;
+
 let%expect_test "all examples" =
   List.iter Examples.Textual.all ~f:(fun s ->
     print_endline "---------------------------------";

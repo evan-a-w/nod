@@ -109,7 +109,7 @@ let%expect_test "alloca passed to child; child loads value" =
     in
     Vec.push
       child_root.instructions
-      (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
@@ -123,7 +123,7 @@ let%expect_test "alloca passed to child; child loads value" =
       root_root.instructions
       (Ir.store
          (Ir.Lit_or_var.Lit 41L)
-         (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
+         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
     Vec.push
       root_root.instructions
       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
@@ -149,7 +149,7 @@ let%expect_test "print helper" =
   in
   Vec.push
     child_root.instructions
-    (Ir.load loaded (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var p)));
+    (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
   let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let res = Var.create ~name:"res" ~type_:Type.I64 in
@@ -163,7 +163,7 @@ let%expect_test "print helper" =
     root_root.instructions
     (Ir.store
        (Ir.Lit_or_var.Lit 41L)
-       (Ir.Mem.Lit_or_var (Ir.Lit_or_var.Var slot)));
+       (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
   Vec.push
     root_root.instructions
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
@@ -178,7 +178,7 @@ let%expect_test "print helper" =
         ((%root (args (((name p) (type_ Ptr))))
           (instrs
            ((Load ((name loaded) (type_ I64))
-             (Lit_or_var (Var ((name p) (type_ Ptr)))))
+             (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))
             (Return (Var ((name loaded) (type_ I64)))))))))
        (args (((name p) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
        (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
@@ -188,7 +188,8 @@ let%expect_test "print helper" =
         ((%root (args ())
           (instrs
            ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-            (Store (Lit 41) (Lit_or_var (Var ((name slot) (type_ Ptr)))))
+            (Store (Lit 41)
+             (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
             (Call (fn child) (results (((name res) (type_ I64))))
              (args ((Var ((name slot) (type_ Ptr))))))
             (Return (Var ((name res) (type_ I64)))))))))
@@ -399,24 +400,28 @@ let%expect_test "debug borked opt ssa" =
     {|
     (%root
      (instrs
-      ((Load ((name res) (type_ I64)) (Lit_or_var (Var ((name x) (type_ Ptr)))))
+      ((Load ((name res) (type_ I64))
+        (Address ((base (Var ((name x) (type_ Ptr)))) (offset 0))))
        (Return (Var ((name res) (type_ I64)))))))
     (%root
      (instrs
       ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-       (Store (Lit 41) (Lit_or_var (Var ((name slot) (type_ Ptr)))))
+       (Store (Lit 41)
+        (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
        (Call (fn child) (results (((name res) (type_ I64))))
         (args ((Var ((name slot) (type_ Ptr))))))
        (Return (Var ((name res) (type_ I64)))))))
     =================================
     (%root (args (((name x) (type_ Ptr))))
      (instrs
-      ((Load ((name res) (type_ I64)) (Lit_or_var (Var ((name x) (type_ Ptr)))))
+      ((Load ((name res) (type_ I64))
+        (Address ((base (Var ((name x) (type_ Ptr)))) (offset 0))))
        (Return (Var ((name res) (type_ I64)))))))
     (%root (args ())
      (instrs
       ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-       (Store (Lit 41) (Lit_or_var (Var ((name slot) (type_ Ptr)))))
+       (Store (Lit 41)
+        (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
        (Call (fn child) (results (((name res) (type_ I64))))
         (args ((Var ((name slot) (type_ Ptr))))))
        (Return (Var ((name res) (type_ I64)))))))
