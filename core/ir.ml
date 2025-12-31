@@ -166,8 +166,8 @@ module Type_check = struct
   let ensure_pointer_mem mem ~op =
     match mem with
     | Mem.Stack_slot _ -> Ok ()
-    | Mem.Lit_or_var operand ->
-      ensure_pointer_operand operand ~op ~position:"memory operand"
+    | Mem.Address { base; _ } ->
+      ensure_pointer_operand base ~op ~position:"memory operand"
   ;;
 
   let check_arith ~op { dest; src1; src2 } =

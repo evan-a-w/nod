@@ -205,6 +205,43 @@ let%expect_test "move mismatched types (should fail)" =
     {| Error: type mismatch: move destination b:i32 does not match source a:i64 |}]
 ;;
 
+let%expect_test "load_field extracts scalar" =
+  test
+    {|
+    alloca %buf:ptr, (i64, f64)
+    load_field %hi:i64, %buf, (i64, f64), 0
+    return %hi
+  |};
+  [%expect {| OK |}]
+;;
+
+let%expect_test "store_field mismatched type fails" =
+  test
+    {|
+    alloca %buf:ptr, (i64, f64)
+    mov %wrong:f64, 0
+    store_field %buf, %wrong, (i64, f64), 0
+    return %wrong
+  |};
+  [%expect
+    {|
+    Error: errors in choices `Error: type mismatch: store_field expected source of type i64 but got f64
+    , Error: unexpected token (Ident alloca) at ((line 1)(col 4)(file""))
+    `
+    |}]
+;;
+
+let%expect_test "memcpy expands to loads and stores" =
+  test
+    {|
+    alloca %src:ptr, (i64, f64)
+    alloca %dst:ptr, (i64, f64)
+    memcpy %dst, %src, (i64, f64)
+    return %src
+  |};
+  [%expect {| OK |}]
+;;
+
 (* All arithmetic operations with integers *)
 
 let%expect_test "sub i64" =
