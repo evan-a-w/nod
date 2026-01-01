@@ -88,6 +88,27 @@ let parse_struct_def () =
   { Ast.name; fields }
 ;;
 
+let rec drop_comments = function
+  | (tok, _) :: rest when Token.is_comment tok -> drop_comments rest
+  | rest -> rest
+;;
+
+let peek_struct_def () =
+  let%bind tokens, _ = get in
+  let tokens = drop_comments tokens in
+  match tokens with
+  | (Token.Keyword "struct", _) :: rest ->
+    let rest = drop_comments rest in
+    (match rest with
+     | (Token.Ident _, _) :: rest ->
+       let rest = drop_comments rest in
+       (match rest with
+        | (Token.L_brace, _) :: _ -> return true
+        | _ -> return false)
+     | _ -> return false)
+  | _ -> return false
+;;
+
 let is_type_start = function
   | Token.Ident "i64"
   | Token.Ident "f64"
@@ -271,8 +292,14 @@ let parse_program () =
     | None ->
       return { Ast.structs = List.rev structs; functions = List.rev functions }
     | Some (Token.Keyword "struct", _) ->
-      let%bind struct_def = parse_struct_def () in
-      loop (struct_def :: structs) functions
+      let%bind is_struct_def = peek_struct_def () in
+      if is_struct_def
+      then (
+        let%bind struct_def = parse_struct_def () in
+        loop (struct_def :: structs) functions)
+      else (
+        let%bind fn = parse_function_def () in
+        loop structs (fn :: functions))
     | Some _ ->
       let%bind fn = parse_function_def () in
       loop structs (fn :: functions)

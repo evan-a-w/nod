@@ -32,14 +32,20 @@ struct Pair {
   b: i64;
 };
 
+struct Pair make(i64 x) {
+  struct Pair p;
+  p.a = x;
+  p.b = x;
+  return p;
+}
+
 i64 sum(struct Pair p) {
   return p.a + p.b;
 }
 
 i64 main(i64 x) {
   struct Pair q;
-  q.a = x;
-  q.b = x;
+  q = make(x);
   return sum(q);
 }
 |}
