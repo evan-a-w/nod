@@ -8,7 +8,7 @@
   core_unix
   nod_frontend
   nod_core
-  nod_clike
+  nod_low
   vec
   feel
   nod_x86_backend
