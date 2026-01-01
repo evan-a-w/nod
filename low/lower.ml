@@ -28,6 +28,13 @@ type place =
       ; field_type : Ast.type_expr
       }
 
+type binding =
+  | Scalar of Ast.type_expr
+  | Struct of
+      { type_ : Ast.type_expr
+      ; ptr : Ir.Lit_or_var.t
+      }
+
 type builder =
   { mutable instrs_by_label : string Ir0.t Vec.t String.Map.t
   ; labels : string Vec.t
@@ -41,7 +48,7 @@ type ctx =
   { struct_env : struct_info String.Map.t
   ; fn_env : fn_sig String.Map.t
   ; return_type : Ast.type_expr
-  ; scopes : Ast.type_expr String.Table.t list ref
+  ; scopes : binding String.Table.t list ref
   ; used_names : String.Hash_set.t
   ; mutable temp_counter : int
   ; builder : builder
@@ -166,27 +173,43 @@ let pop_scope ctx =
   | [] -> failwith "scope underflow"
 ;;
 
-let declare ctx name type_ =
+let add_binding ctx name binding =
   match !(ctx.scopes) with
   | [] -> failwith "no scope"
   | scope :: _ ->
     if Hashtbl.mem scope name
     then Error (`Type_mismatch (sprintf "duplicate binding %s" name))
     else (
-      Hashtbl.set scope ~key:name ~data:type_;
+      Hashtbl.set scope ~key:name ~data:binding;
       Hash_set.add ctx.used_names name;
       Ok ())
 ;;
 
-let lookup ctx name =
+let lookup_binding ctx name =
   let rec go = function
     | [] -> Error (`Unknown_variable name)
     | scope :: rest ->
       (match Hashtbl.find scope name with
-       | Some type_ -> Ok type_
+       | Some binding -> Ok binding
        | None -> go rest)
   in
   go !(ctx.scopes)
+;;
+
+let binding_type = function
+  | Scalar type_ -> type_
+  | Struct { type_; _ } -> type_
+;;
+
+let declare_scalar ctx name type_ = add_binding ctx name (Scalar type_)
+
+let declare_struct_local ctx name type_ =
+  let open Result.Let_syntax in
+  let%bind core = core_type_of ctx.struct_env type_ in
+  let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
+  let ptr_var = Var.create ~name ~type_:Type.Ptr in
+  let%bind () = emit ctx.builder (Ir.alloca { dest = ptr_var; size }) in
+  add_binding ctx name (Struct { type_; ptr = Ir.Lit_or_var.Var ptr_var })
 ;;
 
 let resolve_field struct_env struct_name field_name =
@@ -247,6 +270,34 @@ let ensure_numeric = function
     Error (`Type_mismatch (sprintf "cast cannot use struct %s" name))
 ;;
 
+let pointer_for_field ctx ~base ~struct_name ~indices =
+  let open Result.Let_syntax in
+  let struct_core = (Map.find_exn ctx.struct_env struct_name).core_type in
+  let%bind offset, _field_type =
+    Type.field_offset struct_core indices
+    |> Result.map_error ~f:(fun err ->
+      `Type_mismatch (Error.to_string_hum err))
+  in
+  let dest = fresh_temp ctx ~type_:Type.Ptr in
+  let%bind () =
+    emit
+      ctx.builder
+      (Ir.add
+         { dest
+         ; src1 = base
+         ; src2 = Ir.Lit_or_var.Lit (Int64.of_int offset)
+         })
+  in
+  Ok (Ir.Lit_or_var.Var dest)
+;;
+
+let pointer_for_place ctx = function
+  | Mem (Ast.Struct _, base) -> Ok base
+  | Field { base; struct_name; indices; field_type = Ast.Struct _ } ->
+    pointer_for_field ctx ~base ~struct_name ~indices
+  | _ -> Error (`Invalid_lvalue "expected struct memory location")
+;;
+
 let float_literal_to_value ctx f =
   let open Result.Let_syntax in
   if Float.(f <> round f)
@@ -264,11 +315,13 @@ let rec lower_expr ctx expr =
   | Ast.Int i -> Ok { operand = Ir.Lit_or_var.Lit i; type_ = Ast.I64 }
   | Ast.Float f -> float_literal_to_value ctx f
   | Ast.Var name ->
-    let%bind type_ = lookup ctx name in
-    let%bind _ = ensure_scalar type_ in
-    let%bind core_type = core_type_of ctx.struct_env type_ in
-    let var = Var.create ~name ~type_:core_type in
-    Ok { operand = Ir.Lit_or_var.Var var; type_ }
+    let%bind binding = lookup_binding ctx name in
+    (match binding with
+     | Scalar type_ ->
+       let%bind core_type = core_type_of ctx.struct_env type_ in
+       let var = Var.create ~name ~type_:core_type in
+       Ok { operand = Ir.Lit_or_var.Var var; type_ }
+     | Struct { type_; ptr } -> Ok { operand = ptr; type_ })
   | Ast.Unary (Ast.Neg, expr) ->
     let%bind value = lower_expr ctx expr in
     (match value.type_ with
@@ -308,15 +361,18 @@ let rec lower_expr ctx expr =
     let%bind value = lower_expr ctx expr in
     (match value.type_ with
      | Ast.Ptr inner ->
-       let%bind _ = ensure_scalar inner in
-       let%bind dest_type = core_type_of ctx.struct_env inner in
-       let dest = fresh_temp ctx ~type_:dest_type in
-       let%bind () =
-         emit
-           ctx.builder
-           (Ir.load dest (Ir.Mem.address value.operand))
-       in
-       Ok { operand = Ir.Lit_or_var.Var dest; type_ = inner }
+       (match inner with
+        | Ast.Struct _ ->
+          Ok { operand = value.operand; type_ = inner }
+        | _ ->
+          let%bind dest_type = core_type_of ctx.struct_env inner in
+          let dest = fresh_temp ctx ~type_:dest_type in
+          let%bind () =
+            emit
+              ctx.builder
+              (Ir.load dest (Ir.Mem.address value.operand))
+          in
+          Ok { operand = Ir.Lit_or_var.Var dest; type_ = inner })
      | _ -> Error (`Type_mismatch "deref expects pointer"))
   | Ast.Binary (op, lhs, rhs) ->
     let%bind left = lower_expr ctx lhs in
@@ -381,64 +437,38 @@ let rec lower_expr ctx expr =
     (match Map.find ctx.fn_env name with
      | None -> Error (`Unknown_function name)
      | Some sig_ ->
-       let%bind () =
-         if List.length sig_.args = List.length args
-         then Ok ()
-         else
-           Error
-             (`Type_mismatch
-               (sprintf
-                  "function %s expects %d args but got %d"
-                  name
-                  (List.length sig_.args)
-                  (List.length args)))
-       in
-       let%bind arg_values = result_all (List.map args ~f:(lower_expr ctx)) in
-       let%bind () =
-         List.fold2_exn sig_.args arg_values ~init:(Ok ()) ~f:(fun acc param value ->
-           let%bind () = acc in
-           if type_equal param value.type_
-           then Ok ()
-           else
-             Error
-               (`Type_mismatch
-                 (sprintf
-                    "function %s expects %s but got %s"
-                    name
-                    (Sexp.to_string (Ast.sexp_of_type_expr param))
-                    (Sexp.to_string (Ast.sexp_of_type_expr value.type_))))
-           )
-       in
+       let%bind arg_operands = lower_call_args ctx sig_.args args in
        let%bind _ = ensure_scalar sig_.return_type in
        let%bind result_type = core_type_of ctx.struct_env sig_.return_type in
        let dest = fresh_temp ctx ~type_:result_type in
        let%bind () =
          emit
            ctx.builder
-           (Ir.call
-              ~fn:name
-              ~results:[ dest ]
-              ~args:(List.map arg_values ~f:(fun v -> v.operand)))
+           (Ir.call ~fn:name ~results:[ dest ] ~args:arg_operands)
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = sig_.return_type })
   | Ast.Field _ ->
     let%bind place = lower_lvalue ctx expr in
     (match place with
      | Field { base; struct_name; indices; field_type } ->
-       let%bind _ = ensure_scalar field_type in
-       let%bind dest_type = core_type_of ctx.struct_env field_type in
-       let dest = fresh_temp ctx ~type_:dest_type in
-       let%bind () =
-         emit
-           ctx.builder
-           (Ir.load_field
-              { dest
-              ; base
-              ; type_ = (Map.find_exn ctx.struct_env struct_name).core_type
-              ; indices
-              })
-       in
-       Ok { operand = Ir.Lit_or_var.Var dest; type_ = field_type }
+       (match field_type with
+        | Ast.Struct _ ->
+          let%bind ptr = pointer_for_field ctx ~base ~struct_name ~indices in
+          Ok { operand = ptr; type_ = field_type }
+        | _ ->
+          let%bind dest_type = core_type_of ctx.struct_env field_type in
+          let dest = fresh_temp ctx ~type_:dest_type in
+          let%bind () =
+            emit
+              ctx.builder
+              (Ir.load_field
+                 { dest
+                 ; base
+                 ; type_ = (Map.find_exn ctx.struct_env struct_name).core_type
+                 ; indices
+                 })
+          in
+          Ok { operand = Ir.Lit_or_var.Var dest; type_ = field_type })
      | _ -> Error (`Invalid_lvalue "field access did not resolve to field"))
   | Ast.Alloca type_ ->
     let%bind core = core_type_of ctx.struct_env type_ in
@@ -458,15 +488,71 @@ let rec lower_expr ctx expr =
       let%bind () = emit ctx.builder (Ir.cast dest value.operand) in
       Ok { operand = Ir.Lit_or_var.Var dest; type_ = dest_type })
 
+and lower_call_args ctx param_types arg_exprs =
+  if List.length param_types <> List.length arg_exprs
+  then
+    Error
+      (`Type_mismatch
+        (sprintf
+           "function expects %d args but got %d"
+           (List.length param_types)
+           (List.length arg_exprs)))
+  else
+    List.fold2_exn param_types arg_exprs ~init:(Ok []) ~f:(fun acc param arg ->
+      let open Result.Let_syntax in
+      let%bind acc in
+      match param with
+      | Ast.Struct _ ->
+        let%bind value = lower_expr ctx arg in
+        if not (type_equal param value.type_)
+        then
+          Error
+            (`Type_mismatch
+              (sprintf
+                 "function expects %s but got %s"
+                 (Sexp.to_string (Ast.sexp_of_type_expr param))
+                 (Sexp.to_string (Ast.sexp_of_type_expr value.type_))))
+        else
+          let%bind core = core_type_of ctx.struct_env param in
+          let size =
+            Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
+          in
+          let dest = fresh_temp ctx ~type_:Type.Ptr in
+          let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
+          let%bind () =
+            emit
+              ctx.builder
+              (Ir.memcpy
+                 { dest = Ir.Lit_or_var.Var dest
+                 ; src = value.operand
+                 ; type_ = core
+                 })
+          in
+          Ok (Ir.Lit_or_var.Var dest :: acc)
+      | _ ->
+        let%bind value = lower_expr ctx arg in
+        if not (type_equal param value.type_)
+        then
+          Error
+            (`Type_mismatch
+              (sprintf
+                 "function expects %s but got %s"
+                 (Sexp.to_string (Ast.sexp_of_type_expr param))
+                 (Sexp.to_string (Ast.sexp_of_type_expr value.type_))))
+        else Ok (value.operand :: acc))
+    |> Result.map ~f:List.rev
+
 and lower_lvalue ctx expr =
   let open Result.Let_syntax in
   match expr with
   | Ast.Var name ->
-    let%bind type_ = lookup ctx name in
-    let%bind _ = ensure_scalar type_ in
-    let%bind core_type = core_type_of ctx.struct_env type_ in
-    let var = Var.create ~name ~type_:core_type in
-    Ok (Scalar_var (type_, var))
+    let%bind binding = lookup_binding ctx name in
+    (match binding with
+     | Scalar type_ ->
+       let%bind core_type = core_type_of ctx.struct_env type_ in
+       let var = Var.create ~name ~type_:core_type in
+       Ok (Scalar_var (type_, var))
+     | Struct { type_; ptr } -> Ok (Mem (type_, ptr)))
   | Ast.Unary (Ast.Deref, inner) ->
     let%bind value = lower_expr ctx inner in
     (match value.type_ with
@@ -474,13 +560,9 @@ and lower_lvalue ctx expr =
      | _ -> Error (`Invalid_lvalue "deref expects pointer"))
   | Ast.Field _ ->
     let base_expr, fields = collect_field_path expr in
-    let%bind base_value =
-      match base_expr with
-      | Ast.Unary (Ast.Deref, inner) -> lower_expr ctx inner
-      | _ -> lower_expr ctx base_expr
-    in
+    let%bind base_value = lower_expr ctx base_expr in
     (match base_value.type_ with
-     | Ast.Ptr (Ast.Struct struct_name) ->
+     | Ast.Ptr (Ast.Struct struct_name) | Ast.Struct struct_name ->
        let%bind indices, field_type =
          resolve_field_path ctx.struct_env struct_name fields
        in
@@ -492,36 +574,8 @@ and lower_lvalue ctx expr =
             ; field_type
             })
      | _ ->
-       Error (`Invalid_lvalue "field access expects pointer to struct"))
+       Error (`Invalid_lvalue "field access expects struct value or pointer"))
   | _ -> Error (`Invalid_lvalue "unsupported lvalue")
-;;
-
-let pointer_for_field ctx ~base ~struct_name ~indices =
-  let open Result.Let_syntax in
-  let struct_core = (Map.find_exn ctx.struct_env struct_name).core_type in
-  let%bind offset, _field_type =
-    Type.field_offset struct_core indices
-    |> Result.map_error ~f:(fun err ->
-      `Type_mismatch (Error.to_string_hum err))
-  in
-  let dest = fresh_temp ctx ~type_:Type.Ptr in
-  let%bind () =
-    emit
-      ctx.builder
-      (Ir.add
-         { dest
-         ; src1 = base
-         ; src2 = Ir.Lit_or_var.Lit (Int64.of_int offset)
-         })
-  in
-  Ok (Ir.Lit_or_var.Var dest)
-;;
-
-let pointer_for_place ctx = function
-  | Mem (Ast.Struct _, base) -> Ok base
-  | Field { base; struct_name; indices; field_type = Ast.Struct _ } ->
-    pointer_for_field ctx ~base ~struct_name ~indices
-  | _ -> Error (`Invalid_lvalue "expected struct memory location")
 ;;
 
 let lower_assign ctx lhs rhs =
@@ -596,13 +650,32 @@ let rec lower_stmt ctx stmt =
   | Ast.Let (type_, name, init) ->
     (match type_ with
      | Ast.Struct _ ->
-       Error
-         (`Unsupported
-           (sprintf
-              "struct locals must be pointers, use *struct and alloca for %s"
-              name))
+       let%bind () = declare_struct_local ctx name type_ in
+       (match init with
+        | None -> Ok ()
+        | Some expr ->
+          let%bind value = lower_expr ctx expr in
+          if type_equal type_ value.type_
+          then (
+            let%bind binding = lookup_binding ctx name in
+            match binding with
+            | Struct { ptr; _ } ->
+              let%bind core_type = core_type_of ctx.struct_env type_ in
+              emit
+                ctx.builder
+                (Ir.memcpy { dest = ptr; src = value.operand; type_ = core_type })
+            | Scalar _ -> Error (`Type_mismatch "expected struct binding"))
+          else
+            let msg =
+              sprintf
+                "initializer for %s expected %s but got %s"
+                name
+                (Sexp.to_string (Ast.sexp_of_type_expr type_))
+                (Sexp.to_string (Ast.sexp_of_type_expr value.type_))
+            in
+            Error (`Type_mismatch msg))
      | _ ->
-       let%bind () = declare ctx name type_ in
+       let%bind () = declare_scalar ctx name type_ in
        (match init with
         | None -> Ok ()
         | Some expr ->
@@ -613,13 +686,14 @@ let rec lower_stmt ctx stmt =
             let var = Var.create ~name ~type_:core_type in
             emit ctx.builder (Ir.move var value.operand)
           else
-            Error
-              (`Type_mismatch
-                (sprintf
-                   "initializer for %s expected %s but got %s"
-                   name
-                   (Sexp.to_string (Ast.sexp_of_type_expr type_))
-                   (Sexp.to_string (Ast.sexp_of_type_expr value.type_))))))
+            let msg =
+              sprintf
+                "initializer for %s expected %s but got %s"
+                name
+                (Sexp.to_string (Ast.sexp_of_type_expr type_))
+                (Sexp.to_string (Ast.sexp_of_type_expr value.type_))
+            in
+            Error (`Type_mismatch msg)))
   | Ast.Assign (lhs, rhs) -> lower_assign ctx lhs rhs
   | Ast.Return expr ->
     let%bind value = lower_expr ctx expr in
@@ -639,39 +713,8 @@ let rec lower_stmt ctx stmt =
         | None -> Error (`Unknown_function name)
         | Some sig_ ->
           let%bind _ = ensure_scalar sig_.return_type in
-          let%bind () =
-            if List.length sig_.args = List.length args
-            then Ok ()
-            else
-              Error
-                (`Type_mismatch
-                  (sprintf
-                     "function %s expects %d args but got %d"
-                     name
-                     (List.length sig_.args)
-                     (List.length args)))
-          in
-          let%bind arg_values = result_all (List.map args ~f:(lower_expr ctx)) in
-          let%bind () =
-            List.fold2_exn sig_.args arg_values ~init:(Ok ()) ~f:(fun acc param value ->
-              let%bind () = acc in
-              if type_equal param value.type_
-              then Ok ()
-              else
-                Error
-                  (`Type_mismatch
-                    (sprintf
-                       "function %s expects %s but got %s"
-                       name
-                       (Sexp.to_string (Ast.sexp_of_type_expr param))
-                       (Sexp.to_string (Ast.sexp_of_type_expr value.type_)))))
-          in
-          emit
-            ctx.builder
-            (Ir.call
-               ~fn:name
-               ~results:[]
-               ~args:(List.map arg_values ~f:(fun v -> v.operand))))
+          let%bind arg_operands = lower_call_args ctx sig_.args args in
+          emit ctx.builder (Ir.call ~fn:name ~results:[] ~args:arg_operands))
      | _ ->
        let%map (_ : value) = lower_expr ctx expr in
        ())
@@ -837,22 +880,27 @@ let lower_function struct_env fn_env fn =
   let%bind () =
     List.fold fn.params ~init:(Ok ()) ~f:(fun acc param ->
       let%bind () = acc in
-      (match param.Ast.type_ with
-       | Ast.Struct _ ->
-         Error
-           (`Unsupported
-             (sprintf
-                "struct parameters must be pointers (%s)"
-                param.name))
-       | _ -> declare ctx param.name param.type_))
+      match param.Ast.type_ with
+      | Ast.Struct _ ->
+        let ptr_var = Var.create ~name:param.name ~type_:Type.Ptr in
+        add_binding
+          ctx
+          param.name
+          (Struct { type_ = param.type_; ptr = Ir.Lit_or_var.Var ptr_var })
+      | _ -> declare_scalar ctx param.name param.type_)
   in
   let%bind () = lower_block ctx fn.body in
   let%bind () = finish_builder builder in
   let%bind args =
     result_all
       (List.map fn.params ~f:(fun param ->
-         let%map core_type = core_type_of struct_env param.type_ in
-         Var.create ~name:param.name ~type_:core_type))
+         match param.Ast.type_ with
+         | Ast.Struct _ ->
+           let ptr_type = Type.Ptr in
+           Ok (Var.create ~name:param.name ~type_:ptr_type)
+         | _ ->
+           let%map core_type = core_type_of struct_env param.type_ in
+           Var.create ~name:param.name ~type_:core_type))
   in
   let root = (~instrs_by_label:builder.instrs_by_label, ~labels:builder.labels) in
   Ok (Function0.create ~name:fn.name ~args ~root)

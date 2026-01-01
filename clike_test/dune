@@ -1,6 +1,0 @@
-(library
- (name nod_clike_test)
- (preprocess
-  (pps ppx_jane))
- (inline_tests)
- (libraries core nod_clike nod_core))
