@@ -138,36 +138,68 @@ module Aggregate = struct
   let lower_load_field ({ dest; base; type_; indices } : load_field) =
     let%bind () = ensure_pointer_operand base ~op:"load_field" ~position:"base" in
     let%bind offset, raw_field_type = field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    let%bind () =
-      if Type.equal field_type (Var.type_ dest)
-      then Ok ()
+    match raw_field_type with
+    | Tuple _ ->
+      if Type.equal (Var.type_ dest) Type.Ptr
+      then
+        Ok
+          [ add
+              { dest
+              ; src1 = base
+              ; src2 = Lit_or_var.Lit (Int64.of_int offset)
+              }
+          ]
       else
         type_error
-          "load_field expected destination of type %s but got %s"
-          (Type.to_string field_type)
+          "load_field expected pointer destination for aggregate field but got %s"
           (Type.to_string (Var.type_ dest))
-    in
-    Ok [ load dest (Mem.address base ~offset) ]
+    | _ ->
+      let%bind field_type = ensure_value_type raw_field_type in
+      let%bind () =
+        if Type.equal field_type (Var.type_ dest)
+        then Ok ()
+        else
+          type_error
+            "load_field expected destination of type %s but got %s"
+            (Type.to_string field_type)
+            (Type.to_string (Var.type_ dest))
+      in
+      Ok [ load dest (Mem.address base ~offset) ]
   ;;
 
-  let lower_store_field ({ base; src; type_; indices } : store_field) =
+  let lower_store_field ({ base; src; type_; indices } : store_field) ~fresh_temp
+    =
     let%bind () =
       ensure_pointer_operand base ~op:"store_field" ~position:"base"
     in
     let%bind offset, raw_field_type = field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    let%bind () =
-      match src with
-      | Lit_or_var.Lit _ -> Ok ()
-      | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
-      | Var v ->
-        type_error
-          "store_field expected source of type %s but got %s"
-          (Type.to_string field_type)
-          (Type.to_string (Var.type_ v))
-    in
-    Ok [ store src (Mem.address base ~offset) ]
+    match raw_field_type with
+    | Tuple _ ->
+      let%bind () =
+        ensure_pointer_operand src ~op:"store_field" ~position:"source"
+      in
+      let dest = fresh_temp ~type_:Type.Ptr in
+      Ok
+        [ add
+            { dest
+            ; src1 = base
+            ; src2 = Lit_or_var.Lit (Int64.of_int offset)
+            }
+        ; memcpy { dest = Lit_or_var.Var dest; src; type_ = raw_field_type }
+        ]
+    | _ ->
+      let%bind field_type = ensure_value_type raw_field_type in
+      let%bind () =
+        match src with
+        | Lit_or_var.Lit _ -> Ok ()
+        | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
+        | Var v ->
+          type_error
+            "store_field expected source of type %s but got %s"
+            (Type.to_string field_type)
+            (Type.to_string (Var.type_ v))
+      in
+      Ok [ store src (Mem.address base ~offset) ]
   ;;
 
   let lower_memcpy ({ dest; src; type_ } : memcpy) ~fresh_temp =
@@ -190,7 +222,7 @@ module Aggregate = struct
 
   let lower_instruction ~fresh_temp = function
     | Load_field t -> lower_load_field t
-    | Store_field t -> lower_store_field t
+    | Store_field t -> lower_store_field t ~fresh_temp
     | Memcpy t -> lower_memcpy t ~fresh_temp
     | instr -> Ok [ instr ]
   ;;
@@ -431,14 +463,23 @@ module Type_check = struct
       ensure_pointer_operand base ~op:"load_field" ~position:"base"
     in
     let%bind _offset, raw_field_type = field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    if Type.equal (Var.type_ dest) field_type
-    then Ok ()
-    else
-      type_error
-        "load_field expected destination of type %s but got %s"
-        (Type.to_string field_type)
-        (Type.to_string (Var.type_ dest))
+    (match raw_field_type with
+     | Tuple _ ->
+       if Type.equal (Var.type_ dest) Type.Ptr
+       then Ok ()
+       else
+         type_error
+           "load_field expected pointer destination for aggregate field but got %s"
+           (Type.to_string (Var.type_ dest))
+     | _ ->
+       let%bind field_type = ensure_value_type raw_field_type in
+       if Type.equal (Var.type_ dest) field_type
+       then Ok ()
+       else
+         type_error
+           "load_field expected destination of type %s but got %s"
+           (Type.to_string field_type)
+           (Type.to_string (Var.type_ dest)))
   ;;
 
   let check_store_field ({ base; src; type_; indices } : store_field) =
@@ -446,15 +487,19 @@ module Type_check = struct
       ensure_pointer_operand base ~op:"store_field" ~position:"base"
     in
     let%bind _offset, raw_field_type = field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    match src with
-    | Lit_or_var.Lit _ -> Ok ()
-    | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
-    | Var v ->
-      type_error
-        "store_field expected source of type %s but got %s"
-        (Type.to_string field_type)
-        (Type.to_string (Var.type_ v))
+    (match raw_field_type with
+     | Tuple _ ->
+       ensure_pointer_operand src ~op:"store_field" ~position:"source"
+     | _ ->
+       let%bind field_type = ensure_value_type raw_field_type in
+       match src with
+       | Lit_or_var.Lit _ -> Ok ()
+       | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
+       | Var v ->
+         type_error
+           "store_field expected source of type %s but got %s"
+           (Type.to_string field_type)
+           (Type.to_string (Var.type_ v)))
   ;;
 
   let check_memcpy ({ dest; src; type_ } : memcpy) =
