@@ -1,5 +1,5 @@
 open! Core
-open! Nod_core
+open Import
 
 let test_ok s =
   match Nod_low.Low.lower_string s with
@@ -44,7 +44,7 @@ let with_program source ~f =
 ;;
 
 let instrs_in_order fn =
-  let (~instrs_by_label, ~labels) = fn.Function0.root in
+  let ~instrs_by_label, ~labels = fn.Function0.root in
   Vec.to_list labels
   |> List.concat_map ~f:(fun label ->
     Map.find_exn instrs_by_label label |> Vec.to_list)
@@ -56,7 +56,9 @@ let lit_or_var_type = function
 ;;
 
 let summarize_fn fn =
-  let args = List.map fn.Function0.args ~f:(fun v -> Type.to_string (Var.type_ v)) in
+  let args =
+    List.map fn.Function0.args ~f:(fun v -> Type.to_string (Var.type_ v))
+  in
   let allocas = ref 0 in
   let memcpys = ref [] in
   let calls = ref [] in
@@ -67,7 +69,9 @@ let summarize_fn fn =
     | Ir0.Alloca _ -> allocas := !allocas + 1
     | Ir0.Memcpy { type_; _ } -> memcpys := Type.to_string type_ :: !memcpys
     | Ir0.Call { fn; results; args } ->
-      let results = List.map results ~f:(fun v -> Type.to_string (Var.type_ v)) in
+      let results =
+        List.map results ~f:(fun v -> Type.to_string (Var.type_ v))
+      in
       let args = List.map args ~f:lit_or_var_type in
       calls := { fn; results; args } :: !calls
     | Ir0.Load_field { dest; indices; _ } ->
@@ -91,8 +95,10 @@ let summarize_fn fn =
 let print_fn_summary program name =
   let fn = Map.find_exn program name in
   let summary = summarize_fn fn in
-  print_s [%sexp (name, summary : string * fn_summary)]
+  print_s [%sexp ((name, summary) : string * fn_summary)]
 ;;
+
+let host_system = Lazy.force Nod.host_system
 
 let%expect_test "struct alloca and field access" =
   {|
