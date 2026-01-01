@@ -239,6 +239,16 @@ let map_virtual_reg reg ~f =
   | _ -> reg
 ;;
 
+let regs_of_def_operand = function
+  | Reg r -> Reg.Set.singleton r
+  | Imm _ | Mem _ -> Reg.Set.empty
+;;
+
+let regs_of_mem_base = function
+  | Mem (r, _) -> Reg.Set.singleton r
+  | Reg _ | Imm _ -> Reg.Set.empty
+;;
+
 let map_def_reg = map_virtual_reg
 let map_use_reg = map_virtual_reg
 
@@ -265,7 +275,7 @@ let rec reg_defs ins : Reg.Set.t =
   | MOVQ (dst, _)
   | MOVSD (dst, _)
   | CVTSI2SD (dst, _)
-  | CVTTSD2SI (dst, _) -> regs_of_operand dst
+  | CVTTSD2SI (dst, _) -> regs_of_def_operand dst
   | ALLOCA (dst, _)
   | AND (dst, _)
   | OR (dst, _)
@@ -274,7 +284,7 @@ let rec reg_defs ins : Reg.Set.t =
   | ADDSD (dst, _)
   | SUBSD (dst, _)
   | MULSD (dst, _)
-  | DIVSD (dst, _) -> regs_of_operand dst
+  | DIVSD (dst, _) -> regs_of_def_operand dst
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | CALL { results; _ } -> Reg.Set.of_list results
   | PUSH _ -> Reg.Set.singleton Reg.rsp
@@ -290,11 +300,12 @@ let rec reg_uses ins : Reg.Set.t =
   | IDIV op | MOD op ->
     Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
   | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
-  | MOV (_, src)
-  | MOVQ (_, src)
-  | MOVSD (_, src)
-  | CVTSI2SD (_, src)
-  | CVTTSD2SI (_, src) -> regs_of_operand src
+  | MOV (dst, src)
+  | MOVQ (dst, src)
+  | MOVSD (dst, src)
+  | CVTSI2SD (dst, src)
+  | CVTTSD2SI (dst, src) ->
+    Set.union (regs_of_operand src) (regs_of_mem_base dst)
   | ADD (dst, src)
   | SUB (dst, src)
   | AND (dst, src)
