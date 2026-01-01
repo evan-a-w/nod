@@ -1,6 +1,13 @@
 open! Core
 open! Import
 
+let test_architectures : [ `X86_64 | `Arm64 | `Other ] list =
+  match Lazy.force Nod.host_arch with
+  | `X86_64 -> [ `X86_64 ]
+  | `Arm64 -> [ `Arm64 ]
+  | `Other -> []
+;;
+
 let compile_low source =
   match Nod_low.Low.lower_string source with
   | Error err -> Error (Nod_low.Error.to_string err)
