@@ -16,7 +16,6 @@ module State = struct
     ; current_block : string
     ; current_instrs : string Ir0.t Vec.t
     ; var_types : Type.t String.Table.t
-    ; next_temp : int
     }
 
   let create () =
@@ -25,7 +24,6 @@ module State = struct
     ; current_block = "%root"
     ; current_instrs = Vec.create ()
     ; var_types = String.Table.create ()
-    ; next_temp = 0
     }
   ;;
 end
@@ -40,19 +38,6 @@ let ensure_value_type type_ =
   else return type_
 ;;
 
-let fresh_temp_var ~type_ =
-  let%bind state = get_state () in
-  let name = sprintf "__tmp%d" state.State.next_temp in
-  Hashtbl.set state.State.var_types ~key:name ~data:type_;
-  let var = Var.create ~name ~type_ in
-  set_state { state with next_temp = state.next_temp + 1 } >> return var
-;;
-
-let or_error_to_parser = function
-  | Ok v -> return v
-  | Error err -> fail_type_mismatch "%s" (Error.to_string_hum err)
-;;
-
 let sizeof_literal type_ =
   type_ |> Type.size_in_bytes |> Int64.of_int |> fun s -> Ir.Lit_or_var.Lit s
 ;;
@@ -61,12 +46,6 @@ let mem_address base ~offset = Ir.Mem.address ~offset base
 ;;
 
 let mem_of_lit_or_var base = mem_address base ~offset:0
-;;
-
-let compute_field_offset type_ indices =
-  if List.is_empty indices
-  then fail_type_mismatch "field access requires at least one index"
-  else or_error_to_parser (Type.field_offset type_ indices)
 ;;
 
 let ident () =
@@ -339,20 +318,14 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%bind type_ = parse_type_expr () in
     let%bind (_ : Pos.t) = comma () in
-    let%bind indices = parse_field_indices () in
-    let%bind offset, raw_field_type = compute_field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    let%bind () =
-      if Type.equal field_type (Var.type_ dest)
-      then return ()
-      else
-        fail_type_mismatch
-          "load_field expected destination of type %s but got %s"
-          (Type.to_string field_type)
-          (Type.to_string (Var.type_ dest))
-    in
-    return
-      [ Ir.load dest (mem_address (Ir.Lit_or_var.Var base) ~offset) ]
+    let%map indices = parse_field_indices () in
+    [ Ir.load_field
+        { dest
+        ; base = Ir.Lit_or_var.Var base
+        ; type_
+        ; indices
+        }
+    ]
   | "store_field" ->
     let%bind base = var_use () in
     let%bind (_ : Pos.t) = comma () in
@@ -360,44 +333,26 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%bind type_ = parse_type_expr () in
     let%bind (_ : Pos.t) = comma () in
-    let%bind indices = parse_field_indices () in
-    let%bind offset, raw_field_type = compute_field_offset type_ indices in
-    let%bind field_type = ensure_value_type raw_field_type in
-    let%bind () =
-      match src with
-      | Ir.Lit_or_var.Lit _ -> return ()
-      | Ir.Lit_or_var.Var v when Type.equal (Var.type_ v) field_type -> return ()
-      | Ir.Lit_or_var.Var v ->
-        fail_type_mismatch
-          "store_field expected source of type %s but got %s"
-          (Type.to_string field_type)
-          (Type.to_string (Var.type_ v))
-    in
-    return
-      [ Ir.store src (mem_address (Ir.Lit_or_var.Var base) ~offset) ]
+    let%map indices = parse_field_indices () in
+    [ Ir.store_field
+        { base = Ir.Lit_or_var.Var base
+        ; src
+        ; type_
+        ; indices
+        }
+    ]
   | "memcpy" ->
     let%bind dest = var_use () in
     let%bind (_ : Pos.t) = comma () in
     let%bind src = var_use () in
     let%bind (_ : Pos.t) = comma () in
-    let%bind type_ = parse_type_expr () in
-    let leaves = Type.leaf_offsets type_ in
-    let rec emit acc = function
-      | [] -> return (List.rev acc)
-      | (offset, raw_field_type) :: rest ->
-        let%bind field_type = ensure_value_type raw_field_type in
-        let%bind temp = fresh_temp_var ~type_:field_type in
-        let load_instr =
-          Ir.load temp (mem_address (Ir.Lit_or_var.Var src) ~offset)
-        in
-        let store_instr =
-          Ir.store
-            (Ir.Lit_or_var.Var temp)
-            (mem_address (Ir.Lit_or_var.Var dest) ~offset)
-        in
-        emit (store_instr :: load_instr :: acc) rest
-    in
-    emit [] leaves
+    let%map type_ = parse_type_expr () in
+    [ Ir.memcpy
+        { dest = Ir.Lit_or_var.Var dest
+        ; src = Ir.Lit_or_var.Var src
+        ; type_
+        }
+    ]
   | "call" ->
     let%bind fn = ident () in
     let%bind (_ : Pos.t) = expect Token.L_paren in
@@ -488,7 +443,6 @@ let function_parser_with_reset () =
       ; State.current_block = "%root"
       ; State.current_instrs = Vec.create ()
       ; State.var_types = String.Table.create ()
-      ; State.next_temp = 0
       }
   in
   return func

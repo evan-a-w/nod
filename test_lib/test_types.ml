@@ -224,11 +224,7 @@ let%expect_test "store_field mismatched type fails" =
     return %wrong
   |};
   [%expect
-    {|
-    Error: errors in choices `Error: type mismatch: store_field expected source of type i64 but got f64
-    , Error: unexpected token (Ident alloca) at ((line 1)(col 4)(file""))
-    `
-    |}]
+    {| Error: type mismatch: store_field expected source of type i64 but got f64 |}]
 ;;
 
 let%expect_test "memcpy expands to loads and stores" =

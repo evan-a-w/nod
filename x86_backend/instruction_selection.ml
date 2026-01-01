@@ -48,6 +48,12 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
+let lower_aggregates_exn (fn : Function.t) =
+  match Ir.lower_aggregates ~root:fn.root with
+  | Ok () -> ()
+  | Error err -> failwith (Nod_error.to_string err)
+;;
+
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
   | Lit l -> Imm l
@@ -108,6 +114,8 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | X86_terminal xs -> xs
   | Arm64 _ | Arm64_terminal _ -> []
   | Noop | Unreachable -> []
+  | Load_field _ | Store_field _ | Memcpy _ ->
+    failwith "aggregate instructions must be lowered before selection"
   | And arith -> make_arith and_ arith
   | Or arith -> make_arith or_ arith
   | Add arith -> make_arith add arith
@@ -630,6 +638,7 @@ let simple_translation_to_x86_ir ~this_call_conv t =
 ;;
 
 let run (fn : Function.t) =
+  lower_aggregates_exn fn;
   fn
   |> create
   |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
@@ -644,6 +653,7 @@ let run (fn : Function.t) =
 
 module For_testing = struct
   let run_deebg (fn : Function.t) =
+    lower_aggregates_exn fn;
     fn
     |> create
     |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv

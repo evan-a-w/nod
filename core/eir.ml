@@ -558,6 +558,15 @@ let type_check_functions functions =
     type_check_cfg fn.Function.root)
 ;;
 
+let lower_aggregate_functions functions =
+  Map.fold functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
+    let open Result.Let_syntax in
+    let%bind () = acc in
+    let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
+    Ir.lower_aggregates ~root:block)
+  |> Result.map ~f:(fun () -> functions)
+;;
+
 let optimize_root ?(opt_flags = Opt_flags.default) ssa =
   let opt_state = Opt.create ~opt_flags ssa in
   Opt.run opt_state
@@ -575,6 +584,7 @@ let compile ?opt_flags (input : input) =
     |> Result.map ~f:set_entry_block_args
     |> Result.bind ~f:(fun functions ->
       type_check_functions functions |> Result.map ~f:(fun () -> functions))
+    |> Result.bind ~f:lower_aggregate_functions
     |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   with
   | Error _ as e -> e

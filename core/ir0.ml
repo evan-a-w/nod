@@ -53,7 +53,8 @@ module Mem = struct
 
   let map_vars t ~f =
     match t with
-    | Address { base; offset } -> Address { base = Lit_or_var.map_vars base ~f; offset }
+    | Address { base; offset } ->
+      Address { base = Lit_or_var.map_vars base ~f; offset }
     | Stack_slot _ -> t
   ;;
 
@@ -67,7 +68,8 @@ module Mem = struct
 
   let to_x86_ir_operand t : X86_ir.operand =
     match t with
-    | Address { base = Lit_or_var.Var v; offset } -> Mem (X86_reg.unallocated v, offset)
+    | Address { base = Lit_or_var.Var v; offset } ->
+      Mem (X86_reg.unallocated v, offset)
     | Stack_slot i -> Mem (X86_reg.rbp, i)
     | Address { base = Lit_or_var.Lit _; _ } ->
       failwith "cannot convert literal address without lowering"
@@ -116,6 +118,58 @@ type alloca =
 let map_alloca_defs t ~f = { t with dest = f t.dest }
 let map_alloca_uses t ~f = { t with size = Lit_or_var.map_vars ~f t.size }
 let map_alloca_lit_or_vars t ~f = { t with size = f t.size }
+
+type load_field =
+  { dest : Var.t
+  ; base : Lit_or_var.t
+  ; type_ : Type.t
+  ; indices : int list
+  }
+[@@deriving sexp, compare, equal, hash]
+
+type store_field =
+  { base : Lit_or_var.t
+  ; src : Lit_or_var.t
+  ; type_ : Type.t
+  ; indices : int list
+  }
+[@@deriving sexp, compare, equal, hash]
+
+type memcpy =
+  { dest : Lit_or_var.t
+  ; src : Lit_or_var.t
+  ; type_ : Type.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
+let map_load_field_defs (t : load_field) ~f = { t with dest = f t.dest }
+
+let map_load_field_uses (t : load_field) ~f =
+  { t with base = Lit_or_var.map_vars t.base ~f }
+;;
+
+let map_load_field_lit_or_vars (t : load_field) ~f = { t with base = f t.base }
+
+let map_store_field_uses (t : store_field) ~f =
+  { t with
+    base = Lit_or_var.map_vars t.base ~f
+  ; src = Lit_or_var.map_vars t.src ~f
+  }
+;;
+
+let map_store_field_lit_or_vars (t : store_field) ~f =
+  { t with base = f t.base; src = f t.src }
+;;
+
+let map_memcpy_uses (t : memcpy) ~f =
+  { t with
+    dest = Lit_or_var.map_vars t.dest ~f
+  ; src = Lit_or_var.map_vars t.src ~f
+  }
+;;
+
+let map_memcpy_lit_or_vars (t : memcpy) ~f =
+  { t with dest = f t.dest; src = f t.src }
 
 module Branch = struct
   type 'block t =
@@ -227,6 +281,9 @@ type 'block t =
       }
   | Load of Var.t * Mem.t
   | Store of Lit_or_var.t * Mem.t
+  | Load_field of load_field
+  | Store_field of store_field
+  | Memcpy of memcpy
   | Move of Var.t * Lit_or_var.t
   | Cast of Var.t * Lit_or_var.t
   (* Cast performs type conversion between different types:
@@ -270,6 +327,9 @@ let filter_map_call_blocks t ~f =
   | Return _
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Unreachable
   | Call _ -> []
   | Branch b -> Branch.filter_map_call_blocks b ~f
@@ -339,9 +399,16 @@ let defs = function
   | Fmul a
   | Fdiv a -> [ a.dest ]
   | Load (a, _) -> [ a ]
+  | Load_field a -> [ a.dest ]
   | Move (var, _) | Cast (var, _) -> [ var ]
   | Call { results; _ } -> results
-  | Branch _ | Unreachable | Noop | Return _ | Store _ -> []
+  | Branch _
+  | Unreachable
+  | Noop
+  | Return _
+  | Store _
+  | Store_field _
+  | Memcpy _ -> []
 ;;
 
 let blocks = function
@@ -362,6 +429,9 @@ let blocks = function
   | Fdiv _
   | Store _
   | Load _
+  | Store_field _
+  | Load_field _
+  | Memcpy _
   | And _
   | Or _
   | Move (_, _)
@@ -394,6 +464,9 @@ let uses = function
   | Fdiv a -> Lit_or_var.vars a.src1 @ Lit_or_var.vars a.src2
   | Store (a, b) -> Lit_or_var.vars a @ Mem.vars b
   | Load (_, b) -> Mem.vars b
+  | Load_field a -> Lit_or_var.vars a.base
+  | Store_field a -> Lit_or_var.vars a.base @ Lit_or_var.vars a.src
+  | Memcpy a -> Lit_or_var.vars a.dest @ Lit_or_var.vars a.src
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
   | Call { args; _ } ->
     List.concat_map args ~f:Lit_or_var.vars |> Var.Set.of_list |> Set.to_list
@@ -459,6 +532,7 @@ let map_defs t ~f =
   | Fdiv a -> Fdiv (map_arith_defs a ~f)
   | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
+  | Load_field a -> Load_field (map_load_field_defs a ~f)
   | Move (var, b) -> Move (f var, b)
   | Cast (var, b) -> Cast (f var, b)
   | Call { fn; results; args } ->
@@ -469,7 +543,8 @@ let map_defs t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_defs ~f) x86_irs)
-  | Branch _ | Unreachable | Noop | Return _ | Store _ -> t
+  | Branch _ | Unreachable | Noop | Return _ | Store _ | Store_field _ | Memcpy _
+    -> t
 ;;
 
 let map_uses t ~f =
@@ -488,6 +563,9 @@ let map_uses t ~f =
   | Alloca a -> Alloca (map_alloca_uses a ~f)
   | Store (a, b) -> Store (Lit_or_var.map_vars a ~f, Mem.map_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_vars b ~f)
+  | Load_field a -> Load_field (map_load_field_uses a ~f)
+  | Store_field a -> Store_field (map_store_field_uses a ~f)
+  | Memcpy a -> Memcpy (map_memcpy_uses a ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Cast (var, b) -> Cast (var, Lit_or_var.map_vars b ~f)
@@ -524,6 +602,9 @@ let is_terminal = function
   | Noop
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | And _
   | Or _
   | Call _ -> false
@@ -554,6 +635,9 @@ let map_call_blocks t ~f =
   | Noop
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Return _
   | And _
   | Or _
@@ -584,6 +668,9 @@ let iter_call_blocks t ~f =
   | Noop
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Return _
   | And _
   | Or _
@@ -605,6 +692,9 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Alloca a -> Alloca a
   | Store (a, b) -> Store (a, b)
   | Load (a, b) -> Load (a, b)
+  | Load_field a -> Load_field a
+  | Store_field a -> Store_field a
+  | Memcpy a -> Memcpy a
   | Sub a -> Sub a
   | Move (var, b) -> Move (var, b)
   | Cast (var, b) -> Cast (var, b)
@@ -637,6 +727,9 @@ let map_lit_or_vars t ~f =
   | Alloca a -> Alloca (map_alloca_lit_or_vars a ~f)
   | Store (a, b) -> Store (f a, Mem.map_lit_or_vars b ~f)
   | Load (a, b) -> Load (a, Mem.map_lit_or_vars b ~f)
+  | Load_field a -> Load_field (map_load_field_lit_or_vars a ~f)
+  | Store_field a -> Store_field (map_store_field_lit_or_vars a ~f)
+  | Memcpy a -> Memcpy (map_memcpy_lit_or_vars a ~f)
   | Move (var, b) -> Move (var, f b)
   | Cast (var, b) -> Cast (var, f b)
   | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
@@ -664,6 +757,9 @@ let call_blocks = function
   | Div _
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Mod _
   | Sub _
   | Fadd _
