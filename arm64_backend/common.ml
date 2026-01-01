@@ -52,6 +52,9 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Fdiv _
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Move _
   | Cast _
   | Branch _ | Return _ | Unreachable | Call _ -> None
@@ -81,6 +84,9 @@ let replace_true_terminal (block : Block.t) new_true_terminal =
   | Fdiv _
   | Load _
   | Store _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
   | Move _
   | Cast _
   | Branch _ | Return _ | Unreachable | Call _ -> ()

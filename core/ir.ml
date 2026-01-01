@@ -22,6 +22,9 @@ let add_block_args =
     | Alloca _
     | Load _
     | Store _
+    | Load_field _
+    | Store_field _
+    | Memcpy _
     | Mod _
     | Sub _
     | Move _
@@ -64,6 +67,9 @@ let remove_block_args =
     | Alloca _
     | Load _
     | Store _
+    | Load_field _
+    | Store_field _
+    | Memcpy _
     | Mod _
     | Sub _
     | Move _
@@ -96,6 +102,99 @@ let iter_blocks_and_args t ~f =
 
 include functor Hashable.Make
 include functor Comparable.Make
+
+module Aggregate = struct
+  open Or_error.Let_syntax
+
+  let type_error fmt = Printf.ksprintf Or_error.error_string fmt
+
+  let ensure_value_type type_ =
+    if Type.is_aggregate type_
+    then type_error "aggregate values are not supported: %s" (Type.to_string type_)
+    else Ok type_
+  ;;
+
+  let field_offset type_ indices =
+    if List.is_empty indices
+    then type_error "field access requires at least one index"
+    else Type.field_offset type_ indices
+  ;;
+
+  let ensure_pointer_operand operand ~op ~position =
+    match operand with
+    | Lit_or_var.Lit _ -> Ok ()
+    | Var v ->
+      if Type.equal (Var.type_ v) Type.Ptr
+      then Ok ()
+      else
+        type_error
+          "%s expects %s pointer but got %s:%s"
+          op
+          position
+          (Var.name v)
+          (Type.to_string (Var.type_ v))
+  ;;
+
+  let lower_load_field ({ dest; base; type_; indices } : load_field) =
+    let%bind () = ensure_pointer_operand base ~op:"load_field" ~position:"base" in
+    let%bind offset, raw_field_type = field_offset type_ indices in
+    let%bind field_type = ensure_value_type raw_field_type in
+    let%bind () =
+      if Type.equal field_type (Var.type_ dest)
+      then Ok ()
+      else
+        type_error
+          "load_field expected destination of type %s but got %s"
+          (Type.to_string field_type)
+          (Type.to_string (Var.type_ dest))
+    in
+    Ok [ load dest (Mem.address base ~offset) ]
+  ;;
+
+  let lower_store_field ({ base; src; type_; indices } : store_field) =
+    let%bind () =
+      ensure_pointer_operand base ~op:"store_field" ~position:"base"
+    in
+    let%bind offset, raw_field_type = field_offset type_ indices in
+    let%bind field_type = ensure_value_type raw_field_type in
+    let%bind () =
+      match src with
+      | Lit_or_var.Lit _ -> Ok ()
+      | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
+      | Var v ->
+        type_error
+          "store_field expected source of type %s but got %s"
+          (Type.to_string field_type)
+          (Type.to_string (Var.type_ v))
+    in
+    Ok [ store src (Mem.address base ~offset) ]
+  ;;
+
+  let lower_memcpy ({ dest; src; type_ } : memcpy) ~fresh_temp =
+    let%bind () =
+      ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
+    in
+    let%bind () = ensure_pointer_operand src ~op:"memcpy" ~position:"source" in
+    let leaves = Type.leaf_offsets type_ in
+    let rec emit acc = function
+      | [] -> Ok (List.rev acc)
+      | (offset, raw_field_type) :: rest ->
+        let%bind field_type = ensure_value_type raw_field_type in
+        let temp = fresh_temp ~type_:field_type in
+        let load_instr = load temp (Mem.address src ~offset) in
+        let store_instr = store (Lit_or_var.Var temp) (Mem.address dest ~offset) in
+        emit (store_instr :: load_instr :: acc) rest
+    in
+    emit [] leaves
+  ;;
+
+  let lower_instruction ~fresh_temp = function
+    | Load_field t -> lower_load_field t
+    | Store_field t -> lower_store_field t
+    | Memcpy t -> lower_memcpy t ~fresh_temp
+    | instr -> Ok [ instr ]
+  ;;
+end
 
 module Type_check = struct
   open Result.Let_syntax
@@ -168,6 +267,23 @@ module Type_check = struct
     | Mem.Stack_slot _ -> Ok ()
     | Mem.Address { base; _ } ->
       ensure_pointer_operand base ~op ~position:"memory operand"
+  ;;
+
+  let ensure_value_type type_ =
+    if Type.is_aggregate type_
+    then type_error "aggregate values are not supported: %s" (Type.to_string type_)
+    else Ok type_
+  ;;
+
+  let or_error_to_result = function
+    | Ok v -> Ok v
+    | Error err -> type_error "%s" (Error.to_string_hum err)
+  ;;
+
+  let field_offset type_ indices =
+    if List.is_empty indices
+    then type_error "field access requires at least one index"
+    else or_error_to_result (Type.field_offset type_ indices)
   ;;
 
   let check_arith ~op { dest; src1; src2 } =
@@ -310,6 +426,48 @@ module Type_check = struct
     | Var _ -> Ok ()
   ;;
 
+  let check_load_field ({ dest; base; type_; indices } : load_field) =
+    let%bind () =
+      ensure_pointer_operand base ~op:"load_field" ~position:"base"
+    in
+    let%bind _offset, raw_field_type = field_offset type_ indices in
+    let%bind field_type = ensure_value_type raw_field_type in
+    if Type.equal (Var.type_ dest) field_type
+    then Ok ()
+    else
+      type_error
+        "load_field expected destination of type %s but got %s"
+        (Type.to_string field_type)
+        (Type.to_string (Var.type_ dest))
+  ;;
+
+  let check_store_field ({ base; src; type_; indices } : store_field) =
+    let%bind () =
+      ensure_pointer_operand base ~op:"store_field" ~position:"base"
+    in
+    let%bind _offset, raw_field_type = field_offset type_ indices in
+    let%bind field_type = ensure_value_type raw_field_type in
+    match src with
+    | Lit_or_var.Lit _ -> Ok ()
+    | Var v when Type.equal (Var.type_ v) field_type -> Ok ()
+    | Var v ->
+      type_error
+        "store_field expected source of type %s but got %s"
+        (Type.to_string field_type)
+        (Type.to_string (Var.type_ v))
+  ;;
+
+  let check_memcpy ({ dest; src; type_ } : memcpy) =
+    let%bind () =
+      ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
+    in
+    let%bind () = ensure_pointer_operand src ~op:"memcpy" ~position:"source" in
+    List.fold (Type.leaf_offsets type_) ~init:(Ok ()) ~f:(fun acc (_, leaf) ->
+      let%bind () = acc in
+      let%map (_ : Type.t) = ensure_value_type leaf in
+      ())
+  ;;
+
   let check_call_block_args (call_block : Block.t Call_block.t) =
     let formal_args = Vec.to_list call_block.block.Block.args in
     let actual_args = call_block.args in
@@ -358,6 +516,9 @@ module Type_check = struct
     | Cast (dst, src) -> check_cast (dst, src)
     | Load (dst, src) -> check_load (dst, src)
     | Store (dst, src) -> check_store (dst, src)
+    | Load_field instr -> check_load_field instr
+    | Store_field instr -> check_store_field instr
+    | Memcpy instr -> check_memcpy instr
     | Return _ -> Ok ()
     | Call _ -> Ok ()
     | Branch (Branch.Cond { cond; if_true; if_false }) ->
@@ -369,3 +530,64 @@ module Type_check = struct
 end
 
 let check_types = Type_check.check
+
+let lower_aggregates ~root =
+  let add_var used var = Core.Hash_set.add used (Var.name var) in
+  let blocks =
+    let seen = Core.Hash_set.Poly.create () in
+    let rec collect acc block =
+      if Core.Hash_set.Poly.mem seen block
+      then acc
+      else (
+        Core.Hash_set.Poly.add seen block;
+        let acc = block :: acc in
+        Vec.fold block.Block.children ~init:acc ~f:collect)
+    in
+    collect [] root |> List.rev
+  in
+  let used_names = String.Hash_set.create () in
+  List.iter blocks ~f:(fun block ->
+    Vec.iter block.Block.args ~f:(add_var used_names);
+    let add_instr_vars instr =
+      List.iter (vars instr) ~f:(add_var used_names)
+    in
+    Vec.iter block.Block.instructions ~f:add_instr_vars;
+    add_instr_vars block.Block.terminal);
+  let counter = ref 0 in
+  let fresh_temp ~type_ =
+    let rec next_name () =
+      let name = sprintf "__tmp%d" !counter in
+      incr counter;
+      if Core.Hash_set.mem used_names name then next_name () else name
+    in
+    let name = next_name () in
+    Core.Hash_set.add used_names name;
+    Var.create ~name ~type_
+  in
+  List.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
+    let open Result.Let_syntax in
+    let%bind () = acc in
+    let new_instrs = Vec.create () in
+    let%bind () =
+      Vec.fold block.Block.instructions ~init:(Ok ()) ~f:(fun acc instr ->
+        let%bind () = acc in
+        match Aggregate.lower_instruction ~fresh_temp instr with
+        | Ok instrs ->
+          List.iter instrs ~f:(Vec.push new_instrs);
+          Ok ()
+        | Error err ->
+          Error (`Type_mismatch (Error.to_string_hum err)))
+    in
+    block.Block.instructions <- new_instrs;
+    let%bind () =
+      match Aggregate.lower_instruction ~fresh_temp block.Block.terminal with
+      | Ok [ instr ] ->
+        if is_terminal instr
+        then (
+          block.terminal <- instr;
+          Ok ())
+        else Error (`Type_mismatch "aggregate instruction cannot be terminal")
+      | Ok _ -> Error (`Type_mismatch "aggregate instruction cannot be terminal")
+      | Error err -> Error (`Type_mismatch (Error.to_string_hum err))
+    in
+    Ok ())
