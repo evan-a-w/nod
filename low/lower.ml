@@ -782,8 +782,9 @@ let rec lower_stmt ctx stmt =
       push_scope ctx;
       let%bind () = lower_block ctx then_body in
       pop_scope ctx;
+      let then_terminated = ctx.builder.terminated in
       let%bind () =
-        if ctx.builder.terminated
+        if then_terminated
         then Ok ()
         else
           emit
@@ -802,8 +803,9 @@ let rec lower_stmt ctx stmt =
           pop_scope ctx;
           Ok ()
       in
+      let else_terminated = ctx.builder.terminated in
       let%bind () =
-        if ctx.builder.terminated
+        if else_terminated
         then Ok ()
         else
           emit
@@ -812,7 +814,9 @@ let rec lower_stmt ctx stmt =
                (Ir.Branch.Uncond
                   { Ir.Call_block.block = end_label; args = [] }))
       in
-      start_block ~link:false ctx.builder end_label)
+      if then_terminated && else_terminated
+      then Ok ()
+      else start_block ~link:false ctx.builder end_label)
   | Ast.While (cond, body) ->
     let loop_label = sprintf "loop%d" ctx.builder.label_counter in
     let body_label = sprintf "body%d" ctx.builder.label_counter in
