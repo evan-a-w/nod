@@ -3,4 +3,4 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core nod_low nod_core))
+ (libraries core nod_low nod_core nod nod_test))
