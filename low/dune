@@ -1,0 +1,5 @@
+(library
+ (name nod_low)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core vec nod_common nod_core nod_frontend))
