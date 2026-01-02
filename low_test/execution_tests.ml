@@ -1,6 +1,7 @@
 open! Core
 open! Import
 
+(* TODO: arm64 running x86 crashes because of stack being unaligned *)
 let test_architectures : [ `X86_64 | `Arm64 | `Other ] list =
   match Lazy.force Nod.host_arch with
   | `X86_64 -> [ `X86_64 ]
