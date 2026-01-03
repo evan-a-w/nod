@@ -10,7 +10,9 @@ type 'block t' =
   ; name : string
   ; mutable prologue : 'block option [@hash.ignore]
   ; mutable epilogue : 'block option [@hash.ignore]
-  ; mutable bytes_for_clobber_saves : int [@hash.ignore]
+  ; mutable bytes_for_clobber_saves : int
+       [@hash.ignore]
+       (* this is the bytes AFTER rbp (which may or may not be exclusive of the rbp push *)
   ; mutable bytes_for_padding : int [@hash.ignore]
   ; mutable bytes_for_spills : int [@hash.ignore]
   ; mutable bytes_statically_alloca'd : int [@hash.ignore]

@@ -45,7 +45,7 @@ let save_and_restore_in_prologue_and_epilogue
     let () = Breadcrumbs.frame_pointer_omission in
     (* always restore RBP (so just remove it here, and we push it below anyway) *)
     let to_restore = Set.remove to_restore Reg.rbp |> Set.to_list in
-    fn.bytes_for_clobber_saves <- (List.length to_restore * 8) + 8;
+    fn.bytes_for_clobber_saves <- List.length to_restore * 8;
     (* align to 16 bytes *)
     fn.bytes_for_padding
     <- (let m =
@@ -187,7 +187,8 @@ let process (functions : Function.t String.Map.t) =
         Ir.map_x86_operands ir ~f:(function
           | Spill_slot i ->
             let offset =
-              -(fn.bytes_for_padding + fn.bytes_for_clobber_saves + (i * 8))
+              -(fn.bytes_for_padding + fn.bytes_for_clobber_saves + ((i + 1) * 8)
+               )
             in
             Mem (Reg.rbp, offset)
           | x -> x)
