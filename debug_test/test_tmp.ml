@@ -179,7 +179,8 @@ let%expect_test "print helper" =
              (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))
             (Return (Var ((name loaded) (type_ I64)))))))))
        (args (((name p) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
-       (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0)))
      (root
       ((call_conv Default)
        (root
@@ -191,25 +192,43 @@ let%expect_test "print helper" =
             (Call (fn child) (results (((name res) (type_ I64))))
              (args ((Var ((name slot) (type_ Ptr))))))
             (Return (Var ((name res) (type_ I64)))))))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
 let borked =
-  {|
-child(%x:ptr) {
-   load %res:i64, %x
-   ret %res
-}
+  (*   {| *)
+(* child(%x:ptr) { *)
+(*    load %res:i64, %x *)
+(*    ret %res *)
+(* } *)
 
-root() {
-   alloca %slot:ptr, 8
-   store %slot, 41
-   call child(%slot) -> %res:i64
-   ret %res
-}
-   |}
+(* root() { *)
+(*    alloca %slot:ptr, 8 *)
+(*    store %slot, 41 *)
+(*    call child(%slot) -> %res:i64 *)
+(*    ret %res *)
+(* } *)
+(*    |} *)
+  {|
+     sum8(%a:i64, %b:i64, %c:i64, %d:i64, %e:i64, %f:i64, %g:i64, %h:i64) {
+     add %t0:i64, %a, %b
+     add %t1:i64, %t0, %c
+     add %t2:i64, %t1, %d
+     add %t3:i64, %t2, %e
+     add %t4:i64, %t3, %f
+     add %t5:i64, %t4, %g
+     add %t6:i64, %t5, %h
+     ret %t6
+     }
+
+     root() {
+     call sum8(1, 2, 3, 4, 5, 6, 7, 8) -> %res:i64
+     ret %res
+     }
+|}
 ;;
 
 (* Examples.Textual.super_triv *)
@@ -288,7 +307,21 @@ let%expect_test "run" =
     ~opt_flags:Eir.Opt_flags.no_opt
     borked (* "210" *)
     "41";
-  [%expect {||}]
+  [%expect.unreachable]
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  (Failure "arch x86_64 produced 4370945591, expected 41")
+  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
+  Called from Base__Printf.failwithf.(fun) in file "src/printf.ml", line 7, characters 24-34
+  Called from Base__List0.iter.loop in file "src/list0.ml" (inlined), line 99, characters 6-9
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 102, characters 2-11
+  Called from Nod_debug_test__Test_tmp.assert_execution in file "debug_test/test_tmp.ml", lines 58-67, characters 2-311
+  Called from Nod_debug_test__Test_tmp.assert_execution in file "debug_test/test_tmp.ml" (inlined), lines 53-67, characters 2-385
+  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", lines 303-309, characters 2-215
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
+  |}]
 ;;
 
 let%expect_test "borked regaloc" =
@@ -301,93 +334,223 @@ let%expect_test "borked regaloc" =
      | `Other -> failwith "unecpected arch");
     [%expect
       {|
-      ((function_name child)
-       (assignments
-        ((((name res) (type_ I64)) (Reg ((reg X28) (class_ I64))))
-         (((name res__0) (type_ I64)) (Reg ((reg X0) (class_ I64))))
-         (((name x) (type_ Ptr)) (Reg ((reg X28) (class_ I64))))
-         (((name x0) (type_ Ptr)) (Reg ((reg X0) (class_ I64)))))))
-      ()
       ((function_name root)
        (assignments
         ((((name arg_reg) (type_ I64)) (Reg ((reg X0) (class_ I64))))
+         (((name arg_reg0) (type_ I64)) (Reg ((reg X1) (class_ I64))))
+         (((name arg_reg1) (type_ I64)) (Reg ((reg X2) (class_ I64))))
+         (((name arg_reg2) (type_ I64)) (Reg ((reg X3) (class_ I64))))
+         (((name arg_reg3) (type_ I64)) (Reg ((reg X4) (class_ I64))))
+         (((name arg_reg4) (type_ I64)) (Reg ((reg X5) (class_ I64))))
+         (((name arg_reg5) (type_ I64)) (Reg ((reg X6) (class_ I64))))
+         (((name arg_reg6) (type_ I64)) (Reg ((reg X7) (class_ I64))))
          (((name res) (type_ I64)) (Reg ((reg X28) (class_ I64))))
          (((name res__0) (type_ I64)) (Reg ((reg X0) (class_ I64))))
-         (((name slot) (type_ Ptr)) (Reg ((reg X28) (class_ I64))))
          (((name tmp_force_physical) (type_ I64)) (Reg ((reg X0) (class_ I64)))))))
-      ((((name slot) (type_ Ptr)) ((name arg_reg) (type_ I64))))
+      ()
+      ((function_name sum8)
+       (assignments
+        ((((name a) (type_ I64)) (Reg ((reg X21) (class_ I64))))
+         (((name a0) (type_ I64)) (Reg ((reg X0) (class_ I64))))
+         (((name b) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name b0) (type_ I64)) (Reg ((reg X1) (class_ I64))))
+         (((name c) (type_ I64)) (Reg ((reg X22) (class_ I64))))
+         (((name c0) (type_ I64)) (Reg ((reg X2) (class_ I64))))
+         (((name d) (type_ I64)) (Reg ((reg X23) (class_ I64))))
+         (((name d0) (type_ I64)) (Reg ((reg X3) (class_ I64))))
+         (((name e) (type_ I64)) (Reg ((reg X24) (class_ I64))))
+         (((name e0) (type_ I64)) (Reg ((reg X4) (class_ I64))))
+         (((name f) (type_ I64)) (Reg ((reg X25) (class_ I64))))
+         (((name f0) (type_ I64)) (Reg ((reg X5) (class_ I64))))
+         (((name g) (type_ I64)) (Reg ((reg X26) (class_ I64))))
+         (((name g0) (type_ I64)) (Reg ((reg X6) (class_ I64))))
+         (((name h) (type_ I64)) (Reg ((reg X27) (class_ I64))))
+         (((name h0) (type_ I64)) (Reg ((reg X7) (class_ I64))))
+         (((name res__0) (type_ I64)) (Reg ((reg X0) (class_ I64))))
+         (((name t0) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t1) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t2) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t3) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t4) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t5) (type_ I64)) (Reg ((reg X28) (class_ I64))))
+         (((name t6) (type_ I64)) (Reg ((reg X28) (class_ I64)))))))
+      ((((name a0) (type_ I64)) ((name b0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name c0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name d0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name e0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name f0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name a0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name c0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name d0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name e0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name f0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name b0) (type_ I64)) ((name a) (type_ I64)))
+       (((name c0) (type_ I64)) ((name d0) (type_ I64)))
+       (((name c0) (type_ I64)) ((name e0) (type_ I64)))
+       (((name c0) (type_ I64)) ((name f0) (type_ I64)))
+       (((name c0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name c0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name c0) (type_ I64)) ((name a) (type_ I64)))
+       (((name c0) (type_ I64)) ((name b) (type_ I64)))
+       (((name d0) (type_ I64)) ((name e0) (type_ I64)))
+       (((name d0) (type_ I64)) ((name f0) (type_ I64)))
+       (((name d0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name d0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name d0) (type_ I64)) ((name a) (type_ I64)))
+       (((name d0) (type_ I64)) ((name b) (type_ I64)))
+       (((name d0) (type_ I64)) ((name c) (type_ I64)))
+       (((name e0) (type_ I64)) ((name f0) (type_ I64)))
+       (((name e0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name e0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name e0) (type_ I64)) ((name a) (type_ I64)))
+       (((name e0) (type_ I64)) ((name b) (type_ I64)))
+       (((name e0) (type_ I64)) ((name c) (type_ I64)))
+       (((name e0) (type_ I64)) ((name d) (type_ I64)))
+       (((name f0) (type_ I64)) ((name g0) (type_ I64)))
+       (((name f0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name f0) (type_ I64)) ((name a) (type_ I64)))
+       (((name f0) (type_ I64)) ((name b) (type_ I64)))
+       (((name f0) (type_ I64)) ((name c) (type_ I64)))
+       (((name f0) (type_ I64)) ((name d) (type_ I64)))
+       (((name f0) (type_ I64)) ((name e) (type_ I64)))
+       (((name g0) (type_ I64)) ((name h0) (type_ I64)))
+       (((name g0) (type_ I64)) ((name a) (type_ I64)))
+       (((name g0) (type_ I64)) ((name b) (type_ I64)))
+       (((name g0) (type_ I64)) ((name c) (type_ I64)))
+       (((name g0) (type_ I64)) ((name d) (type_ I64)))
+       (((name g0) (type_ I64)) ((name e) (type_ I64)))
+       (((name g0) (type_ I64)) ((name f) (type_ I64)))
+       (((name h0) (type_ I64)) ((name a) (type_ I64)))
+       (((name h0) (type_ I64)) ((name b) (type_ I64)))
+       (((name h0) (type_ I64)) ((name c) (type_ I64)))
+       (((name h0) (type_ I64)) ((name d) (type_ I64)))
+       (((name h0) (type_ I64)) ((name e) (type_ I64)))
+       (((name h0) (type_ I64)) ((name f) (type_ I64)))
+       (((name h0) (type_ I64)) ((name g) (type_ I64)))
+       (((name a) (type_ I64)) ((name b) (type_ I64)))
+       (((name a) (type_ I64)) ((name c) (type_ I64)))
+       (((name a) (type_ I64)) ((name d) (type_ I64)))
+       (((name a) (type_ I64)) ((name e) (type_ I64)))
+       (((name a) (type_ I64)) ((name f) (type_ I64)))
+       (((name a) (type_ I64)) ((name g) (type_ I64)))
+       (((name a) (type_ I64)) ((name h) (type_ I64)))
+       (((name b) (type_ I64)) ((name c) (type_ I64)))
+       (((name b) (type_ I64)) ((name d) (type_ I64)))
+       (((name b) (type_ I64)) ((name e) (type_ I64)))
+       (((name b) (type_ I64)) ((name f) (type_ I64)))
+       (((name b) (type_ I64)) ((name g) (type_ I64)))
+       (((name b) (type_ I64)) ((name h) (type_ I64)))
+       (((name c) (type_ I64)) ((name d) (type_ I64)))
+       (((name c) (type_ I64)) ((name e) (type_ I64)))
+       (((name c) (type_ I64)) ((name f) (type_ I64)))
+       (((name c) (type_ I64)) ((name g) (type_ I64)))
+       (((name c) (type_ I64)) ((name h) (type_ I64)))
+       (((name c) (type_ I64)) ((name t0) (type_ I64)))
+       (((name d) (type_ I64)) ((name e) (type_ I64)))
+       (((name d) (type_ I64)) ((name f) (type_ I64)))
+       (((name d) (type_ I64)) ((name g) (type_ I64)))
+       (((name d) (type_ I64)) ((name h) (type_ I64)))
+       (((name d) (type_ I64)) ((name t0) (type_ I64)))
+       (((name d) (type_ I64)) ((name t1) (type_ I64)))
+       (((name e) (type_ I64)) ((name f) (type_ I64)))
+       (((name e) (type_ I64)) ((name g) (type_ I64)))
+       (((name e) (type_ I64)) ((name h) (type_ I64)))
+       (((name e) (type_ I64)) ((name t0) (type_ I64)))
+       (((name e) (type_ I64)) ((name t1) (type_ I64)))
+       (((name e) (type_ I64)) ((name t2) (type_ I64)))
+       (((name f) (type_ I64)) ((name g) (type_ I64)))
+       (((name f) (type_ I64)) ((name h) (type_ I64)))
+       (((name f) (type_ I64)) ((name t0) (type_ I64)))
+       (((name f) (type_ I64)) ((name t1) (type_ I64)))
+       (((name f) (type_ I64)) ((name t2) (type_ I64)))
+       (((name f) (type_ I64)) ((name t3) (type_ I64)))
+       (((name g) (type_ I64)) ((name h) (type_ I64)))
+       (((name g) (type_ I64)) ((name t0) (type_ I64)))
+       (((name g) (type_ I64)) ((name t1) (type_ I64)))
+       (((name g) (type_ I64)) ((name t2) (type_ I64)))
+       (((name g) (type_ I64)) ((name t3) (type_ I64)))
+       (((name g) (type_ I64)) ((name t4) (type_ I64)))
+       (((name h) (type_ I64)) ((name t0) (type_ I64)))
+       (((name h) (type_ I64)) ((name t1) (type_ I64)))
+       (((name h) (type_ I64)) ((name t2) (type_ I64)))
+       (((name h) (type_ I64)) ((name t3) (type_ I64)))
+       (((name h) (type_ I64)) ((name t4) (type_ I64)))
+       (((name h) (type_ I64)) ((name t5) (type_ I64))))
       |}]
 ;;
 
 let%expect_test "borked" =
-  compile_and_lower ~arch ~system ~opt_flags:Eir.Opt_flags.no_opt borked
+  compile_and_lower ~arch:`X86_64 ~system ~opt_flags:Eir.Opt_flags.no_opt borked
   |> print_endline;
   [%expect
     {|
+    .intel_syntax noprefix
     .text
-    .globl _child
-    _child:
-      mov x14, #8
-      sub sp, sp, x14
-      mov x14, #24
-      sub sp, sp, x14
-      str x28, [sp]
-      str x29, [sp, #8]
-      str x30, [sp, #16]
-      mov x29, sp
-      mov x14, #24
-      add x29, x29, x14
-      mov x0, x0
-      mov x28, x0
-    child___root:
-      ldr x28, [x28]
-      mov x0, x28
-    child__child__epilogue:
-      mov x0, x0
-      mov sp, x29
-      mov x14, #24
-      sub sp, sp, x14
-      ldr x30, [sp, #16]
-      ldr x29, [sp, #8]
-      ldr x28, [sp]
-      mov x14, #24
-      add sp, sp, x14
-      mov x14, #8
-      add sp, sp, x14
-      ret
-
     .globl _root
     _root:
-      mov x14, #8
-      sub sp, sp, x14
-      mov x14, #24
-      sub sp, sp, x14
-      str x28, [sp]
-      str x29, [sp, #8]
-      str x30, [sp, #16]
-      mov x29, sp
-      mov x14, #24
-      add x29, x29, x14
+      push rbp
+      mov rbp, rsp
+      push rsp
+      push r15
+      sub rsp, 8
     root___root:
-      mov x28, x29
-      mov x14, #41
-      str x14, [x28]
-      mov x0, x28
-      bl _child
-      mov x28, x0
-      mov x0, x28
+      push 8
+      push 7
+      mov rdi, 1
+      mov rsi, 2
+      mov rdx, 3
+      mov rcx, 4
+      mov r8, 5
+      mov r9, 6
+      call _sum8
+      mov r15, rax
+      add rsp, 16
+      mov rax, r15
     root__root__epilogue:
-      mov x0, x0
-      mov sp, x29
-      mov x14, #24
-      sub sp, sp, x14
-      ldr x30, [sp, #16]
-      ldr x29, [sp, #8]
-      ldr x28, [sp]
-      mov x14, #24
-      add sp, sp, x14
-      mov x14, #8
-      add sp, sp, x14
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop rsp
+      pop rbp
+      ret
+
+    .globl _sum8
+    _sum8:
+      push rbp
+      mov rbp, rsp
+      push rbx
+      push r12
+      push r13
+      push r14
+      push r15
+      mov r13, [rbp + 8]
+      mov r14, [rbp + 16]
+      mov r15, rdi
+      mov rbx, rsi
+      mov r10, rcx
+      mov r11, r8
+      mov r12, r9
+    sum8___root:
+      add r15, rbx
+      add r15, rdx
+      add r15, r10
+      add r15, r11
+      add r15, r12
+      add r15, r13
+      add r15, r14
+      mov rax, r15
+    sum8__sum8__epilogue:
+      sub rbp, 40
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbx
+      pop rbp
       ret
     |}]
 ;;
@@ -398,31 +561,67 @@ let%expect_test "debug borked opt ssa" =
     {|
     (%root
      (instrs
-      ((Load ((name res) (type_ I64))
-        (Address ((base (Var ((name x) (type_ Ptr)))) (offset 0))))
+      ((Call (fn sum8) (results (((name res) (type_ I64))))
+        (args ((Lit 1) (Lit 2) (Lit 3) (Lit 4) (Lit 5) (Lit 6) (Lit 7) (Lit 8))))
        (Return (Var ((name res) (type_ I64)))))))
     (%root
      (instrs
-      ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-       (Store (Lit 41)
-        (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
-       (Call (fn child) (results (((name res) (type_ I64))))
-        (args ((Var ((name slot) (type_ Ptr))))))
-       (Return (Var ((name res) (type_ I64)))))))
+      ((Add
+        ((dest ((name t0) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+         (src2 (Var ((name b) (type_ I64))))))
+       (Add
+        ((dest ((name t1) (type_ I64))) (src1 (Var ((name t0) (type_ I64))))
+         (src2 (Var ((name c) (type_ I64))))))
+       (Add
+        ((dest ((name t2) (type_ I64))) (src1 (Var ((name t1) (type_ I64))))
+         (src2 (Var ((name d) (type_ I64))))))
+       (Add
+        ((dest ((name t3) (type_ I64))) (src1 (Var ((name t2) (type_ I64))))
+         (src2 (Var ((name e) (type_ I64))))))
+       (Add
+        ((dest ((name t4) (type_ I64))) (src1 (Var ((name t3) (type_ I64))))
+         (src2 (Var ((name f) (type_ I64))))))
+       (Add
+        ((dest ((name t5) (type_ I64))) (src1 (Var ((name t4) (type_ I64))))
+         (src2 (Var ((name g) (type_ I64))))))
+       (Add
+        ((dest ((name t6) (type_ I64))) (src1 (Var ((name t5) (type_ I64))))
+         (src2 (Var ((name h) (type_ I64))))))
+       (Return (Var ((name t6) (type_ I64)))))))
     =================================
-    (%root (args (((name x) (type_ Ptr))))
-     (instrs
-      ((Load ((name res) (type_ I64))
-        (Address ((base (Var ((name x) (type_ Ptr)))) (offset 0))))
-       (Return (Var ((name res) (type_ I64)))))))
     (%root (args ())
      (instrs
-      ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-       (Store (Lit 41)
-        (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
-       (Call (fn child) (results (((name res) (type_ I64))))
-        (args ((Var ((name slot) (type_ Ptr))))))
+      ((Call (fn sum8) (results (((name res) (type_ I64))))
+        (args ((Lit 1) (Lit 2) (Lit 3) (Lit 4) (Lit 5) (Lit 6) (Lit 7) (Lit 8))))
        (Return (Var ((name res) (type_ I64)))))))
+    (%root
+     (args
+      (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
+       ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
+       ((name g) (type_ I64)) ((name h) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name t0) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+         (src2 (Var ((name b) (type_ I64))))))
+       (Add
+        ((dest ((name t1) (type_ I64))) (src1 (Var ((name t0) (type_ I64))))
+         (src2 (Var ((name c) (type_ I64))))))
+       (Add
+        ((dest ((name t2) (type_ I64))) (src1 (Var ((name t1) (type_ I64))))
+         (src2 (Var ((name d) (type_ I64))))))
+       (Add
+        ((dest ((name t3) (type_ I64))) (src1 (Var ((name t2) (type_ I64))))
+         (src2 (Var ((name e) (type_ I64))))))
+       (Add
+        ((dest ((name t4) (type_ I64))) (src1 (Var ((name t3) (type_ I64))))
+         (src2 (Var ((name f) (type_ I64))))))
+       (Add
+        ((dest ((name t5) (type_ I64))) (src1 (Var ((name t4) (type_ I64))))
+         (src2 (Var ((name g) (type_ I64))))))
+       (Add
+        ((dest ((name t6) (type_ I64))) (src1 (Var ((name t5) (type_ I64))))
+         (src2 (Var ((name h) (type_ I64))))))
+       (Return (Var ((name t6) (type_ I64)))))))
     |}]
 ;;
 
@@ -431,83 +630,6 @@ let%expect_test "debug borked opt x86" =
   [%expect
     {|
     (((call_conv Default)
-      (root
-       ((child__prologue (args (((name x0) (type_ Ptr))))
-         (instrs
-          ((Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 8))))
-           (Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Store (src (Reg ((reg X28) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Store (src (Reg ((reg X29) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Store (src (Reg ((reg X30) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Move (dst ((reg X29) (class_ I64)))
-             (src (Reg ((reg SP) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X29) (class_ I64)))
-             (lhs (Reg ((reg X29) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))
-           (Arm64
-            (Move (dst ((reg X28) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Jump
-             ((block ((id_hum %root) (args (((name x) (type_ Ptr)))))) (args ())))))))
-        (%root (args (((name x) (type_ Ptr))))
-         (instrs
-          ((Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg X28) (class_ I64)) 0))))
-           (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X28) (class_ I64))))))
-           (Arm64_terminal
-            ((Jump
-              ((block
-                ((id_hum child__epilogue) (args (((name res__0) (type_ I64))))))
-               (args ()))))))))
-        (child__epilogue (args (((name res__0) (type_ I64))))
-         (instrs
-          ((Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg SP) (class_ I64)))
-             (src (Reg ((reg X29) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Load (dst ((reg X30) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Load (dst ((reg X29) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 8))))
-           (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
-      (args (((name x) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 24))
-     ((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
@@ -536,16 +658,18 @@ let%expect_test "debug borked opt x86" =
            (Arm64 (Jump ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
-          ((Arm64_terminal
-            ((Move (dst ((reg X28) (class_ I64)))
-              (src (Reg ((reg X29) (class_ I64)))))))
-           (Arm64 (Store (src (Imm 41)) (addr (Mem ((reg X28) (class_ I64)) 0))))
+          ((Arm64 (Move (dst ((reg X0) (class_ I64))) (src (Imm 1))))
+           (Arm64 (Move (dst ((reg X1) (class_ I64))) (src (Imm 2))))
+           (Arm64 (Move (dst ((reg X2) (class_ I64))) (src (Imm 3))))
+           (Arm64 (Move (dst ((reg X3) (class_ I64))) (src (Imm 4))))
+           (Arm64 (Move (dst ((reg X4) (class_ I64))) (src (Imm 5))))
+           (Arm64 (Move (dst ((reg X5) (class_ I64))) (src (Imm 6))))
+           (Arm64 (Move (dst ((reg X6) (class_ I64))) (src (Imm 7))))
+           (Arm64 (Move (dst ((reg X7) (class_ I64))) (src (Imm 8))))
            (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X28) (class_ I64))))))
-           (Arm64
-            (Call (fn child) (results (((reg X0) (class_ I64))))
-             (args ((Reg ((reg X28) (class_ I64)))))))
+            (Call (fn sum8) (results (((reg X0) (class_ I64))))
+             (args
+              ((Imm 1) (Imm 2) (Imm 3) (Imm 4) (Imm 5) (Imm 6) (Imm 7) (Imm 8)))))
            (Arm64
             (Move (dst ((reg X28) (class_ I64)))
              (src (Reg ((reg X0) (class_ I64))))))
@@ -584,8 +708,209 @@ let%expect_test "debug borked opt x86" =
             (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
              (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 8))))
            (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 8)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((sum8__prologue
+         (args
+          (((name a0) (type_ I64)) ((name b0) (type_ I64))
+           ((name c0) (type_ I64)) ((name d0) (type_ I64))
+           ((name e0) (type_ I64)) ((name f0) (type_ I64))
+           ((name g0) (type_ I64)) ((name h0) (type_ I64))))
+         (instrs
+          ((Arm64
+            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
+             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
+           (Arm64
+            (Store (src (Reg ((reg X21) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 0))))
+           (Arm64
+            (Store (src (Reg ((reg X22) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 8))))
+           (Arm64
+            (Store (src (Reg ((reg X23) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 16))))
+           (Arm64
+            (Store (src (Reg ((reg X24) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 24))))
+           (Arm64
+            (Store (src (Reg ((reg X25) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 32))))
+           (Arm64
+            (Store (src (Reg ((reg X26) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 40))))
+           (Arm64
+            (Store (src (Reg ((reg X27) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 48))))
+           (Arm64
+            (Store (src (Reg ((reg X28) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 56))))
+           (Arm64
+            (Store (src (Reg ((reg X29) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 64))))
+           (Arm64
+            (Store (src (Reg ((reg X30) (class_ I64))))
+             (addr (Mem ((reg SP) (class_ I64)) 72))))
+           (Arm64
+            (Move (dst ((reg X29) (class_ I64)))
+             (src (Reg ((reg SP) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X29) (class_ I64)))
+             (lhs (Reg ((reg X29) (class_ I64)))) (rhs (Imm 80))))
+           (Arm64
+            (Move (dst ((reg X0) (class_ I64)))
+             (src (Reg ((reg X0) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X1) (class_ I64)))
+             (src (Reg ((reg X1) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X2) (class_ I64)))
+             (src (Reg ((reg X2) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X3) (class_ I64)))
+             (src (Reg ((reg X3) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X4) (class_ I64)))
+             (src (Reg ((reg X4) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X5) (class_ I64)))
+             (src (Reg ((reg X5) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X6) (class_ I64)))
+             (src (Reg ((reg X6) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X7) (class_ I64)))
+             (src (Reg ((reg X7) (class_ I64))))))
+           (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))
+           (Arm64
+            (Move (dst ((reg X21) (class_ I64)))
+             (src (Reg ((reg X0) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X28) (class_ I64)))
+             (src (Reg ((reg X1) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X22) (class_ I64)))
+             (src (Reg ((reg X2) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X23) (class_ I64)))
+             (src (Reg ((reg X3) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X24) (class_ I64)))
+             (src (Reg ((reg X4) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X25) (class_ I64)))
+             (src (Reg ((reg X5) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X26) (class_ I64)))
+             (src (Reg ((reg X6) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X27) (class_ I64)))
+             (src (Reg ((reg X7) (class_ I64))))))
+           (Arm64
+            (Jump
+             ((block
+               ((id_hum %root)
+                (args
+                 (((name a) (type_ I64)) ((name b) (type_ I64))
+                  ((name c) (type_ I64)) ((name d) (type_ I64))
+                  ((name e) (type_ I64)) ((name f) (type_ I64))
+                  ((name g) (type_ I64)) ((name h) (type_ I64))))))
+              (args ())))))))
+        (%root
+         (args
+          (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
+           ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
+           ((name g) (type_ I64)) ((name h) (type_ I64))))
+         (instrs
+          ((Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X21) (class_ I64))))
+             (rhs (Reg ((reg X28) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X22) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X23) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X24) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X25) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X26) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+             (lhs (Reg ((reg X28) (class_ I64))))
+             (rhs (Reg ((reg X27) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg X0) (class_ I64)))
+             (src (Reg ((reg X28) (class_ I64))))))
+           (Arm64_terminal
+            ((Jump
+              ((block
+                ((id_hum sum8__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (sum8__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((Arm64
+            (Move (dst ((reg X0) (class_ I64)))
+             (src (Reg ((reg X0) (class_ I64))))))
+           (Arm64
+            (Move (dst ((reg SP) (class_ I64)))
+             (src (Reg ((reg X29) (class_ I64))))))
+           (Arm64
+            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
+             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
+           (Arm64
+            (Load (dst ((reg X30) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 72))))
+           (Arm64
+            (Load (dst ((reg X29) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 64))))
+           (Arm64
+            (Load (dst ((reg X28) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 56))))
+           (Arm64
+            (Load (dst ((reg X27) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 48))))
+           (Arm64
+            (Load (dst ((reg X26) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 40))))
+           (Arm64
+            (Load (dst ((reg X25) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 32))))
+           (Arm64
+            (Load (dst ((reg X24) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 24))))
+           (Arm64
+            (Load (dst ((reg X23) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 16))))
+           (Arm64
+            (Load (dst ((reg X22) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 8))))
+           (Arm64
+            (Load (dst ((reg X21) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 0))))
+           (Arm64
+            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
+             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
+           (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
+      (args
+       (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
+        ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
+        ((name g) (type_ I64)) ((name h) (type_ I64))))
+      (name sum8) (prologue ()) (epilogue ()) (bytes_for_clobber_saves 80)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -599,36 +924,6 @@ let%expect_test "debug borked" =
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
-      (block (block.id_hum child__prologue))
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | ir                                                                                                                                      | Ir.defs ir               |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Move(dst((reg(Allocated((name x0)(type_ Ptr))(X0)))(class_ I64)))(src(Reg((reg X0)(class_ I64))))))                              | (((name x0)(type_ Ptr))) |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Tag_def Nop(Reg((reg X29)(class_ I64)))))                                                                                        | {}                       |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name x)(type_ Ptr))))(class_ I64)))(src(Reg((reg(Unallocated((name x0)(type_ Ptr))))(class_ I64)))))) | (((name x)(type_ Ptr)))  |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Jump((block((id_hum %root)(args(((name x)(type_ Ptr))))))(args(((name x0)(type_ Ptr)))))))                                       | {}                       |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      (block (block.id_hum %root))
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | ir                                                                                                                                            | Ir.defs ir                   |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64(Load(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(addr(Mem((reg(Allocated((name x)(type_ Ptr))()))(class_ I64))0))))    | (((name res)(type_ I64)))    |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64)))))) | (((name res__0)(type_ I64))) |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64_terminal((Jump((block((id_hum child__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                  | {}                           |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      (block (block.id_hum child__epilogue))
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | ir                                                                                                             | Ir.defs ir |
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | (Arm64(Move(dst((reg X0)(class_ I64)))(src(Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64)))))) | {}         |
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
-      +----------------------------------------------------------------------------------------------------------------+------------+
       (block (block.id_hum root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |
@@ -638,28 +933,108 @@ let%expect_test "debug borked" =
       | (Arm64(Jump((block((id_hum %root)(args())))(args())))) | {}         |
       +--------------------------------------------------------+------------+
       (block (block.id_hum %root))
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | ir                                                                                                                                                                              | Ir.defs ir                               |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64_terminal((Move(dst((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64)))(src(Reg((reg X29)(class_ I64)))))))                                                          | (((name slot)(type_ Ptr)))               |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Store(src(Imm 41))(addr(Mem((reg(Allocated((name slot)(type_ Ptr))()))(class_ I64))0))))                                                                                 | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | {Arm64,Save_clobbers}                                                                                                                                                           | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Allocated((name arg_reg)(type_ I64))(X0)))(class_ I64)))(src(Reg((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64))))))                               | (((name arg_reg)(type_ I64)))            |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Call(fn child)(results(((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))(args((Reg((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64))))))) | (((name tmp_force_physical)(type_ I64))) |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(src(Reg((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))))                     | (((name res)(type_ I64)))                |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | {Arm64,Restore_clobbers}                                                                                                                                                        | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64))))))                                   | (((name res__0)(type_ I64)))             |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                                     | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | ir                                                                                                                                                                        | Ir.defs ir                               |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | {Arm64,Save_clobbers}                                                                                                                                                     | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg)(type_ I64))(X0)))(class_ I64)))(src(Imm 1))))                                                                               | (((name arg_reg)(type_ I64)))            |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg0)(type_ I64))(X1)))(class_ I64)))(src(Imm 2))))                                                                              | (((name arg_reg0)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg1)(type_ I64))(X2)))(class_ I64)))(src(Imm 3))))                                                                              | (((name arg_reg1)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg2)(type_ I64))(X3)))(class_ I64)))(src(Imm 4))))                                                                              | (((name arg_reg2)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg3)(type_ I64))(X4)))(class_ I64)))(src(Imm 5))))                                                                              | (((name arg_reg3)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg4)(type_ I64))(X5)))(class_ I64)))(src(Imm 6))))                                                                              | (((name arg_reg4)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg5)(type_ I64))(X6)))(class_ I64)))(src(Imm 7))))                                                                              | (((name arg_reg5)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg6)(type_ I64))(X7)))(class_ I64)))(src(Imm 8))))                                                                              | (((name arg_reg6)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Call(fn sum8)(results(((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))(args((Imm 1)(Imm 2)(Imm 3)(Imm 4)(Imm 5)(Imm 6)(Imm 7)(Imm 8))))) | (((name tmp_force_physical)(type_ I64))) |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(src(Reg((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))))               | (((name res)(type_ I64)))                |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | {Arm64,Restore_clobbers}                                                                                                                                                  | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64))))))                             | (((name res__0)(type_ I64)))             |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                               | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       (block (block.id_hum root__epilogue))
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | ir                                                                                                             | Ir.defs ir |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | (Arm64(Move(dst((reg X0)(class_ I64)))(src(Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64)))))) | {}         |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      (block (block.id_hum sum8__prologue))
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | ir                                                                                                                                                                                                                                                                                                                                                                                                             | Ir.defs ir               |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name a0)(type_ I64))(X0)))(class_ I64)))(src(Reg((reg X0)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name a0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name b0)(type_ I64))(X1)))(class_ I64)))(src(Reg((reg X1)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name b0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name c0)(type_ I64))(X2)))(class_ I64)))(src(Reg((reg X2)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name c0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name d0)(type_ I64))(X3)))(class_ I64)))(src(Reg((reg X3)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name d0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name e0)(type_ I64))(X4)))(class_ I64)))(src(Reg((reg X4)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name e0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name f0)(type_ I64))(X5)))(class_ I64)))(src(Reg((reg X5)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name f0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name g0)(type_ I64))(X6)))(class_ I64)))(src(Reg((reg X6)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name g0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name h0)(type_ I64))(X7)))(class_ I64)))(src(Reg((reg X7)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name h0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Tag_def Nop(Reg((reg X29)(class_ I64)))))                                                                                                                                                                                                                                                                                                                                                               | {}                       |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name a)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name a0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name a)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name b)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name b0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name b)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name c)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name c0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name c)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name d)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name d0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name d)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name e)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name e0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name e)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name f)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name f0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name f)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name g)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name g0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name g)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name h)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name h0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name h)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Jump((block((id_hum %root)(args(((name a)(type_ I64))((name b)(type_ I64))((name c)(type_ I64))((name d)(type_ I64))((name e)(type_ I64))((name f)(type_ I64))((name g)(type_ I64))((name h)(type_ I64))))))(args(((name a0)(type_ I64))((name b0)(type_ I64))((name c0)(type_ I64))((name d0)(type_ I64))((name e0)(type_ I64))((name f0)(type_ I64))((name g0)(type_ I64))((name h0)(type_ I64))))))) | {}                       |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      (block (block.id_hum %root))
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | ir                                                                                                                                                                                                                    | Ir.defs ir                   |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t0)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name a)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name b)(type_ I64))))(class_ I64))))))  | (((name t0)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t1)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t0)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name c)(type_ I64))))(class_ I64)))))) | (((name t1)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t2)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t1)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name d)(type_ I64))))(class_ I64)))))) | (((name t2)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t3)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t2)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name e)(type_ I64))))(class_ I64)))))) | (((name t3)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t4)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t3)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name f)(type_ I64))))(class_ I64)))))) | (((name t4)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t5)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t4)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name g)(type_ I64))))(class_ I64)))))) | (((name t5)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t6)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t5)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name h)(type_ I64))))(class_ I64)))))) | (((name t6)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name t6)(type_ I64))))(class_ I64))))))                                                                          | (((name res__0)(type_ I64))) |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64_terminal((Jump((block((id_hum sum8__epilogue)(args(((name res__0)(type_ I64))))))(args(((name t6)(type_ I64))))))))                                                                                            | {}                           |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      (block (block.id_hum sum8__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+
@@ -680,36 +1055,6 @@ let%expect_test "debug borked opt" =
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
-      (block (block.id_hum child__prologue))
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | ir                                                                                                                                      | Ir.defs ir               |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Move(dst((reg(Allocated((name x0)(type_ Ptr))(X0)))(class_ I64)))(src(Reg((reg X0)(class_ I64))))))                              | (((name x0)(type_ Ptr))) |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Tag_def Nop(Reg((reg X29)(class_ I64)))))                                                                                        | {}                       |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name x)(type_ Ptr))))(class_ I64)))(src(Reg((reg(Unallocated((name x0)(type_ Ptr))))(class_ I64)))))) | (((name x)(type_ Ptr)))  |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      | (Arm64(Jump((block((id_hum %root)(args(((name x)(type_ Ptr))))))(args(((name x0)(type_ Ptr)))))))                                       | {}                       |
-      +-----------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      (block (block.id_hum %root))
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | ir                                                                                                                                            | Ir.defs ir                   |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64(Load(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(addr(Mem((reg(Allocated((name x)(type_ Ptr))()))(class_ I64))0))))    | (((name res)(type_ I64)))    |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64)))))) | (((name res__0)(type_ I64))) |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      | (Arm64_terminal((Jump((block((id_hum child__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                  | {}                           |
-      +-----------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      (block (block.id_hum child__epilogue))
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | ir                                                                                                             | Ir.defs ir |
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | (Arm64(Move(dst((reg X0)(class_ I64)))(src(Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64)))))) | {}         |
-      +----------------------------------------------------------------------------------------------------------------+------------+
-      | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
-      +----------------------------------------------------------------------------------------------------------------+------------+
       (block (block.id_hum root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |
@@ -719,28 +1064,108 @@ let%expect_test "debug borked opt" =
       | (Arm64(Jump((block((id_hum %root)(args())))(args())))) | {}         |
       +--------------------------------------------------------+------------+
       (block (block.id_hum %root))
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | ir                                                                                                                                                                              | Ir.defs ir                               |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64_terminal((Move(dst((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64)))(src(Reg((reg X29)(class_ I64)))))))                                                          | (((name slot)(type_ Ptr)))               |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Store(src(Imm 41))(addr(Mem((reg(Allocated((name slot)(type_ Ptr))()))(class_ I64))0))))                                                                                 | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | {Arm64,Save_clobbers}                                                                                                                                                           | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Allocated((name arg_reg)(type_ I64))(X0)))(class_ I64)))(src(Reg((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64))))))                               | (((name arg_reg)(type_ I64)))            |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Call(fn child)(results(((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))(args((Reg((reg(Unallocated((name slot)(type_ Ptr))))(class_ I64))))))) | (((name tmp_force_physical)(type_ I64))) |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(src(Reg((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))))                     | (((name res)(type_ I64)))                |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | {Arm64,Restore_clobbers}                                                                                                                                                        | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64))))))                                   | (((name res__0)(type_ I64)))             |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                                     | {}                                       |
-      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | ir                                                                                                                                                                        | Ir.defs ir                               |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | {Arm64,Save_clobbers}                                                                                                                                                     | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg)(type_ I64))(X0)))(class_ I64)))(src(Imm 1))))                                                                               | (((name arg_reg)(type_ I64)))            |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg0)(type_ I64))(X1)))(class_ I64)))(src(Imm 2))))                                                                              | (((name arg_reg0)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg1)(type_ I64))(X2)))(class_ I64)))(src(Imm 3))))                                                                              | (((name arg_reg1)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg2)(type_ I64))(X3)))(class_ I64)))(src(Imm 4))))                                                                              | (((name arg_reg2)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg3)(type_ I64))(X4)))(class_ I64)))(src(Imm 5))))                                                                              | (((name arg_reg3)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg4)(type_ I64))(X5)))(class_ I64)))(src(Imm 6))))                                                                              | (((name arg_reg4)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg5)(type_ I64))(X6)))(class_ I64)))(src(Imm 7))))                                                                              | (((name arg_reg5)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name arg_reg6)(type_ I64))(X7)))(class_ I64)))(src(Imm 8))))                                                                              | (((name arg_reg6)(type_ I64)))           |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Call(fn sum8)(results(((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))(args((Imm 1)(Imm 2)(Imm 3)(Imm 4)(Imm 5)(Imm 6)(Imm 7)(Imm 8))))) | (((name tmp_force_physical)(type_ I64))) |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res)(type_ I64))))(class_ I64)))(src(Reg((reg(Allocated((name tmp_force_physical)(type_ I64))(X0)))(class_ I64))))))               | (((name res)(type_ I64)))                |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | {Arm64,Restore_clobbers}                                                                                                                                                  | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name res)(type_ I64))))(class_ I64))))))                             | (((name res__0)(type_ I64)))             |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
+      | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                               | {}                                       |
+      +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       (block (block.id_hum root__epilogue))
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | ir                                                                                                             | Ir.defs ir |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | (Arm64(Move(dst((reg X0)(class_ I64)))(src(Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64)))))) | {}         |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
+      +----------------------------------------------------------------------------------------------------------------+------------+
+      (block (block.id_hum sum8__prologue))
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | ir                                                                                                                                                                                                                                                                                                                                                                                                             | Ir.defs ir               |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name a0)(type_ I64))(X0)))(class_ I64)))(src(Reg((reg X0)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name a0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name b0)(type_ I64))(X1)))(class_ I64)))(src(Reg((reg X1)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name b0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name c0)(type_ I64))(X2)))(class_ I64)))(src(Reg((reg X2)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name c0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name d0)(type_ I64))(X3)))(class_ I64)))(src(Reg((reg X3)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name d0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name e0)(type_ I64))(X4)))(class_ I64)))(src(Reg((reg X4)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name e0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name f0)(type_ I64))(X5)))(class_ I64)))(src(Reg((reg X5)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name f0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name g0)(type_ I64))(X6)))(class_ I64)))(src(Reg((reg X6)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name g0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Allocated((name h0)(type_ I64))(X7)))(class_ I64)))(src(Reg((reg X7)(class_ I64))))))                                                                                                                                                                                                                                                                                                     | (((name h0)(type_ I64))) |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Tag_def Nop(Reg((reg X29)(class_ I64)))))                                                                                                                                                                                                                                                                                                                                                               | {}                       |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name a)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name a0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name a)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name b)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name b0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name b)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name c)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name c0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name c)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name d)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name d0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name d)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name e)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name e0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name e)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name f)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name f0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name f)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name g)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name g0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name g)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name h)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name h0)(type_ I64))))(class_ I64))))))                                                                                                                                                                                                                                                                        | (((name h)(type_ I64)))  |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      | (Arm64(Jump((block((id_hum %root)(args(((name a)(type_ I64))((name b)(type_ I64))((name c)(type_ I64))((name d)(type_ I64))((name e)(type_ I64))((name f)(type_ I64))((name g)(type_ I64))((name h)(type_ I64))))))(args(((name a0)(type_ I64))((name b0)(type_ I64))((name c0)(type_ I64))((name d0)(type_ I64))((name e0)(type_ I64))((name f0)(type_ I64))((name g0)(type_ I64))((name h0)(type_ I64))))))) | {}                       |
+      +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
+      (block (block.id_hum %root))
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | ir                                                                                                                                                                                                                    | Ir.defs ir                   |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t0)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name a)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name b)(type_ I64))))(class_ I64))))))  | (((name t0)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t1)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t0)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name c)(type_ I64))))(class_ I64)))))) | (((name t1)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t2)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t1)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name d)(type_ I64))))(class_ I64)))))) | (((name t2)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t3)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t2)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name e)(type_ I64))))(class_ I64)))))) | (((name t3)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t4)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t3)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name f)(type_ I64))))(class_ I64)))))) | (((name t4)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t5)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t4)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name g)(type_ I64))))(class_ I64)))))) | (((name t5)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Int_binary(op Add)(dst((reg(Unallocated((name t6)(type_ I64))))(class_ I64)))(lhs(Reg((reg(Unallocated((name t5)(type_ I64))))(class_ I64))))(rhs(Reg((reg(Unallocated((name h)(type_ I64))))(class_ I64)))))) | (((name t6)(type_ I64)))     |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64(Move(dst((reg(Unallocated((name res__0)(type_ I64))))(class_ I64)))(src(Reg((reg(Unallocated((name t6)(type_ I64))))(class_ I64))))))                                                                          | (((name res__0)(type_ I64))) |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      | (Arm64_terminal((Jump((block((id_hum sum8__epilogue)(args(((name res__0)(type_ I64))))))(args(((name t6)(type_ I64))))))))                                                                                            | {}                           |
+      +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
+      (block (block.id_hum sum8__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+
