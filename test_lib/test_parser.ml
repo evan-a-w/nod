@@ -37,8 +37,9 @@ add %a:i64, %a, 4
               ((dest ((name a) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
                (src2 (Lit 4))))))))
          (~labels (%root a b))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -77,8 +78,9 @@ end:
                (src2 (Lit 4))))))
            (end (Unreachable))))
          (~labels (%root a b end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -104,8 +106,9 @@ ret %ptr
                (size (Var ((name len) (type_ I64))))))
              (Return (Var ((name ptr) (type_ Ptr))))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -128,8 +131,9 @@ ret %r0
              (Call (fn foo) (results ()) (args ()))
              (Return (Var ((name r0) (type_ I64))))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -167,8 +171,9 @@ memcpy %ptr, %ptr, (i64, (f64, i32))
                (src (Var ((name ptr) (type_ Ptr))))
                (type_ (Tuple (I64 (Tuple (F64 I32)))))))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -190,8 +195,9 @@ ret %a
              (Alloca ((dest ((name buf) (type_ Ptr))) (size (Lit 16))))
              (Return (Var ((name a) (type_ I64))))))))
          (~labels (%root))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     |}]
 ;;
 
@@ -254,8 +260,9 @@ let%expect_test "all examples" =
                (if_false ((block end) (args ())))))))
            (end ((Return (Var ((name z) (type_ I64))))))))
          (~labels (a b c end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -300,8 +307,9 @@ let%expect_test "all examples" =
                (if_false ((block end) (args ())))))))
            (end (Unreachable))))
          (~labels (%root divide end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -338,8 +346,9 @@ let%expect_test "all examples" =
                (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))
              Unreachable))))
          (~labels (entry))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -396,8 +405,9 @@ let%expect_test "all examples" =
                (if_true ((block loop) (args ())))
                (if_false ((block end) (args ())))))))))
          (~labels (%root loop end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -464,8 +474,9 @@ let%expect_test "all examples" =
                (if_true ((block ifTrue) (args ())))
                (if_false ((block ifFalse) (args ())))))))))
          (~labels (start ifTrue ifFalse end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -502,8 +513,9 @@ let%expect_test "all examples" =
                (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))
              (Return (Var ((name res) (type_ I64))))))))
          (~labels (entry))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     ---------------------------------
 
@@ -570,8 +582,9 @@ let%expect_test "all examples" =
                (if_true ((block ifTrue) (args ())))
                (if_false ((block ifFalse) (args ())))))))))
          (~labels (start ifTrue ifFalse end))))
-       (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-       (bytes_for_spills 0) (bytes_for_clobber_saves 0))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
     ---------------------------------
     |}]
 ;;

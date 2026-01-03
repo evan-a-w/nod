@@ -18,18 +18,18 @@ let%expect_test "super triv lowers to assembly" =
     .globl root
     root:
       push rbp
+      mov rbp, rsp
       push r14
       push r15
-      mov rbp, rsp
-      add rbp, 24
+      sub rsp, 8
     root__a:
       mov r14, 10
       mov r15, 20
       sub r15, r14
       mov rax, r15
     root__root__epilogue:
+      sub rbp, 16
       mov rsp, rbp
-      sub rsp, 24
       pop r15
       pop r14
       pop rbp
@@ -47,10 +47,10 @@ let%expect_test "branches lower with labels" =
     .globl root
     root:
       push rbp
+      mov rbp, rsp
       push r14
       push r15
-      mov rbp, rsp
-      add rbp, 24
+      sub rsp, 8
     root__a:
       mov r14, 10
       mov r15, 20
@@ -75,8 +75,8 @@ let%expect_test "branches lower with labels" =
     root__end:
       mov rax, r15
     root__root__epilogue:
+      sub rbp, 16
       mov rsp, rbp
-      sub rsp, 24
       pop r15
       pop r14
       pop rbp
@@ -94,11 +94,10 @@ let%expect_test "recursive fib" =
     .globl fib
     fib:
       push rbp
+      mov rbp, rsp
       push r13
       push r14
       push r15
-      mov rbp, rsp
-      add rbp, 32
       mov r14, rdi
     fib___root:
       cmp r14, 0
@@ -131,8 +130,8 @@ let%expect_test "recursive fib" =
       add r15, r14
       mov rax, r15
     fib__fib__epilogue:
+      sub rbp, 24
       mov rsp, rbp
-      sub rsp, 32
       pop r15
       pop r14
       pop r13
@@ -158,9 +157,8 @@ ret %result
     .globl root
     root:
       push rbp
-      push r15
       mov rbp, rsp
-      add rbp, 16
+      push r15
     root___root:
       mov xmm15, 3
       mov xmm14, 7
@@ -168,8 +166,8 @@ ret %result
       cvttsd2si r15, xmm15
       mov rax, r15
     root__root__epilogue:
+      sub rbp, 8
       mov rsp, rbp
-      sub rsp, 16
       pop r15
       pop rbp
       ret

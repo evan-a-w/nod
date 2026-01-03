@@ -186,8 +186,24 @@ let process (functions : Function.t String.Map.t) =
            (module Calc_liveness)
            ~state
            ~liveness_state);
+    let alloca_offset =
+      ref
+        (fn.bytes_for_clobber_saves + fn.bytes_for_padding + fn.bytes_for_spills)
+    in
     Block.iter fn.root ~f:(fun block ->
-      let map_ir ir =
+      let map_ir (ir : Ir.t) =
+        let ir =
+          match ir with
+          | X86 (ALLOCA (dest, i)) ->
+            alloca_offset := !alloca_offset + Int64.to_int_exn i;
+            (match dest with
+             | Reg _ ->
+               Ir.x86_terminal
+                 ([ mov dest (Reg Reg.rbp) ]
+                  @ [ sub dest (Imm (Int64.of_int !alloca_offset)) ])
+             | _ -> failwith "alloca dest must be a register")
+          | ir -> ir
+        in
         Ir.map_x86_operands ir ~f:(function
           | Spill_slot i ->
             let offset =
