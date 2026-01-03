@@ -450,21 +450,11 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.map_inplace block.instructions ~f:(function
-      | X86 (ALLOCA (dest, i)) ->
-        let offset = t.fn.bytes_statically_alloca'd in
+    Vec.iter block.instructions ~f:(function
+      | X86 (ALLOCA (_, i)) ->
         t.fn.bytes_statically_alloca'd
-        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd;
-        (match dest with
-         | Reg _ ->
-           X86_terminal
-             ([ mov dest (Reg Reg.rbp) ]
-              @
-              if offset = 0
-              then []
-              else [ add dest (Imm (Int64.of_int offset)) ])
-         | _ -> failwith "alloca dest must be a register")
-      | ir -> ir);
+        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
+      | _ -> ());
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
     match true_terminal block with

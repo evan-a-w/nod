@@ -195,12 +195,6 @@ let run ~system (functions : Function.t String.Map.t) =
     add_line buffer ".text";
     let used_labels = String.Hash_set.create () in
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
-      let alloca_offset =
-        ref
-          (fn.bytes_for_clobber_saves
-           + fn.bytes_for_padding
-           + fn.bytes_for_spills)
-      in
       if fn_index > 0 then Buffer.add_char buffer '\n';
       let sanitized_name = sanitize_identifier name in
       let fn_label_base = global_prefix ^ sanitized_name in
@@ -303,12 +297,8 @@ let run ~system (functions : Function.t String.Map.t) =
         | JE (cb, else_) -> `Branch (`Je, cb, else_)
         | JNE (cb, else_) -> `Branch (`Jne, cb, else_)
         | RET _ -> `Emit [ "ret" ]
-        | ALLOCA (operand, i) ->
-          alloca_offset := !alloca_offset + Int64.to_int_exn i;
-          `Emit
-            (lower_move' ~dst:operand ~src:(Reg Reg.rbp) "mov"
-             @ lower_sub' ~dst:operand ~src:(Imm (Int64.of_int !alloca_offset))
-            )
+        | ALLOCA _ ->
+          failwith "ALLOCA seen but should've been removed before lowering"
         | LABEL s ->
           let label = ensure_unique (sanitize_identifier s) in
           `Emit_label label

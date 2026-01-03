@@ -51,7 +51,8 @@ let%expect_test "load/store select into x86 mem operands" =
            (RET
             ((Reg
               ((reg (Allocated ((name res__0) (type_ I64)) (RAX))) (class_ I64)))))))))))
-     (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-     (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+     (args ()) (name root) (prologue ()) (epilogue ())
+     (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+     (bytes_statically_alloca'd 0))
     |}]
 ;;

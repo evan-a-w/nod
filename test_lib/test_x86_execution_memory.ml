@@ -81,9 +81,7 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
     in
     Vec.push
       child_root.instructions
-      (Ir.store
-         (Ir.Lit_or_var.Lit 99L)
-         (Ir.Mem.address (Ir.Lit_or_var.Var p)));
+      (Ir.store (Ir.Lit_or_var.Lit 99L) (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     Vec.push child_root.instructions (Ir.move child_ret (Ir.Lit_or_var.Lit 0L));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in

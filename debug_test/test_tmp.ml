@@ -67,13 +67,7 @@ let assert_execution
         ())
 ;;
 
-let%expect_test "alloca passed to child; child loads value" =
-  let make_fn ~name ~args ~root =
-    (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    List.iter args ~f:(Vec.push root.Block.args);
-    root.dfs_id <- Some 0;
-    Function.create ~name ~args ~root
-  in
+let%expect_test "temp alloca passed to child; child loads value" =
   let execute_functions
     ?(arch = `X86_64)
     ?(harness = Nod.make_harness_source ())
@@ -98,6 +92,12 @@ let%expect_test "alloca passed to child; child loads value" =
             expected
             ()
       | `Other -> ())
+  in
+  let make_fn ~name ~args ~root =
+    (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
+    List.iter args ~f:(Vec.push root.Block.args);
+    root.dfs_id <- Some 0;
+    Function.create ~name ~args ~root
   in
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
     let p = Var.create ~name:"p" ~type_:Type.Ptr in
@@ -131,6 +131,167 @@ let%expect_test "alloca passed to child; child loads value" =
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "41"
+;;
+
+let%expect_test "temp memory asm" =
+  let make_fn ~name ~args ~root =
+    (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
+    List.iter args ~f:(Vec.push root.Block.args);
+    root.dfs_id <- Some 0;
+    Function.create ~name ~args ~root
+  in
+  let comp_functions ?(arch = `X86_64) functions =
+    let asm =
+      Nod.compile_and_lower_functions ~arch ~system:host_system functions
+    in
+    print_endline asm
+  in
+  let run_functions mk_functions =
+    List.iter test_architectures ~f:(function
+      | (`X86_64 | `Arm64) as arch ->
+        let functions = mk_functions arch in
+        comp_functions ~arch functions
+      | `Other -> ())
+  in
+  let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
+    let p = Var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let child_root =
+      Block.create
+        ~id_hum:"%root"
+        ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
+    in
+    Vec.push
+      child_root.instructions
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
+    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
+    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let root_root =
+      Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
+    in
+    Vec.push
+      root_root.instructions
+      (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+    Vec.push
+      root_root.instructions
+      (Ir.store
+         (Ir.Lit_or_var.Lit 41L)
+         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
+    Vec.push
+      root_root.instructions
+      (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
+    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    String.Map.of_alist_exn [ "root", root; "child", child ]
+  in
+  run_functions mk_functions;
+  [%expect
+    {|
+    .intel_syntax noprefix
+    .text
+    .globl _child
+    _child:
+      push rbp
+      mov rbp, rsp
+      push r15
+      mov r15, rdi
+    child___root:
+      mov r15, [r15]
+      mov rax, r15
+    child__child__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+
+    .globl _root
+    _root:
+      push rbp
+      mov rbp, rsp
+      push r15
+      sub rsp, 16
+    root___root:
+      mov r15, rbp
+      sub r15, 24
+      mov qword ptr [r15], 41
+      mov rdi, r15
+      call _child
+      mov r15, rax
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+
+    .text
+    .globl _child
+    _child:
+      mov x14, #8
+      sub sp, sp, x14
+      mov x14, #24
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      str x30, [sp, #16]
+      mov x29, sp
+      mov x14, #24
+      add x29, x29, x14
+      mov x0, x0
+      mov x28, x0
+    child___root:
+      ldr x28, [x28]
+      mov x0, x28
+    child__child__epilogue:
+      mov x0, x0
+      mov sp, x29
+      mov x14, #24
+      sub sp, sp, x14
+      ldr x30, [sp, #16]
+      ldr x29, [sp, #8]
+      ldr x28, [sp]
+      mov x14, #24
+      add sp, sp, x14
+      mov x14, #8
+      add sp, sp, x14
+      ret
+
+    .globl _root
+    _root:
+      mov x14, #8
+      sub sp, sp, x14
+      mov x14, #24
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      str x30, [sp, #16]
+      mov x29, sp
+      mov x14, #24
+      add x29, x29, x14
+    root___root:
+      mov x28, x29
+      mov x14, #41
+      str x14, [x28]
+      mov x0, x28
+      bl _child
+      mov x28, x0
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      mov x14, #24
+      sub sp, sp, x14
+      ldr x30, [sp, #16]
+      ldr x29, [sp, #8]
+      ldr x28, [sp]
+      mov x14, #24
+      add sp, sp, x14
+      mov x14, #8
+      add sp, sp, x14
+      ret
+    |}]
 ;;
 
 let%expect_test "print helper" =
@@ -307,22 +468,7 @@ let%expect_test "run" =
     ~opt_flags:Eir.Opt_flags.no_opt
     borked (* "210" *)
     "36";
-  [%expect.unreachable]
-[@@expect.uncaught_exn
-  {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Failure "arch x86_64 produced 36, expected 41")
-  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
-  Called from Base__Printf.failwithf.(fun) in file "src/printf.ml", line 7, characters 24-34
-  Called from Base__List0.iter.loop in file "src/list0.ml" (inlined), line 99, characters 6-9
-  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 102, characters 2-11
-  Called from Nod_debug_test__Test_tmp.assert_execution in file "debug_test/test_tmp.ml", lines 58-67, characters 2-311
-  Called from Nod_debug_test__Test_tmp.assert_execution in file "debug_test/test_tmp.ml" (inlined), lines 53-67, characters 2-385
-  Called from Nod_debug_test__Test_tmp.(fun) in file "debug_test/test_tmp.ml", lines 303-309, characters 2-215
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
-  |}]
+  [%expect {| |}]
 ;;
 
 let%expect_test "borked regaloc" =
