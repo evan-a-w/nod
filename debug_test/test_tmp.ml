@@ -306,13 +306,14 @@ let%expect_test "run" =
       (make_harness_source ())
     ~opt_flags:Eir.Opt_flags.no_opt
     borked (* "210" *)
-    "41";
+    "36";
   [%expect.unreachable]
-[@@expect.uncaught_exn {|
+[@@expect.uncaught_exn
+  {|
   (* CR expect_test_collector: This test expectation appears to contain a backtrace.
      This is strongly discouraged as backtraces are fragile.
      Please change this test to not include a backtrace. *)
-  (Failure "arch x86_64 produced 4370945591, expected 41")
+  (Failure "arch x86_64 produced 36, expected 41")
   Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
   Called from Base__Printf.failwithf.(fun) in file "src/printf.ml", line 7, characters 24-34
   Called from Base__List0.iter.loop in file "src/list0.ml" (inlined), line 99, characters 6-9
@@ -493,9 +494,7 @@ let%expect_test "borked" =
     _root:
       push rbp
       mov rbp, rsp
-      push rsp
       push r15
-      sub rsp, 8
     root___root:
       push 8
       push 7
@@ -510,10 +509,9 @@ let%expect_test "borked" =
       add rsp, 16
       mov rax, r15
     root__root__epilogue:
-      sub rbp, 16
+      sub rbp, 8
       mov rsp, rbp
       pop r15
-      pop rsp
       pop rbp
       ret
 
@@ -526,8 +524,8 @@ let%expect_test "borked" =
       push r13
       push r14
       push r15
-      mov r13, [rbp + 8]
-      mov r14, [rbp + 16]
+      mov r13, [rbp + 16]
+      mov r14, [rbp + 24]
       mov r15, rdi
       mov rbx, rsi
       mov r10, rcx
