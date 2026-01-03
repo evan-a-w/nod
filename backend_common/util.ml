@@ -36,6 +36,12 @@ module M (A : Arch.S) = struct
   let to_physical = over_physical ~raw_to_raw_opt:Reg.Raw.to_physical
   let should_save = over_physical ~raw_to_raw_opt:Reg.Raw.should_save
 
+  let filter_physical_reg set =
+    Set.to_list set
+    |> List.filter_map ~f:to_physical
+    |> List.dedup_and_sort ~compare:A.Reg.compare
+  ;;
+
   let new_name map v =
     let v' =
       match Hashtbl.find map v with

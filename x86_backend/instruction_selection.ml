@@ -343,6 +343,11 @@ let make_prologue t =
   let id_hum = t.fn.name ^ "__prologue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
+
+       we will later push rbp to save it, and then rbp will be at that point.
+
+       This means that the saved rbp is directly at rbp, the return addr is rbp + 8, etc *)
+  (* .
   *)
   let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
   let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
@@ -358,7 +363,7 @@ let make_prologue t =
   let stack_arg_moves =
     args_on_stack
     |> List.mapi ~f:(fun i arg ->
-      let stack_offset = (i + 1) * 8 in
+      let stack_offset = (i + 2) * 8 in
       mov (Reg (Reg.unallocated arg)) (Mem (Reg.rbp, stack_offset)))
   in
   let block =
@@ -390,6 +395,7 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       fresh_var t ("res__" ^ Int.to_string i))
   in
+  Breadcrumbs.add_return_values_on_stack;
   let gp_res_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_res_moves =
     List.zip_with_remainder args gp_res_regs
