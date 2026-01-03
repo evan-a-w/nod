@@ -272,11 +272,7 @@ let replace_regs
       | Raw.Unallocated v ->
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
-           let offset =
-             fn.bytes_statically_alloca'd
-             + (Hashtbl.find_exn spill_slot_by_var v * 8)
-           in
-           Mem (Reg.rbp, offset)
+           Spill_slot (Hashtbl.find_exn spill_slot_by_var v)
          | Some (Assignment.Reg phys) -> Reg phys
          | None -> Reg reg)
       | Raw.Allocated (v, _) ->
@@ -296,7 +292,7 @@ let replace_regs
             |> (* safe because we enforce no spills on the mem regs *)
             reg_of_operand_exn
           , offset )
-      | Imm _ as t -> t)
+      | (Imm _ | Spill_slot _) as t -> t)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in

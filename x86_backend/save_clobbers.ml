@@ -181,6 +181,18 @@ let process (functions : Function.t String.Map.t) =
         (save_and_restore_around_calls
            (module Calc_liveness)
            ~state
-           ~liveness_state));
+           ~liveness_state);
+    Block.iter fn.root ~f:(fun block ->
+      let map_ir ir =
+        Ir.map_x86_operands ir ~f:(function
+          | Spill_slot i ->
+            let offset =
+              -(fn.bytes_for_padding + fn.bytes_for_clobber_saves + (i * 8))
+            in
+            Mem (Reg.rbp, offset)
+          | x -> x)
+      in
+      Vec.map_inplace block.instructions ~f:map_ir;
+      block.terminal <- map_ir block.terminal));
   functions
 ;;
