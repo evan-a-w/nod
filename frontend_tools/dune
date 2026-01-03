@@ -1,0 +1,12 @@
+(executable
+ (name nod_ir_lsp)
+ (public_name nod-ir-lsp)
+ (preprocess
+  (pps ppx_jane))
+ (libraries
+  core
+  lwt.unix
+  lsp
+  jsonrpc
+  nod_frontend
+  nod_common))
