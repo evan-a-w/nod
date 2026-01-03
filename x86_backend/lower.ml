@@ -193,6 +193,12 @@ let run ~system (functions : Function.t String.Map.t) =
     add_line buffer ".text";
     let used_labels = String.Hash_set.create () in
     List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
+      let alloca_offset =
+        ref
+          (fn.bytes_for_clobber_saves
+           + fn.bytes_for_padding
+           + fn.bytes_for_spills)
+      in
       if fn_index > 0 then Buffer.add_char buffer '\n';
       let sanitized_name = sanitize_identifier name in
       let fn_label_base = global_prefix ^ sanitized_name in
@@ -231,14 +237,19 @@ let run ~system (functions : Function.t String.Map.t) =
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
-      let lower_move ~dst ~src s =
-        `Emit
-          (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
-           then []
-           else (
-             match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
-             | _ -> [ emit_binary_instr s dst src ]))
+      let lower_move' ~dst ~src s =
+        if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+        then []
+        else (
+          match dst, src with
+          | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
+          | _ -> [ emit_binary_instr s dst src ])
+      in
+      let lower_move ~dst ~src s = `Emit (lower_move' ~dst ~src s) in
+      let lower_sub' ~dst ~src =
+        match dst, src with
+        | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
+        | _ -> [ emit_binary_instr "sub" dst src ]
       in
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
@@ -254,11 +265,7 @@ let run ~system (functions : Function.t String.Map.t) =
             (match dst, src with
              | Mem _, Mem _ -> lower_mem_mem_binop ~op:"add" ~dst ~src
              | _ -> [ emit_binary_instr "add" dst src ])
-        | SUB (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
-             | _ -> [ emit_binary_instr "sub" dst src ])
+        | SUB (dst, src) -> `Emit (lower_sub' ~dst ~src)
         | ADDSD (dst, src) -> `Emit [ emit_binary_instr "addsd" dst src ]
         | SUBSD (dst, src) -> `Emit [ emit_binary_instr "subsd" dst src ]
         | MULSD (dst, src) -> `Emit [ emit_binary_instr "mulsd" dst src ]
@@ -294,7 +301,12 @@ let run ~system (functions : Function.t String.Map.t) =
         | JE (cb, else_) -> `Branch (`Je, cb, else_)
         | JNE (cb, else_) -> `Branch (`Jne, cb, else_)
         | RET _ -> `Emit [ "ret" ]
-        | ALLOCA _ -> `Emit []
+        | ALLOCA (operand, i) ->
+          alloca_offset := !alloca_offset + Int64.to_int_exn i;
+          `Emit
+            (lower_move' ~dst:operand ~src:(Reg Reg.rbp) "mov"
+             @ lower_sub' ~dst:operand ~src:(Imm (Int64.of_int !alloca_offset))
+            )
         | LABEL s ->
           let label = ensure_unique (sanitize_identifier s) in
           `Emit_label label

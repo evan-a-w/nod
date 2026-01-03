@@ -5,13 +5,11 @@ module M (A : Arch.S) = struct
 
   module Internal = struct
     type t =
-      { reg_args : Reg.t list
-      ; stack_args : int
-      ; ret : Reg.t
+      { ret : unit
       ; rbp : unit
       ; callee_saved : Reg.t list
-      ; spill_bytes : int
       ; padding_bytes : int
+      ; spill_bytes : int
       ; statically_alloca'd : int
       }
 
