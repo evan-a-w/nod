@@ -247,7 +247,6 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 arg))
     in
     let pre_moves = stack_arg_pushes @ reg_arg_moves in
-    (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
     let post_moves, results_with_physical =

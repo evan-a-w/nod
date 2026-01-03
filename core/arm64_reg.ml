@@ -5,6 +5,10 @@ module Class = struct
     | I64
     | F64
   [@@deriving sexp, equal, compare, hash, variants, enumerate]
+
+  let bytes = function
+    | I64 | F64 -> 8
+  ;;
 end
 
 module Raw = struct

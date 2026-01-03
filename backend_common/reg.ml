@@ -4,6 +4,8 @@ open! Import
 module type S = sig
   module Class : sig
     type t [@@deriving sexp, compare, hash, equal, enumerate]
+
+    val bytes : t -> int
   end
 
   module Raw : sig

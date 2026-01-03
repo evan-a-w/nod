@@ -1,5 +1,7 @@
 open! Core
 
+let () = Breadcrumbs.add_typed_function_args
+
 type 'block t' =
   { call_conv : Call_conv.t
   ; mutable root : 'block [@hash.ignore]
