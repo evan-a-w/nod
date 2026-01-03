@@ -292,8 +292,8 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     @ [ restore_clobbers ]
   | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
   | Alloca { dest; size = Var v } ->
-    [ mov (reg dest) (Reg Reg.rsp)
-    ; sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
+    [ sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
+    ; mov (reg dest) (Reg Reg.rsp)
     ]
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
@@ -444,8 +444,9 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     Vec.map_inplace block.instructions ~f:(function
       | X86 (ALLOCA (dest, i)) ->
-        let offset = t.fn.bytes_alloca'd in
-        t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
+        let offset = t.fn.bytes_statically_alloca'd in
+        t.fn.bytes_statically_alloca'd
+        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd;
         (match dest with
          | Reg _ ->
            X86_terminal

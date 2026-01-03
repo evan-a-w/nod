@@ -154,7 +154,9 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         let base = Reg.allocated ~class_:Class.I64 v None in
         [], Mem (base, offset)
       | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp = Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None in
+        let tmp =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+        in
         [ Move { dst = tmp; src = Imm addr } ], Mem (tmp, offset)
     in
     prelude @ [ Load { dst = reg_of_var t v; addr } ]
@@ -166,23 +168,32 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         let base = Reg.allocated ~class_:Class.I64 v None in
         [], Mem (base, offset)
       | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp = Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None in
+        let tmp =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+        in
         [ Move { dst = tmp; src = Imm addr } ], Mem (tmp, offset)
     in
-    prelude
-    @ [ Store { src = int_operand lit_or_var; addr } ]
+    prelude @ [ Store { src = int_operand lit_or_var; addr } ]
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.I64) in
-    let fp_arg_regs = ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64) in
+    let gp_arg_regs =
+      ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.I64)
+    in
+    let fp_arg_regs =
+      ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64)
+    in
     let take_arg_reg = function
       | Class.I64 ->
         (match !gp_arg_regs with
-         | reg :: rest -> gp_arg_regs := rest; reg
+         | reg :: rest ->
+           gp_arg_regs := rest;
+           reg
          | [] -> failwith "stack arguments not yet supported on arm64 (gp)")
       | Class.F64 ->
         (match !fp_arg_regs with
-         | reg :: rest -> fp_arg_regs := rest; reg
+         | reg :: rest ->
+           fp_arg_regs := rest;
+           reg
          | [] -> failwith "stack arguments not yet supported on arm64 (fp)")
     in
     let reg_arg_moves, call_args =
@@ -190,23 +201,29 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         let class_ = class_of_lit_or_var t arg in
         let operand = operand_of_lit_or_var t ~class_ arg in
         let reg = take_arg_reg class_ in
-        let forced =
-          Reg.allocated ~class_ (fresh_var t "arg_reg") (Some reg)
-        in
+        let forced = Reg.allocated ~class_ (fresh_var t "arg_reg") (Some reg) in
         Move { dst = forced; src = operand }, operand)
       |> List.unzip
     in
-    let gp_result_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64) in
-    let fp_result_regs = ref (Reg.results ~call_conv:(call_conv ~fn) Class.F64) in
+    let gp_result_regs =
+      ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64)
+    in
+    let fp_result_regs =
+      ref (Reg.results ~call_conv:(call_conv ~fn) Class.F64)
+    in
     let take_result_reg class_ =
       match class_ with
       | Class.I64 ->
         (match !gp_result_regs with
-         | reg :: rest -> gp_result_regs := rest; reg
+         | reg :: rest ->
+           gp_result_regs := rest;
+           reg
          | [] -> failwith "too many gp call results on arm64")
       | Class.F64 ->
         (match !fp_result_regs with
-         | reg :: rest -> fp_result_regs := rest; reg
+         | reg :: rest ->
+           fp_result_regs := rest;
+           reg
          | [] -> failwith "too many fp call results on arm64")
     in
     let post_moves, updated_results =
@@ -214,10 +231,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         let class_ = class_of_var t res in
         let reg = take_result_reg class_ in
         let forced =
-          Reg.allocated
-            ~class_
-            (fresh_var t "tmp_force_physical")
-            (Some reg)
+          Reg.allocated ~class_ (fresh_var t "tmp_force_physical") (Some reg)
         in
         let instr = Move { dst = reg_of_var t res; src = Reg forced } in
         instr, forced)
@@ -291,11 +305,15 @@ let make_prologue t =
     match class_ with
     | Class.I64 ->
       (match !gp_arg_regs with
-       | reg :: rest -> gp_arg_regs := rest; reg
+       | reg :: rest ->
+         gp_arg_regs := rest;
+         reg
        | [] -> failwith "stack arguments not yet supported on arm64")
     | Class.F64 ->
       (match !fp_arg_regs with
-       | reg :: rest -> fp_arg_regs := rest; reg
+       | reg :: rest ->
+         fp_arg_regs := rest;
+         reg
        | [] -> failwith "stack arguments not yet supported on arm64")
   in
   let reg_arg_moves =
@@ -311,9 +329,7 @@ let make_prologue t =
   block.dfs_id <- Some 0;
   block.args <- Vec.of_list args;
   block.instructions
-  <- List.map
-       ~f:Ir.arm64
-       (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
+  <- List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
      |> Vec.of_list;
   block
 ;;
@@ -330,11 +346,15 @@ let make_epilogue t ~ret_shape =
     match class_ with
     | Class.I64 ->
       (match !gp_res_regs with
-       | reg :: rest -> gp_res_regs := rest; reg
+       | reg :: rest ->
+         gp_res_regs := rest;
+         reg
        | [] -> failwith "too many gp return values on arm64")
     | Class.F64 ->
       (match !fp_res_regs with
-       | reg :: rest -> fp_res_regs := rest; reg
+       | reg :: rest ->
+         fp_res_regs := rest;
+         reg
        | [] -> failwith "too many fp return values on arm64")
   in
   let reg_res_moves, args' =
@@ -349,11 +369,7 @@ let make_epilogue t ~ret_shape =
   assert (Call_conv.(equal t.fn.call_conv default));
   block.dfs_id <- Some 0;
   block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map
-       ~f:Ir.arm64
-       reg_res_moves
-     |> Vec.of_list;
+  block.instructions <- List.map ~f:Ir.arm64 reg_res_moves |> Vec.of_list;
   block
 ;;
 
@@ -384,8 +400,9 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     Vec.map_inplace block.instructions ~f:(function
       | Arm64 (Alloca (dest, i)) ->
-        let offset = t.fn.bytes_alloca'd in
-        t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
+        let offset = t.fn.bytes_statically_alloca'd in
+        t.fn.bytes_statically_alloca'd
+        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd;
         (match dest with
          | Reg dst ->
            let base = Move { dst; src = Reg Reg.fp } in
@@ -419,9 +436,9 @@ let split_blocks_and_add_prologue_and_epilogue t =
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
-                Vec.push
-                  block.instructions
-                  (Arm64 (Move { dst = reg_of_var t v; src = operand }));
+                 Vec.push
+                   block.instructions
+                   (Arm64 (Move { dst = reg_of_var t v; src = operand }));
                  v)
             | other ->
               let v = fresh_like_var t arg in
@@ -437,16 +454,24 @@ let split_blocks_and_add_prologue_and_epilogue t =
          replace_true_terminal block (epilogue_jmp l)
        | Ret _ | Jump _ -> ()
        | Conditional_branch { condition; then_; else_ = None } ->
-         replace_true_terminal block
+         replace_true_terminal
+           block
            (Conditional_branch { condition; then_; else_ = None })
        | Conditional_branch { condition; then_; else_ = Some else_ } ->
-         let then_ = mint_intermediate t ~from_block:block ~to_call_block:then_ in
-         let else_ = mint_intermediate t ~from_block:block ~to_call_block:else_ in
+         let then_ =
+           mint_intermediate t ~from_block:block ~to_call_block:then_
+         in
+         let else_ =
+           mint_intermediate t ~from_block:block ~to_call_block:else_
+         in
          block.insert_phi_moves <- false;
          replace_true_terminal
            block
            (Conditional_branch { condition; then_; else_ = Some else_ })
-       | Tag_use _ | Tag_def _ | Nop | Alloca _
+       | Tag_use _
+       | Tag_def _
+       | Nop
+       | Alloca _
        | Move _
        | Load _
        | Store _
@@ -526,20 +551,22 @@ let insert_par_moves t =
            Vec.append block.instructions (par_moves t ~dst_to_src)
          | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
-         | Tag_use _ | Tag_def _ | Nop
+         | Tag_use _
+         | Tag_def _
+         | Nop
          | Move _
          | Load _
          | Store _
          | Int_binary _
          | Float_binary _
          | Convert _
-        | Bitcast _
-        | Adr _
-        | Comp _
-        | Label _
-        | Call _
-        | Save_clobbers
-        | Restore_clobbers
+         | Bitcast _
+         | Adr _
+         | Comp _
+         | Label _
+         | Call _
+         | Save_clobbers
+         | Restore_clobbers
          | Alloca _ -> ())));
   t
 ;;

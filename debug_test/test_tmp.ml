@@ -161,9 +161,7 @@ let%expect_test "print helper" =
     (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   Vec.push
     root_root.instructions
-    (Ir.store
-       (Ir.Lit_or_var.Lit 41L)
-       (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
+    (Ir.store (Ir.Lit_or_var.Lit 41L) (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
   Vec.push
     root_root.instructions
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);

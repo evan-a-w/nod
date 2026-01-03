@@ -50,19 +50,26 @@ let layout_reg_saves regs =
 ;;
 
 let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
-
 let sp_operand = Arm64_ir.Reg Reg.sp
 
 let sub_sp bytes =
   Ir.arm64
     (Int_binary
-       { op = Int_op.Sub; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
+       { op = Int_op.Sub
+       ; dst = Reg.sp
+       ; lhs = sp_operand
+       ; rhs = imm_of_int bytes
+       })
 ;;
 
 let add_sp bytes =
   Ir.arm64
     (Int_binary
-       { op = Int_op.Add; dst = Reg.sp; lhs = sp_operand; rhs = imm_of_int bytes })
+       { op = Int_op.Add
+       ; dst = Reg.sp
+       ; lhs = sp_operand
+       ; rhs = imm_of_int bytes
+       })
 ;;
 
 let add_fp bytes =
@@ -75,24 +82,16 @@ let add_fp bytes =
        })
 ;;
 
-let move_fp_to_sp =
-  Ir.arm64 (Move { dst = Reg.fp; src = sp_operand })
-;;
-
-let move_sp_to_fp =
-  Ir.arm64 (Move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
-;;
+let move_fp_to_sp = Ir.arm64 (Move { dst = Reg.fp; src = sp_operand })
+let move_sp_to_fp = Ir.arm64 (Move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
 
 let store_reg_at_sp (reg, offset) =
   Ir.arm64
-    (Store
-       { src = Arm64_ir.Reg reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
+    (Store { src = Arm64_ir.Reg reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
 let load_reg_from_sp (reg, offset) =
-  Ir.arm64
-    (Load
-       { dst = reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
+  Ir.arm64 (Load { dst = reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
 let save_and_restore_in_prologue_and_epilogue
@@ -108,17 +107,18 @@ let save_and_restore_in_prologue_and_epilogue
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
     let header_bytes_excl_clobber_saves =
-      fn.bytes_alloca'd + fn.bytes_for_spills
+      fn.bytes_statically_alloca'd + fn.bytes_for_spills
     in
-    let total_stack_usage = header_bytes_excl_clobber_saves + bytes_for_clobber_saves in
+    let total_stack_usage =
+      header_bytes_excl_clobber_saves + bytes_for_clobber_saves
+    in
     let aligned_stack_usage =
       if total_stack_usage % 16 = 0
       then total_stack_usage
       else total_stack_usage + (16 - (total_stack_usage % 16))
     in
     let header_bytes_excl_clobber_saves =
-      header_bytes_excl_clobber_saves
-      + (aligned_stack_usage - total_stack_usage)
+      header_bytes_excl_clobber_saves + (aligned_stack_usage - total_stack_usage)
     in
     let () =
       (* change prologue *)
@@ -130,7 +130,8 @@ let save_and_restore_in_prologue_and_epilogue
       List.iter save_slots ~f:(fun slot ->
         Vec.push new_prologue (store_reg_at_sp slot));
       Vec.push new_prologue move_fp_to_sp;
-      if bytes_for_clobber_saves > 0 then Vec.push new_prologue (add_fp bytes_for_clobber_saves);
+      if bytes_for_clobber_saves > 0
+      then Vec.push new_prologue (add_fp bytes_for_clobber_saves);
       Vec.append new_prologue prologue.instructions;
       prologue.instructions <- new_prologue
     in
@@ -140,11 +141,12 @@ let save_and_restore_in_prologue_and_epilogue
       then (
         Vec.push epilogue.instructions move_sp_to_fp;
         if header_bytes_excl_clobber_saves > 0
-        then Vec.push epilogue.instructions (add_sp header_bytes_excl_clobber_saves))
+        then
+          Vec.push
+            epilogue.instructions
+            (add_sp header_bytes_excl_clobber_saves))
       else
-        ([ move_sp_to_fp
-         ; sub_sp bytes_for_clobber_saves
-         ]
+        ([ move_sp_to_fp; sub_sp bytes_for_clobber_saves ]
          @ List.map (List.rev save_slots) ~f:load_reg_from_sp
          @ [ add_sp bytes_for_clobber_saves ]
          @

@@ -272,7 +272,8 @@ let replace_regs
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
            let offset =
-             fn.bytes_alloca'd + (Hashtbl.find_exn spill_slot_by_var v * 8)
+             fn.bytes_statically_alloca'd
+             + (Hashtbl.find_exn spill_slot_by_var v * 8)
            in
            Arm64_ir.Mem (Reg.fp, offset)
          | Some (Assignment.Reg phys) -> Arm64_ir.Reg phys
