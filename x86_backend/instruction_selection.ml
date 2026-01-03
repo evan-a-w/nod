@@ -92,6 +92,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
     let src2_final, extra_mov =
       match src2_op with
+      | Spill_slot _ -> failwith "unexpected spill slot"
       | Imm _ ->
         let tmp_reg =
           Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_imm") None
@@ -167,6 +168,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
        (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
        let src_operand = operand_of_lit_or_var t ~class_:src_class src in
        (match src_operand with
+        | Spill_slot _ -> failwith "unexpected spill slot"
         | Imm _ ->
           (* Load immediate into a temporary register first *)
           let tmp_reg =

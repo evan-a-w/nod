@@ -65,6 +65,7 @@ let string_of_mem reg disp =
 ;;
 
 let string_of_operand = function
+  | Spill_slot _ -> failwith "unexpected spill slot"
   | Reg reg -> string_of_reg reg
   | Imm imm -> Int64.to_string imm
   | Mem (reg, disp) -> string_of_mem reg disp
@@ -77,6 +78,7 @@ let string_of_operand_with_size ~size_for_mem operand =
 ;;
 
 let is_valid_move_dest = function
+  | Spill_slot _ -> failwith "unexpected spill slot"
   | Reg _ | Mem _ -> true
   | Imm _ -> false
 ;;
