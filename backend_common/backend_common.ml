@@ -8,4 +8,5 @@ module M (A : Arch.S) = struct
   module Interference_graph = Interference_graph.M (A)
   module Calc_clobbers = Calc_clobbers.M (A)
   module Assignment = Assignment.M (A.Reg)
+  module Stack_layout = Stack_layout.M (A)
 end
