@@ -1,4 +1,5 @@
-open Core
+open! Core
+open! Import
 module Reg = X86_reg
 module Raw = X86_reg.Raw
 
@@ -20,6 +21,8 @@ type operand =
   | Reg of Reg.t
   | Imm of Int64.t
   | Mem of Reg.t * int (* [reg + disp] *)
+  | Spill_slot of int
+    (* bit of a hack, used so regalloc can run before we do clobber stuff *)
 [@@deriving sexp, equal, compare, hash]
 
 let reg_of_operand_exn = function
@@ -152,7 +155,7 @@ let map_reg (reg : Reg.t) ~f =
 let map_var_operand op ~f =
   match op with
   | Reg r -> map_reg r ~f
-  | Imm _ -> op
+  | Imm _ | Spill_slot _ -> op
   | Mem (r, disp) ->
     (match map_reg r ~f with
      | Reg r -> Mem (r, disp)
@@ -218,12 +221,15 @@ let vars_of_reg = function
 
 let vars_of_operand = function
   | Reg r -> vars_of_reg r
-  | Imm _ -> Var.Set.empty
+  | Imm _ | Spill_slot _ -> Var.Set.empty
   | Mem (r, _disp) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
   | Reg r -> Reg.Set.singleton r
+  | Spill_slot _ ->
+    Breadcrumbs.frame_pointer_omission;
+    Reg.Set.singleton X86_reg.rbp
   | Imm _ -> Reg.Set.empty
   | Mem (r, _disp) -> Reg.Set.singleton r
 ;;
@@ -241,11 +247,12 @@ let map_virtual_reg reg ~f =
 
 let regs_of_def_operand = function
   | Reg r -> Reg.Set.singleton r
-  | Imm _ | Mem _ -> Reg.Set.empty
+  | Imm _ | Mem _ | Spill_slot _ -> Reg.Set.empty
 ;;
 
 let regs_of_mem_base = function
   | Mem (r, _) -> Reg.Set.singleton r
+  | Spill_slot _ -> Reg.Set.singleton Reg.rbp
   | Reg _ | Imm _ -> Reg.Set.empty
 ;;
 
@@ -255,14 +262,14 @@ let map_use_reg = map_virtual_reg
 let map_def_operand op ~f =
   match op with
   | Reg r -> Reg (map_def_reg r ~f)
-  | Imm _ -> op
+  | Imm _ | Spill_slot _ -> op
   | Mem (r, disp) -> Mem (map_def_reg r ~f, disp)
 ;;
 
 let map_use_operand op ~f =
   match op with
   | Reg r -> Reg (map_use_reg r ~f)
-  | Imm _ -> op
+  | Spill_slot _ | Imm _ -> op
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 

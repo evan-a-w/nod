@@ -21,10 +21,7 @@ let%expect_test "super triv lowers to assembly" =
       str x27, [sp]
       str x28, [sp, #8]
       str x29, [sp, #16]
-      str x30, [sp, #24]
       mov x29, sp
-      mov x14, #32
-      add x29, x29, x14
     root__a:
       mov x27, #10
       mov x28, #20
@@ -33,12 +30,9 @@ let%expect_test "super triv lowers to assembly" =
     root__root__epilogue:
       mov x0, x0
       mov sp, x29
-      mov x14, #32
-      sub sp, sp, x14
-      ldr x30, [sp, #24]
-      ldr x29, [sp, #16]
-      ldr x28, [sp, #8]
       ldr x27, [sp]
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
       mov x14, #32
       add sp, sp, x14
       ret
@@ -58,10 +52,7 @@ let%expect_test "branches lower with labels" =
       str x27, [sp]
       str x28, [sp, #8]
       str x29, [sp, #16]
-      str x30, [sp, #24]
       mov x29, sp
-      mov x14, #32
-      add x29, x29, x14
     root__a:
       mov x27, #10
       mov x28, #20
@@ -102,12 +93,9 @@ let%expect_test "branches lower with labels" =
     root__root__epilogue:
       mov x0, x0
       mov sp, x29
-      mov x14, #32
-      sub sp, sp, x14
-      ldr x30, [sp, #24]
-      ldr x29, [sp, #16]
-      ldr x28, [sp, #8]
       ldr x27, [sp]
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
       mov x14, #32
       add sp, sp, x14
       ret
@@ -129,8 +117,6 @@ let%expect_test "recursive fib" =
       str x29, [sp, #16]
       str x30, [sp, #24]
       mov x29, sp
-      mov x14, #32
-      add x29, x29, x14
       mov x0, x0
       mov x27, x0
     fib___root:
@@ -168,12 +154,10 @@ let%expect_test "recursive fib" =
     fib__fib__epilogue:
       mov x0, x0
       mov sp, x29
-      mov x14, #32
-      sub sp, sp, x14
-      ldr x30, [sp, #24]
-      ldr x29, [sp, #16]
-      ldr x28, [sp, #8]
       ldr x27, [sp]
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
+      ldr x30, [sp, #24]
       mov x14, #32
       add sp, sp, x14
       ret
@@ -195,16 +179,11 @@ ret %result
     .text
     .globl root
     root:
-      mov x14, #8
-      sub sp, sp, x14
-      mov x14, #24
+      mov x14, #16
       sub sp, sp, x14
       str x28, [sp]
       str x29, [sp, #8]
-      str x30, [sp, #16]
       mov x29, sp
-      mov x14, #24
-      add x29, x29, x14
     root___root:
       mov d27, #3
       mov d28, #7
@@ -214,14 +193,9 @@ ret %result
     root__root__epilogue:
       mov x0, x0
       mov sp, x29
-      mov x14, #24
-      sub sp, sp, x14
-      ldr x30, [sp, #16]
-      ldr x29, [sp, #8]
       ldr x28, [sp]
-      mov x14, #24
-      add sp, sp, x14
-      mov x14, #8
+      ldr x29, [sp, #8]
+      mov x14, #16
       add sp, sp, x14
       ret
     .section .note.GNU-stack,"",@progbits

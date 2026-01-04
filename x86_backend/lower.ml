@@ -65,6 +65,7 @@ let string_of_mem reg disp =
 ;;
 
 let string_of_operand = function
+  | Spill_slot _ -> failwith "unexpected spill slot"
   | Reg reg -> string_of_reg reg
   | Imm imm -> Int64.to_string imm
   | Mem (reg, disp) -> string_of_mem reg disp
@@ -77,6 +78,7 @@ let string_of_operand_with_size ~size_for_mem operand =
 ;;
 
 let is_valid_move_dest = function
+  | Spill_slot _ -> failwith "unexpected spill slot"
   | Reg _ | Mem _ -> true
   | Imm _ -> false
 ;;
@@ -231,14 +233,19 @@ let run ~system (functions : Function.t String.Map.t) =
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
-      let lower_move ~dst ~src s =
-        `Emit
-          (if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
-           then []
-           else (
-             match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
-             | _ -> [ emit_binary_instr s dst src ]))
+      let lower_move' ~dst ~src s =
+        if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+        then []
+        else (
+          match dst, src with
+          | Mem _, Mem _ -> lower_mem_mem_mov ~dst ~src
+          | _ -> [ emit_binary_instr s dst src ])
+      in
+      let lower_move ~dst ~src s = `Emit (lower_move' ~dst ~src s) in
+      let lower_sub' ~dst ~src =
+        match dst, src with
+        | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
+        | _ -> [ emit_binary_instr "sub" dst src ]
       in
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
@@ -254,11 +261,7 @@ let run ~system (functions : Function.t String.Map.t) =
             (match dst, src with
              | Mem _, Mem _ -> lower_mem_mem_binop ~op:"add" ~dst ~src
              | _ -> [ emit_binary_instr "add" dst src ])
-        | SUB (dst, src) ->
-          `Emit
-            (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:"sub" ~dst ~src
-             | _ -> [ emit_binary_instr "sub" dst src ])
+        | SUB (dst, src) -> `Emit (lower_sub' ~dst ~src)
         | ADDSD (dst, src) -> `Emit [ emit_binary_instr "addsd" dst src ]
         | SUBSD (dst, src) -> `Emit [ emit_binary_instr "subsd" dst src ]
         | MULSD (dst, src) -> `Emit [ emit_binary_instr "mulsd" dst src ]
@@ -294,7 +297,8 @@ let run ~system (functions : Function.t String.Map.t) =
         | JE (cb, else_) -> `Branch (`Je, cb, else_)
         | JNE (cb, else_) -> `Branch (`Jne, cb, else_)
         | RET _ -> `Emit [ "ret" ]
-        | ALLOCA _ -> `Emit []
+        | ALLOCA _ ->
+          failwith "ALLOCA seen but should've been removed before lowering"
         | LABEL s ->
           let label = ensure_unique (sanitize_identifier s) in
           `Emit_label label

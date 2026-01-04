@@ -40,61 +40,62 @@ let save_and_restore_in_prologue_and_epilogue
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
   Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
-    fn.bytes_for_clobber_saves <- Set.length to_restore * 8;
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
-    let to_restore = Set.to_list to_restore in
+    let () = Breadcrumbs.frame_pointer_omission in
+    (* always restore RBP (so just remove it here, and we push it below anyway) *)
+    let to_restore =
+      Set.remove to_restore Reg.rbp
+      |> Set.to_list
+      |> List.filter_map ~f:Util.should_save
+    in
+    fn.bytes_for_clobber_saves <- List.length to_restore * 8;
+    (* align to 16 bytes *)
+    fn.bytes_for_padding
+    <- (let m =
+          ((* 8 bytes for return address on stack *)
+           8
+           + fn.bytes_for_spills
+           + fn.bytes_statically_alloca'd
+           + fn.bytes_for_clobber_saves)
+          mod 16
+        in
+        if m = 0 then 0 else 16 - m);
+    let extra_bytes_after_callee_saves =
+      fn.bytes_for_spills + fn.bytes_statically_alloca'd + fn.bytes_for_padding
+    in
     let () =
       (* change prologue *)
-      let header_bytes_excl_clobber_saves =
-        fn.bytes_alloca'd + fn.bytes_for_spills
-      in
       let new_prologue : Ir.t Vec.t = Vec.create () in
-      if header_bytes_excl_clobber_saves > 0
+      Vec.push new_prologue (X86 (push (Reg Reg.rbp)));
+      Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)));
+      List.iter to_restore ~f:(fun reg ->
+        Vec.push new_prologue (X86 (push (Reg reg))));
+      if extra_bytes_after_callee_saves > 0
       then
         Vec.push
           new_prologue
           (X86
              (sub
                 (Reg Reg.rsp)
-                (Imm (Int64.of_int header_bytes_excl_clobber_saves))));
-      List.iter to_restore ~f:(fun reg ->
-        Vec.push new_prologue (X86 (push (Reg reg))));
-      Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)));
-      if fn.bytes_for_clobber_saves > 0
-      then
-        Vec.push
-          new_prologue
-          (X86
-             (add
-                (Reg Reg.rbp)
-                (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
+                (Imm (extra_bytes_after_callee_saves |> Int64.of_int))));
       Vec.append new_prologue prologue.instructions;
       prologue.instructions <- new_prologue
     in
     let () =
       (* change epilogue *)
-      if List.is_empty to_restore
-      then
-        Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)))
-      else
-        List.map
-          ~f:Ir.x86
-          ([ mov (Reg Reg.rsp) (Reg Reg.rbp)
-           ; sub
-               (Reg Reg.rsp)
-               (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))
-           ]
-           @ List.map (List.rev to_restore) ~f:pop
-           @
-           if fn.bytes_alloca'd + fn.bytes_for_spills > 0
-           then
-             [ add
-                 (Reg Reg.rsp)
-                 (Imm (fn.bytes_alloca'd + fn.bytes_for_spills |> Int64.of_int))
-             ]
-           else [])
-        |> List.iter ~f:(Vec.push epilogue.instructions)
+      Vec.push
+        epilogue.instructions
+        (X86
+           (sub
+              (* sub rbp first, because we don't want rsp to be above places we care about in case the os clobbers them *)
+              (Reg Reg.rbp)
+              (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
+      Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)));
+      List.rev to_restore
+      |> List.iter ~f:(fun reg ->
+        Vec.push epilogue.instructions (X86 (pop reg)));
+      Vec.push epilogue.instructions (X86 (pop Reg.rbp))
     in
     ())
 ;;
@@ -133,17 +134,31 @@ let save_and_restore_around_calls
              ~call_fn
              ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
          in
-         Stack.push pending regs;
+         let sub_for_align =
+           let m = Stack.length pending * 8 mod 16 in
+           if m = 0 then 0 else 16 - m
+         in
+         Stack.push pending (regs, sub_for_align);
+         if sub_for_align <> 0
+         then
+           Vec.push
+             new_instructions
+             (Ir0.X86 (sub (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))));
          List.iter regs ~f:(fun reg ->
            Vec.push new_instructions (Ir0.X86 (push (Reg reg))))
        | Ir0.X86 Restore_clobbers ->
-         let regs =
+         let regs, sub_for_align =
            match Stack.pop pending with
            | Some regs -> regs
            | None -> failwith "Restore_clobbers without matching save"
          in
          List.iter (List.rev regs) ~f:(fun reg ->
-           Vec.push new_instructions (Ir0.X86 (pop reg)))
+           Vec.push new_instructions (Ir0.X86 (pop reg)));
+         if sub_for_align <> 0
+         then
+           Vec.push
+             new_instructions
+             (Ir0.X86 (add (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))))
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
@@ -170,6 +185,35 @@ let process (functions : Function.t String.Map.t) =
         (save_and_restore_around_calls
            (module Calc_liveness)
            ~state
-           ~liveness_state));
+           ~liveness_state);
+    let alloca_offset =
+      ref
+        (fn.bytes_for_clobber_saves + fn.bytes_for_padding + fn.bytes_for_spills)
+    in
+    Block.iter fn.root ~f:(fun block ->
+      let map_ir (ir : Ir.t) =
+        let ir =
+          match ir with
+          | X86 (ALLOCA (dest, i)) ->
+            alloca_offset := !alloca_offset + Int64.to_int_exn i;
+            (match dest with
+             | Reg _ ->
+               Ir.x86_terminal
+                 ([ mov dest (Reg Reg.rbp) ]
+                  @ [ sub dest (Imm (Int64.of_int !alloca_offset)) ])
+             | _ -> failwith "alloca dest must be a register")
+          | ir -> ir
+        in
+        Ir.map_x86_operands ir ~f:(function
+          | Spill_slot i ->
+            let offset =
+              -(fn.bytes_for_padding + fn.bytes_for_clobber_saves + ((i + 1) * 8)
+               )
+            in
+            Mem (Reg.rbp, offset)
+          | x -> x)
+      in
+      Vec.map_inplace block.instructions ~f:map_ir;
+      block.terminal <- map_ir block.terminal));
   functions
 ;;

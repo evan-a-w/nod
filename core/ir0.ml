@@ -1,4 +1,5 @@
 open! Core
+open! Import
 
 module Lit = struct
   type t = Int64.t [@@deriving sexp, compare, equal, hash]
@@ -70,7 +71,9 @@ module Mem = struct
     match t with
     | Address { base = Lit_or_var.Var v; offset } ->
       Mem (X86_reg.unallocated v, offset)
-    | Stack_slot i -> Mem (X86_reg.rbp, i)
+    | Stack_slot i ->
+      Breadcrumbs.frame_pointer_omission;
+      Mem (X86_reg.rbp, i)
     | Address { base = Lit_or_var.Lit _; _ } ->
       failwith "cannot convert literal address without lowering"
   ;;
@@ -170,6 +173,7 @@ let map_memcpy_uses (t : memcpy) ~f =
 
 let map_memcpy_lit_or_vars (t : memcpy) ~f =
   { t with dest = f t.dest; src = f t.src }
+;;
 
 module Branch = struct
   type 'block t =
@@ -543,8 +547,13 @@ let map_defs t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_defs x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_defs ~f) x86_irs)
-  | Branch _ | Unreachable | Noop | Return _ | Store _ | Store_field _ | Memcpy _
-    -> t
+  | Branch _
+  | Unreachable
+  | Noop
+  | Return _
+  | Store _
+  | Store_field _
+  | Memcpy _ -> t
 ;;
 
 let map_uses t ~f =

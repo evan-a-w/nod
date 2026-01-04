@@ -92,6 +92,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
     let src2_final, extra_mov =
       match src2_op with
+      | Spill_slot _ -> failwith "unexpected spill slot"
       | Imm _ ->
         let tmp_reg =
           Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_imm") None
@@ -167,6 +168,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
        (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
        let src_operand = operand_of_lit_or_var t ~class_:src_class src in
        (match src_operand with
+        | Spill_slot _ -> failwith "unexpected spill slot"
         | Imm _ ->
           (* Load immediate into a temporary register first *)
           let tmp_reg =
@@ -247,7 +249,6 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 arg))
     in
     let pre_moves = stack_arg_pushes @ reg_arg_moves in
-    (* CR-soon: compound results via arg to pointer *)
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
     let post_moves, results_with_physical =
@@ -293,8 +294,8 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     @ [ restore_clobbers ]
   | Alloca { dest; size = Lit i } -> [ alloca (Reg (Reg.unallocated dest)) i ]
   | Alloca { dest; size = Var v } ->
-    [ mov (reg dest) (Reg Reg.rsp)
-    ; sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
+    [ sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
+    ; mov (reg dest) (Reg Reg.rsp)
     ]
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
@@ -342,6 +343,11 @@ let make_prologue t =
   let id_hum = t.fn.name ^ "__prologue" |> Util.new_name t.block_names in
   (* As we go in, stack is like
        arg_n, arg_n+1, ..., return addr
+
+       we will later push rbp to save it, and then rbp will be at that point.
+
+       This means that the saved rbp is directly at rbp, the return addr is rbp + 8, etc *)
+  (* .
   *)
   let args = List.map t.fn.args ~f:(fun arg -> fresh_like_var t arg) in
   let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
@@ -357,7 +363,7 @@ let make_prologue t =
   let stack_arg_moves =
     args_on_stack
     |> List.mapi ~f:(fun i arg ->
-      let stack_offset = (i + 1) * 8 in
+      let stack_offset = (i + 2) * 8 in
       mov (Reg (Reg.unallocated arg)) (Mem (Reg.rbp, stack_offset)))
   in
   let block =
@@ -389,6 +395,7 @@ let make_epilogue t ~ret_shape =
     List.init (Option.value ret_shape ~default:0) ~f:(fun i ->
       fresh_var t ("res__" ^ Int.to_string i))
   in
+  Breadcrumbs.add_return_values_on_stack;
   let gp_res_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
   let reg_res_moves =
     List.zip_with_remainder args gp_res_regs
@@ -443,20 +450,11 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.map_inplace block.instructions ~f:(function
-      | X86 (ALLOCA (dest, i)) ->
-        let offset = t.fn.bytes_alloca'd in
-        t.fn.bytes_alloca'd <- Int64.to_int_exn i + t.fn.bytes_alloca'd;
-        (match dest with
-         | Reg _ ->
-           X86_terminal
-             ([ mov dest (Reg Reg.rbp) ]
-              @
-              if offset = 0
-              then []
-              else [ add dest (Imm (Int64.of_int offset)) ])
-         | _ -> failwith "alloca dest must be a register")
-      | ir -> ir);
+    Vec.iter block.instructions ~f:(function
+      | X86 (ALLOCA (_, i)) ->
+        t.fn.bytes_statically_alloca'd
+        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
+      | _ -> ());
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
     match true_terminal block with

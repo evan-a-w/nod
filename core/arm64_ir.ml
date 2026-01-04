@@ -1,4 +1,5 @@
-open Core
+open! Core
+open! Import
 module Reg = Arm64_reg
 module Raw = Arm64_reg.Raw
 
@@ -73,6 +74,7 @@ type operand =
   | Reg of Reg.t
   | Imm of Int64.t
   | Mem of Reg.t * int (* [reg + offset] addressing *)
+  | Spill_slot of int
 [@@deriving sexp, equal, compare, hash]
 
 let reg_of_operand_exn = function
@@ -242,7 +244,7 @@ let map_jump_target target ~f =
 let map_var_operand op ~f =
   match op with
   | Reg r -> map_reg r ~f
-  | Imm _ -> op
+  | Imm _ | Spill_slot _ -> op
   | Mem (r, disp) ->
     (match map_reg r ~f with
      | Reg r -> Mem (r, disp)
@@ -266,14 +268,14 @@ let map_use_reg = map_virtual_reg
 let map_def_operand op ~f =
   match op with
   | Reg r -> Reg (map_def_reg r ~f)
-  | Imm _ -> op
+  | Imm _ | Spill_slot _ -> op
   | Mem (r, disp) -> Mem (map_def_reg r ~f, disp)
 ;;
 
 let map_use_operand op ~f =
   match op with
   | Reg r -> Reg (map_use_reg r ~f)
-  | Imm _ -> op
+  | Imm _ | Spill_slot _ -> op
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 
@@ -333,12 +335,15 @@ let vars_of_reg = function
 
 let vars_of_operand = function
   | Reg r -> vars_of_reg r
-  | Imm _ -> Var.Set.empty
+  | Imm _ | Spill_slot _ -> Var.Set.empty
   | Mem (r, _) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
   | Reg r -> Reg.Set.singleton r
+  | Spill_slot _ ->
+    Breadcrumbs.frame_pointer_omission;
+    Reg.Set.singleton Reg.fp
   | Imm _ -> Reg.Set.empty
   | Mem (r, _) -> Reg.Set.singleton r
 ;;
@@ -361,7 +366,7 @@ let rec reg_defs ins : Reg.Set.t =
   | Convert { dst; _ }
   | Bitcast { dst; _ }
   | Adr { dst; _ } -> Reg.Set.singleton dst
-  | Call { results; _ } -> Reg.Set.of_list results
+  | Call { results; _ } -> Set.add (Reg.Set.of_list results) Reg.lr
   | Store _ | Comp _ | Conditional_branch _ | Jump _ | Ret _ -> Reg.Set.empty
 ;;
 
@@ -384,7 +389,8 @@ let rec reg_uses ins : Reg.Set.t =
   | Call { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
-  | Ret ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
+  | Ret ops ->
+    Set.add (Reg.Set.union_list (List.map ops ~f:regs_of_operand)) Reg.lr
   | Conditional_branch { then_; else_; _ } ->
     let use_cb cb =
       Call_block.uses cb |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
@@ -524,7 +530,7 @@ let rec map_operands t ~f =
   let map_reg_operand reg =
     match f (Reg reg) with
     | Reg reg' -> reg'
-    | _ -> failwith "expected register operand"
+    | op -> Error.raise_s [%message "expected register operand" (op : operand)]
   in
   let map_op op = f op in
   match t with
@@ -635,3 +641,136 @@ let rec is_terminal = function
   | Call _
   | Alloca _ -> false
 ;;
+
+module For_backend = struct
+  let rec map_use_operands
+    (t : 'a t)
+    ~(f : operand -> must_be_reg:bool -> operand)
+    : 'a t
+    =
+    let map_op ?(must_be_reg = false) op =
+      let op' = f op ~must_be_reg in
+      match must_be_reg, op' with
+      | true, Reg _ -> op'
+      | true, _ ->
+        Error.raise_s [%message "expected register operand" (op' : operand)]
+      | false, _ -> op'
+    in
+    let map_reg r =
+      match map_op ~must_be_reg:true (Reg r) with
+      | Reg r' -> r'
+      | _ -> assert false
+    in
+    let map_use_operand op =
+      match op with
+      | Imm _ | Spill_slot _ -> op
+      | Reg _ -> map_op op
+      | Mem (r, disp) ->
+        let r' = map_reg r in
+        Mem (r', disp)
+    in
+    let map_jump_target = function
+      | Jump_target.Reg r -> Jump_target.Reg (map_reg r)
+      | (Jump_target.Imm _ | Jump_target.Symbol _) as t -> t
+    in
+    let map_cb cb = cb in
+    match t with
+    | Save_clobbers -> Save_clobbers
+    | Restore_clobbers -> Restore_clobbers
+    | Nop -> Nop
+    | Label s -> Label s
+    | Alloca (op, sz) -> Alloca (op, sz)
+    | Tag_def (ins, op) -> Tag_def (map_use_operands ins ~f, op)
+    | Tag_use (ins, op) -> Tag_use (map_use_operands ins ~f, map_use_operand op)
+    | Move { dst; src } -> Move { dst; src = map_use_operand src }
+    | Load { dst; addr } -> Load { dst; addr = map_use_operand addr }
+    | Store { src; addr } ->
+      Store { src = map_use_operand src; addr = map_use_operand addr }
+    | Int_binary { op; dst; lhs; rhs } ->
+      Int_binary
+        { op; dst; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
+    | Float_binary { op; dst; lhs; rhs } ->
+      Float_binary
+        { op; dst; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
+    | Convert { op; dst; src } -> Convert { op; dst; src = map_use_operand src }
+    | Bitcast { dst; src } -> Bitcast { dst; src = map_use_operand src }
+    | Adr { dst; target } -> Adr { dst; target = map_jump_target target }
+    | Comp { kind; lhs; rhs } ->
+      Comp { kind; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
+    | Call { fn; results; args } ->
+      Call { fn; results; args = List.map args ~f:map_use_operand }
+    | Ret ops -> Ret (List.map ops ~f:map_use_operand)
+    | Conditional_branch { condition; then_; else_ } ->
+      Conditional_branch
+        { condition; then_ = map_cb then_; else_ = Option.map else_ ~f:map_cb }
+    | Jump cb -> Jump (map_cb cb)
+  ;;
+
+  let rec map_def_operands
+    (t : 'a t)
+    ~(f : operand -> must_be_reg:bool -> operand)
+    : 'a t
+    =
+    let map_op ?(must_be_reg = false) op =
+      let op' = f op ~must_be_reg in
+      match must_be_reg, op' with
+      | true, Reg _ -> op'
+      | true, _ ->
+        Error.raise_s [%message "expected register operand" (op' : operand)]
+      | false, _ -> op'
+    in
+    let map_reg r =
+      match map_op ~must_be_reg:true (Reg r) with
+      | Reg r' -> r'
+      | _ -> assert false
+    in
+    let map_def_operand op =
+      match op with
+      | Imm _ | Spill_slot _ -> op
+      | Reg _ -> map_op ~must_be_reg:true op
+      | Mem (r, disp) ->
+        let r' = map_reg r in
+        Mem (r', disp)
+    in
+    let map_cb cb = cb in
+    match t with
+    | Save_clobbers -> Save_clobbers
+    | Restore_clobbers -> Restore_clobbers
+    | Nop -> Nop
+    | Label s -> Label s
+    | Alloca (op, sz) -> Alloca (map_def_operand op, sz)
+    | Tag_def (ins, op) -> Tag_def (map_def_operands ins ~f, map_def_operand op)
+    | Tag_use (ins, op) -> Tag_use (map_def_operands ins ~f, op)
+    | Move { dst; src } -> Move { dst = map_reg dst; src }
+    | Load { dst; addr } -> Load { dst = map_reg dst; addr }
+    | Store st -> Store st
+    | Int_binary { op; dst; lhs; rhs } ->
+      Int_binary { op; dst = map_reg dst; lhs; rhs }
+    | Float_binary { op; dst; lhs; rhs } ->
+      Float_binary { op; dst = map_reg dst; lhs; rhs }
+    | Convert { op; dst; src } -> Convert { op; dst = map_reg dst; src }
+    | Bitcast { dst; src } -> Bitcast { dst = map_reg dst; src }
+    | Adr { dst; target } -> Adr { dst = map_reg dst; target }
+    | Comp cmp -> Comp cmp
+    | Call { fn; results; args } ->
+      Call { fn; results = List.map results ~f:map_reg; args }
+    | Ret ops -> Ret ops
+    | Conditional_branch branch -> Conditional_branch branch
+    | Jump cb -> Jump (map_cb cb)
+  ;;
+
+  let map_operand_regs ~f operand ~must_be_reg =
+    match operand with
+    | (Spill_slot _ | Imm _) as x -> x
+    | Reg r -> f ~must_be_reg r
+    | Mem (r, offset) ->
+      Mem
+        ( f ~must_be_reg:true r
+          |> (* safe because we enforce no spills on the mem regs *)
+          reg_of_operand_exn
+        , offset )
+  ;;
+
+  let map_use_regs t ~f = map_use_operands t ~f:(map_operand_regs ~f)
+  let map_def_regs t ~f = map_def_operands t ~f:(map_operand_regs ~f)
+end
