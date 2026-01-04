@@ -4,21 +4,22 @@ open! Import
 module Encoder = Jit_encode
 module Runtime = Nod_backend_common.Jit_runtime
 
+type t =
+  { region : Runtime.region
+  ; size : int
+  ; symbols : nativeint String.Map.t
+  }
+
 module Module = struct
-  type t =
-    { region : Runtime.region
-    ; size : int
-    ; symbols : nativeint String.Map.t
-    }
+  type nonrec t = t
 
   let entry t name = Map.find t.symbols name
 end
 
 let patch_int64_le bytes ~offset value =
-  let open Int64 in
   let value = Int64.of_nativeint value in
   let byte shift =
-    to_int_exn (logand (shift_right_logical value shift) 0xFFL)
+    Int64.(to_int_exn (shift_right_logical value shift land 0xFFL))
   in
   Bytes.set bytes offset (Char.of_int_exn (byte 0));
   Bytes.set bytes (offset + 1) (Char.of_int_exn (byte 8));
