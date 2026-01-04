@@ -49,6 +49,10 @@ let layout_reg_saves regs =
   total, List.rev slots_rev
 ;;
 
+let align_stack bytes =
+  if bytes % 16 = 0 then bytes else bytes + (16 - (bytes % 16))
+;;
+
 let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
 let sp_operand = Arm64_ir.Reg Reg.sp
 
@@ -187,20 +191,21 @@ let save_and_restore_around_calls
            | Some fn -> fn
            | None -> failwith "Save_clobbers without following CALL"
          in
-         let regs =
-           regs_to_save
-             ~state
-             ~call_fn
-             ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
-         in
-         let bytes, slots = layout_reg_saves regs in
-         Stack.push pending (slots, bytes);
-         if bytes > 0 then Vec.push new_instructions (sub_sp bytes);
-         List.iter slots ~f:(fun (reg, off) ->
-           Vec.push new_instructions (store_reg_at_sp reg off))
-       | Ir0.Arm64 Restore_clobbers ->
-         let slots, bytes =
-           match Stack.pop pending with
+        let regs =
+          regs_to_save
+            ~state
+            ~call_fn
+            ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
+        in
+        let bytes, slots = layout_reg_saves regs in
+        let aligned_bytes = align_stack bytes in
+        Stack.push pending (slots, aligned_bytes);
+        if aligned_bytes > 0 then Vec.push new_instructions (sub_sp aligned_bytes);
+        List.iter slots ~f:(fun (reg, off) ->
+          Vec.push new_instructions (store_reg_at_sp reg off))
+      | Ir0.Arm64 Restore_clobbers ->
+        let slots, bytes =
+          match Stack.pop pending with
            | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in
@@ -234,21 +239,22 @@ let process (functions : Function.t String.Map.t) =
            (module Calc_liveness)
            ~state
            ~liveness_state);
-    let alloca_offset = ref fn.bytes_statically_alloca'd in
+    let alloca_offset = ref 0 in
     Block.iter fn.root ~f:(fun block ->
       let map_ir (ir : Ir.t) =
         let ir =
           match ir with
           | Arm64 (Alloca (dest, i)) ->
-            alloca_offset := !alloca_offset - Int64.to_int_exn i;
+            let offset = !alloca_offset in
+            alloca_offset := !alloca_offset + Int64.to_int_exn i;
             (match dest with
              | Reg dst ->
                Ir0.Arm64
                  (Int_binary
-                    { op = Int_op.Sub
+                    { op = Int_op.Add
                     ; dst
                     ; lhs = Reg Reg.fp
-                    ; rhs = Imm (Int64.of_int !alloca_offset)
+                    ; rhs = Imm (Int64.of_int offset)
                     })
              | _ -> failwith "alloca dest must be a register")
           | ir -> ir

@@ -1,13 +1,6 @@
 open! Core
 open! Import
 
-let test_architectures : [ `X86_64 | `Arm64 | `Other ] list =
-  match Lazy.force Nod.host_arch with
-  | `X86_64 -> [ `X86_64 ]
-  | `Arm64 -> [ `Arm64 ]
-  | `Other -> []
-;;
-
 let compile_low source =
   match Nod_low.Low.lower_string source with
   | Error err -> Error (Nod_low.Error.to_string err)
@@ -18,27 +11,29 @@ let compile_low source =
 ;;
 
 let check_low_program ?harness source expected =
-  match compile_low source with
-  | Error err -> failwith err
-  | Ok functions ->
-    List.iter test_architectures ~f:(function
-      | (`X86_64 | `Arm64) as arch ->
-        let asm =
-          Nod.compile_and_lower_functions ~arch ~system:host_system functions
-        in
-        let output = Nod.execute_asm ~arch ~system:host_system ?harness asm in
-        if not (String.equal output expected)
-        then
-          failwithf
-            "arch %s produced %s, expected %s"
-            (match arch with
-             | `X86_64 -> "x86_64"
-             | `Arm64 -> "arm64"
-             | `Other -> "other")
-            output
-            expected
-            ()
-      | `Other -> ())
+  List.iter test_architectures ~f:(function
+    | (`X86_64 | `Arm64) as arch ->
+      let functions =
+        match compile_low source with
+        | Error err -> failwith err
+        | Ok functions -> functions
+      in
+      let asm =
+        Nod.compile_and_lower_functions ~arch ~system:host_system functions
+      in
+      let output = Nod.execute_asm ~arch ~system:host_system ?harness asm in
+      if not (String.equal output expected)
+      then
+        failwithf
+          "arch %s produced %s, expected %s"
+          (match arch with
+           | `X86_64 -> "x86_64"
+           | `Arm64 -> "arm64"
+           | `Other -> "other")
+          output
+          expected
+          ()
+    | `Other -> ())
 ;;
 
 let%expect_test "exec struct by-value + sret" =
