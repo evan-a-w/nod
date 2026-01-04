@@ -23,7 +23,10 @@ module Ir0 = Nod_core.Ir0
 module Ssa = Nod_core.Ssa
 module Var = Nod_core.Var
 module X86_ir = Nod_core.X86_ir
+module X86_asm = Nod_x86_backend.X86_asm
 module X86_backend = Nod_x86_backend.X86_backend
+module X86_jit = Nod_x86_backend.Jit
+module Arm64_asm = Nod_arm64_backend.Arm64_asm
 module Arm64_backend = Nod_arm64_backend.Arm64_backend
 module Examples = Nod_examples.Examples
 
@@ -143,6 +146,22 @@ let compile_and_lower_functions
   | `Other -> failwith "unsupported target architecture"
 ;;
 
+type lowered_items =
+  | X86 of X86_asm.program
+  | Arm64 of Arm64_asm.program
+
+let compile_and_lower_functions_to_items
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  functions
+  =
+  match arch with
+  | `X86_64 -> X86_backend.compile_to_items ~system functions |> fun items -> X86 items
+  | `Arm64 ->
+    Arm64_backend.compile_to_items ~system functions |> fun items -> Arm64 items
+  | `Other -> failwith "unsupported target architecture"
+;;
+
 let compile_and_lower
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
@@ -153,6 +172,35 @@ let compile_and_lower
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
   | Ok functions -> compile_and_lower_functions ~arch ~system functions
+;;
+
+let compile_and_lower_items
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  program
+  =
+  match Eir.compile ~opt_flags program with
+  | Error err ->
+    Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
+  | Ok functions ->
+    compile_and_lower_functions_to_items ~arch ~system functions
+;;
+
+type jit_module = X86_jit.Module.t
+
+let compile_and_jit_x86
+  ~(system : [ `Darwin | `Linux | `Other ])
+  ?(opt_flags = Eir.Opt_flags.no_opt)
+  ?dump_crap
+  ?externals
+  program
+  =
+  match Eir.compile ~opt_flags program with
+  | Error err ->
+    Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
+  | Ok functions ->
+    X86_jit.compile ?dump_crap ?externals ~system functions
 ;;
 
 let qemu_aarch64_ld_prefix =
