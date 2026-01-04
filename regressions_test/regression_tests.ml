@@ -489,12 +489,182 @@ root(%x:i64) {
 |}
 ;;
 
+let high_register_pressure_over_32_live =
+  {|
+root() {
+    (* 40 base values (all kept live until the very end) *)
+    add %v1:i64, 1, 0
+    add %v2:i64, 2, 0
+    add %v3:i64, 3, 0
+    add %v4:i64, 4, 0
+    add %v5:i64, 5, 0
+    add %v6:i64, 6, 0
+    add %v7:i64, 7, 0
+    add %v8:i64, 8, 0
+    add %v9:i64, 9, 0
+    add %v10:i64, 10, 0
+    add %v11:i64, 11, 0
+    add %v12:i64, 12, 0
+    add %v13:i64, 13, 0
+    add %v14:i64, 14, 0
+    add %v15:i64, 15, 0
+    add %v16:i64, 16, 0
+    add %v17:i64, 17, 0
+    add %v18:i64, 18, 0
+    add %v19:i64, 19, 0
+    add %v20:i64, 20, 0
+    add %v21:i64, 21, 0
+    add %v22:i64, 22, 0
+    add %v23:i64, 23, 0
+    add %v24:i64, 24, 0
+    add %v25:i64, 25, 0
+    add %v26:i64, 26, 0
+    add %v27:i64, 27, 0
+    add %v28:i64, 28, 0
+    add %v29:i64, 29, 0
+    add %v30:i64, 30, 0
+    add %v31:i64, 31, 0
+    add %v32:i64, 32, 0
+    add %v33:i64, 33, 0
+    add %v34:i64, 34, 0
+    add %v35:i64, 35, 0
+    add %v36:i64, 36, 0
+    add %v37:i64, 37, 0
+    add %v38:i64, 38, 0
+    add %v39:i64, 39, 0
+    add %v40:i64, 40, 0
+
+    (* 20 a-intermediates (also kept live until the end) *)
+    add %a1:i64, %v1, %v2
+    add %a2:i64, %v3, %v4
+    add %a3:i64, %v5, %v6
+    add %a4:i64, %v7, %v8
+    add %a5:i64, %v9, %v10
+    add %a6:i64, %v11, %v12
+    add %a7:i64, %v13, %v14
+    add %a8:i64, %v15, %v16
+    add %a9:i64, %v17, %v18
+    add %a10:i64, %v19, %v20
+    add %a11:i64, %v21, %v22
+    add %a12:i64, %v23, %v24
+    add %a13:i64, %v25, %v26
+    add %a14:i64, %v27, %v28
+    add %a15:i64, %v29, %v30
+    add %a16:i64, %v31, %v32
+    add %a17:i64, %v33, %v34
+    add %a18:i64, %v35, %v36
+    add %a19:i64, %v37, %v38
+    add %a20:i64, %v39, %v40
+
+    (* 10 b-intermediates (still not consuming anything “for real” yet)
+       a's are used here BUT also used later, so they remain live *)
+    add %b1:i64, %a1, %a2
+    add %b2:i64, %a3, %a4
+    add %b3:i64, %a5, %a6
+    add %b4:i64, %a7, %a8
+    add %b5:i64, %a9, %a10
+    add %b6:i64, %a11, %a12
+    add %b7:i64, %a13, %a14
+    add %b8:i64, %a15, %a16
+    add %b9:i64, %a17, %a18
+    add %b10:i64, %a19, %a20
+
+    (* Final reduction: use EVERYTHING again so v*, a*, b* were all live up to here. *)
+    add %s0:i64, 0, 0
+
+    add %s1:i64, %s0, %v1
+    add %s2:i64, %s1, %v2
+    add %s3:i64, %s2, %v3
+    add %s4:i64, %s3, %v4
+    add %s5:i64, %s4, %v5
+    add %s6:i64, %s5, %v6
+    add %s7:i64, %s6, %v7
+    add %s8:i64, %s7, %v8
+    add %s9:i64, %s8, %v9
+    add %s10:i64, %s9, %v10
+    add %s11:i64, %s10, %v11
+    add %s12:i64, %s11, %v12
+    add %s13:i64, %s12, %v13
+    add %s14:i64, %s13, %v14
+    add %s15:i64, %s14, %v15
+    add %s16:i64, %s15, %v16
+    add %s17:i64, %s16, %v17
+    add %s18:i64, %s17, %v18
+    add %s19:i64, %s18, %v19
+    add %s20:i64, %s19, %v20
+    add %s21:i64, %s20, %v21
+    add %s22:i64, %s21, %v22
+    add %s23:i64, %s22, %v23
+    add %s24:i64, %s23, %v24
+    add %s25:i64, %s24, %v25
+    add %s26:i64, %s25, %v26
+    add %s27:i64, %s26, %v27
+    add %s28:i64, %s27, %v28
+    add %s29:i64, %s28, %v29
+    add %s30:i64, %s29, %v30
+    add %s31:i64, %s30, %v31
+    add %s32:i64, %s31, %v32
+    add %s33:i64, %s32, %v33
+    add %s34:i64, %s33, %v34
+    add %s35:i64, %s34, %v35
+    add %s36:i64, %s35, %v36
+    add %s37:i64, %s36, %v37
+    add %s38:i64, %s37, %v38
+    add %s39:i64, %s38, %v39
+    add %s40:i64, %s39, %v40
+
+    add %s41:i64, %s40, %a1
+    add %s42:i64, %s41, %a2
+    add %s43:i64, %s42, %a3
+    add %s44:i64, %s43, %a4
+    add %s45:i64, %s44, %a5
+    add %s46:i64, %s45, %a6
+    add %s47:i64, %s46, %a7
+    add %s48:i64, %s47, %a8
+    add %s49:i64, %s48, %a9
+    add %s50:i64, %s49, %a10
+    add %s51:i64, %s50, %a11
+    add %s52:i64, %s51, %a12
+    add %s53:i64, %s52, %a13
+    add %s54:i64, %s53, %a14
+    add %s55:i64, %s54, %a15
+    add %s56:i64, %s55, %a16
+    add %s57:i64, %s56, %a17
+    add %s58:i64, %s57, %a18
+    add %s59:i64, %s58, %a19
+    add %s60:i64, %s59, %a20
+
+    add %s61:i64, %s60, %b1
+    add %s62:i64, %s61, %b2
+    add %s63:i64, %s62, %b3
+    add %s64:i64, %s63, %b4
+    add %s65:i64, %s64, %b5
+    add %s66:i64, %s65, %b6
+    add %s67:i64, %s66, %b7
+    add %s68:i64, %s67, %b8
+    add %s69:i64, %s68, %b9
+    add %result:i64, %s69, %b10
+    ret %result
+}
+|}
+;;
+
 let%expect_test "high register pressure - sum of many variables" =
   let no_opt_result, opt_result =
     test_both_modes ~harness:(make_harness_source ()) high_register_pressure_sum
   in
   assert (String.equal no_opt_result "210");
   assert (String.equal opt_result "210")
+;;
+
+let%expect_test "high register pressure - sum of many variables, but even more" =
+  let no_opt_result, opt_result =
+    test_both_modes
+      ~harness:(make_harness_source ())
+      high_register_pressure_over_32_live
+  in
+  assert (String.equal no_opt_result "2460");
+  assert (String.equal opt_result "2460")
 ;;
 
 let%expect_test "high register pressure - many live across call" =

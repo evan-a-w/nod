@@ -133,166 +133,109 @@ let%expect_test "temp alloca passed to child; child loads value" =
   run_functions mk_functions "41"
 ;;
 
-(* let%expect_test "temp memory asm" = *)
-(*   let make_fn ~name ~args ~root = *)
-(*     (\* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *\) *)
-(*     List.iter args ~f:(Vec.push root.Block.args); *)
-(*     root.dfs_id <- Some 0; *)
-(*     Function.create ~name ~args ~root *)
-(*   in *)
-(*   let comp_functions ?(arch = `X86_64) functions = *)
-(*     let asm = *)
-(*       Nod.compile_and_lower_functions ~arch ~system:host_system functions *)
-(*     in *)
-(*     print_endline asm *)
-(*   in *)
-(*   let run_functions mk_functions = *)
-(*     List.iter test_architectures ~f:(function *)
-(*       | (`X86_64 | `Arm64) as arch -> *)
-(*         let functions = mk_functions arch in *)
-(*         comp_functions ~arch functions *)
-(*       | `Other -> ()) *)
-(*   in *)
-(*   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) = *)
-(*     let p = Var.create ~name:"p" ~type_:Type.Ptr in *)
-(*     let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in *)
-(*     let child_root = *)
-(*       Block.create *)
-(*         ~id_hum:"%root" *)
-(*         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded)) *)
-(*     in *)
-(*     Vec.push *)
-(*       child_root.instructions *)
-(*       (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p))); *)
-(*     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in *)
-(*     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in *)
-(*     let res = Var.create ~name:"res" ~type_:Type.I64 in *)
-(*     let root_root = *)
-(*       Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res)) *)
-(*     in *)
-(*     Vec.push *)
-(*       root_root.instructions *)
-(*       (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }); *)
-(*     Vec.push *)
-(*       root_root.instructions *)
-(*       (Ir.store *)
-(*          (Ir.Lit_or_var.Lit 41L) *)
-(*          (Ir.Mem.address (Ir.Lit_or_var.Var slot))); *)
-(*     Vec.push *)
-(*       root_root.instructions *)
-(*       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]); *)
-(*     let root = make_fn ~name:"root" ~args:[] ~root:root_root in *)
-(*     String.Map.of_alist_exn [ "root", root; "child", child ] *)
-(*   in *)
-(*   run_functions mk_functions; *)
-(*   [%expect *)
-(*     {| *)
-(*     .intel_syntax noprefix *)
-(*     .text *)
-(*     .globl _child *)
-(*     _child: *)
-(*       push rbp *)
-(*       mov rbp, rsp *)
-(*       push r15 *)
-(*       mov r15, rdi *)
-(*     child___root: *)
-(*       mov r15, [r15] *)
-(*       mov rax, r15 *)
-(*     child__child__epilogue: *)
-(*       sub rbp, 8 *)
-(*       mov rsp, rbp *)
-(*       pop r15 *)
-(*       pop rbp *)
-(*       ret *)
+let%expect_test "temp memory asm" =
+  let make_fn ~name ~args ~root =
+    (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
+    List.iter args ~f:(Vec.push root.Block.args);
+    root.dfs_id <- Some 0;
+    Function.create ~name ~args ~root
+  in
+  let comp_functions ?(arch = `X86_64) functions =
+    let asm =
+      Nod.compile_and_lower_functions ~arch ~system:host_system functions
+    in
+    print_endline asm
+  in
+  let run_functions mk_functions =
+    let arch = `Arm64 in
+    let functions = mk_functions arch in
+    comp_functions ~arch functions
+  in
+  let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
+    let p = Var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let child_root =
+      Block.create
+        ~id_hum:"%root"
+        ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
+    in
+    Vec.push
+      child_root.instructions
+      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
+    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
+    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let root_root =
+      Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
+    in
+    Vec.push
+      root_root.instructions
+      (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+    Vec.push
+      root_root.instructions
+      (Ir.store
+         (Ir.Lit_or_var.Lit 41L)
+         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
+    Vec.push
+      root_root.instructions
+      (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
+    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    String.Map.of_alist_exn [ "root", root; "child", child ]
+  in
+  run_functions mk_functions;
+  [%expect
+    {|
+    .text
+    .globl child
+    child:
+      mov x14, #16
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      mov x29, sp
+      mov x0, x0
+      mov x28, x0
+    child___root:
+      ldr x28, [x28]
+      mov x0, x28
+    child__child__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp]
+      ldr x29, [sp, #8]
+      mov x14, #16
+      add sp, sp, x14
+      ret
 
-(*     .globl _root *)
-(*     _root: *)
-(*       push rbp *)
-(*       mov rbp, rsp *)
-(*       push r15 *)
-(*       sub rsp, 16 *)
-(*     root___root: *)
-(*       mov r15, rbp *)
-(*       sub r15, 24 *)
-(*       mov qword ptr [r15], 41 *)
-(*       mov rdi, r15 *)
-(*       call _child *)
-(*       mov r15, rax *)
-(*       mov rax, r15 *)
-(*     root__root__epilogue: *)
-(*       sub rbp, 8 *)
-(*       mov rsp, rbp *)
-(*       pop r15 *)
-(*       pop rbp *)
-(*       ret *)
-
-(*     .text *)
-(*     .globl _child *)
-(*     _child: *)
-(*       mov x14, #8 *)
-(*       sub sp, sp, x14 *)
-(*       mov x14, #24 *)
-(*       sub sp, sp, x14 *)
-(*       str x28, [sp] *)
-(*       str x29, [sp, #8] *)
-(*       str x30, [sp, #16] *)
-(*       mov x29, sp *)
-(*       mov x14, #24 *)
-(*       add x29, x29, x14 *)
-(*       mov x0, x0 *)
-(*       mov x28, x0 *)
-(*     child___root: *)
-(*       ldr x28, [x28] *)
-(*       mov x0, x28 *)
-(*     child__child__epilogue: *)
-(*       mov x0, x0 *)
-(*       mov sp, x29 *)
-(*       mov x14, #24 *)
-(*       sub sp, sp, x14 *)
-(*       ldr x30, [sp, #16] *)
-(*       ldr x29, [sp, #8] *)
-(*       ldr x28, [sp] *)
-(*       mov x14, #24 *)
-(*       add sp, sp, x14 *)
-(*       mov x14, #8 *)
-(*       add sp, sp, x14 *)
-(*       ret *)
-
-(*     .globl _root *)
-(*     _root: *)
-(*       mov x14, #8 *)
-(*       sub sp, sp, x14 *)
-(*       mov x14, #24 *)
-(*       sub sp, sp, x14 *)
-(*       str x28, [sp] *)
-(*       str x29, [sp, #8] *)
-(*       str x30, [sp, #16] *)
-(*       mov x29, sp *)
-(*       mov x14, #24 *)
-(*       add x29, x29, x14 *)
-(*     root___root: *)
-(*       mov x28, x29 *)
-(*       mov x14, #41 *)
-(*       str x14, [x28] *)
-(*       mov x0, x28 *)
-(*       bl _child *)
-(*       mov x28, x0 *)
-(*       mov x0, x28 *)
-(*     root__root__epilogue: *)
-(*       mov x0, x0 *)
-(*       mov sp, x29 *)
-(*       mov x14, #24 *)
-(*       sub sp, sp, x14 *)
-(*       ldr x30, [sp, #16] *)
-(*       ldr x29, [sp, #8] *)
-(*       ldr x28, [sp] *)
-(*       mov x14, #24 *)
-(*       add sp, sp, x14 *)
-(*       mov x14, #8 *)
-(*       add sp, sp, x14 *)
-(*       ret *)
-(*     |}] *)
-(* ;; *)
+    .globl root
+    root:
+      mov x14, #32
+      sub sp, sp, x14
+      str x28, [sp, #8]
+      str x29, [sp, #16]
+      str x30, [sp, #24]
+      mov x29, sp
+    root___root:
+      mov x14, #0
+      sub x28, x29, x14
+      mov x14, #41
+      str x14, [x28]
+      mov x0, x28
+      bl child
+      mov x28, x0
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
+      ldr x30, [sp, #24]
+      mov x14, #32
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
 
 let%expect_test "print helper" =
   let make_fn ~name ~args ~root =
@@ -779,10 +722,7 @@ let%expect_test "debug borked opt x86" =
          (instrs
           ((Arm64
             (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 8))))
-           (Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
+             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))
            (Arm64
             (Store (src (Reg ((reg X28) (class_ I64))))
              (addr (Mem ((reg SP) (class_ I64)) 0))))
@@ -795,9 +735,6 @@ let%expect_test "debug borked opt x86" =
            (Arm64
             (Move (dst ((reg X29) (class_ I64)))
              (src (Reg ((reg SP) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X29) (class_ I64)))
-             (lhs (Reg ((reg X29) (class_ I64)))) (rhs (Imm 24))))
            (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))
            (Arm64 (Jump ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
@@ -834,23 +771,17 @@ let%expect_test "debug borked opt x86" =
             (Move (dst ((reg SP) (class_ I64)))
              (src (Reg ((reg X29) (class_ I64))))))
            (Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Load (dst ((reg X30) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
+            (Load (dst ((reg X28) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 0))))
            (Arm64
             (Load (dst ((reg X29) (class_ I64)))
              (addr (Mem ((reg SP) (class_ I64)) 8))))
            (Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
+            (Load (dst ((reg X30) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 16))))
            (Arm64
             (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 24))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 8))))
+             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))
            (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
@@ -895,14 +826,8 @@ let%expect_test "debug borked opt x86" =
             (Store (src (Reg ((reg X29) (class_ I64))))
              (addr (Mem ((reg SP) (class_ I64)) 64))))
            (Arm64
-            (Store (src (Reg ((reg X30) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 72))))
-           (Arm64
             (Move (dst ((reg X29) (class_ I64)))
              (src (Reg ((reg SP) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X29) (class_ I64)))
-             (lhs (Reg ((reg X29) (class_ I64)))) (rhs (Imm 80))))
            (Arm64
             (Move (dst ((reg X0) (class_ I64)))
              (src (Reg ((reg X0) (class_ I64))))))
@@ -1013,38 +938,32 @@ let%expect_test "debug borked opt x86" =
             (Move (dst ((reg SP) (class_ I64)))
              (src (Reg ((reg X29) (class_ I64))))))
            (Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
-           (Arm64
-            (Load (dst ((reg X30) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 72))))
-           (Arm64
-            (Load (dst ((reg X29) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 64))))
-           (Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 56))))
-           (Arm64
-            (Load (dst ((reg X27) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 48))))
-           (Arm64
-            (Load (dst ((reg X26) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 40))))
-           (Arm64
-            (Load (dst ((reg X25) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 32))))
-           (Arm64
-            (Load (dst ((reg X24) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 24))))
-           (Arm64
-            (Load (dst ((reg X23) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
+            (Load (dst ((reg X21) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 0))))
            (Arm64
             (Load (dst ((reg X22) (class_ I64)))
              (addr (Mem ((reg SP) (class_ I64)) 8))))
            (Arm64
-            (Load (dst ((reg X21) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
+            (Load (dst ((reg X23) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 16))))
+           (Arm64
+            (Load (dst ((reg X24) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 24))))
+           (Arm64
+            (Load (dst ((reg X25) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 32))))
+           (Arm64
+            (Load (dst ((reg X26) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 40))))
+           (Arm64
+            (Load (dst ((reg X27) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 48))))
+           (Arm64
+            (Load (dst ((reg X28) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 56))))
+           (Arm64
+            (Load (dst ((reg X29) (class_ I64)))
+             (addr (Mem ((reg SP) (class_ I64)) 64))))
            (Arm64
             (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
              (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
@@ -1053,7 +972,7 @@ let%expect_test "debug borked opt x86" =
        (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
         ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
         ((name g) (type_ I64)) ((name h) (type_ I64))))
-      (name sum8) (prologue ()) (epilogue ()) (bytes_for_clobber_saves 80)
+      (name sum8) (prologue ()) (epilogue ()) (bytes_for_clobber_saves 72)
       (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
     |}]
 ;;

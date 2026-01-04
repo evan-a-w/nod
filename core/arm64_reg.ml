@@ -473,7 +473,21 @@ let arguments ~(call_conv : Call_conv.t) (class_ : Class.t) =
 
 let callee_saved ~(call_conv : Call_conv.t) (class_ : Class.t) =
   match class_, call_conv with
-  | I64, Default -> [ x19; x20; x21; x22; x23; x24; x25; x26; x27; x28; fp ]
+  | I64, Default ->
+    [ x19
+    ; x20
+    ; x21
+    ; x22
+    ; x23
+    ; x24
+    ; x25
+    ; x26
+    ; x27
+    ; x28
+    ; fp
+    ; (* lr isn't really callee saved (because it's the callee that uses it) but saying it is works *)
+      lr
+    ]
   | F64, Default -> [ d8; d9; d10; d11; d12; d13; d14; d15 ]
 ;;
 

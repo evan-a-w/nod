@@ -85,12 +85,12 @@ let add_fp bytes =
 let move_fp_to_sp = Ir.arm64 (Move { dst = Reg.fp; src = sp_operand })
 let move_sp_to_fp = Ir.arm64 (Move { dst = Reg.sp; src = Arm64_ir.Reg Reg.fp })
 
-let store_reg_at_sp (reg, offset) =
+let store_reg_at_sp reg offset =
   Ir.arm64
     (Store { src = Arm64_ir.Reg reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
-let load_reg_from_sp (reg, offset) =
+let load_reg_from_sp reg offset =
   Ir.arm64 (Load { dst = reg; addr = Arm64_ir.Mem (Reg.sp, offset) })
 ;;
 
@@ -101,7 +101,7 @@ let save_and_restore_in_prologue_and_epilogue
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
   Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
-    let to_restore = Set.add to_restore Reg.lr |> Set.to_list in
+    let to_restore = Set.to_list to_restore in
     let bytes_for_clobber_saves, save_slots = layout_reg_saves to_restore in
     fn.bytes_for_clobber_saves <- bytes_for_clobber_saves;
     let prologue = Option.value_exn fn.prologue in
@@ -123,15 +123,15 @@ let save_and_restore_in_prologue_and_epilogue
     let () =
       (* change prologue *)
       let new_prologue : Ir.t Vec.t = Vec.create () in
-      if header_bytes_excl_clobber_saves > 0
-      then Vec.push new_prologue (sub_sp header_bytes_excl_clobber_saves);
-      if bytes_for_clobber_saves > 0
-      then Vec.push new_prologue (sub_sp bytes_for_clobber_saves);
-      List.iter save_slots ~f:(fun slot ->
-        Vec.push new_prologue (store_reg_at_sp slot));
+      if aligned_stack_usage > 0
+      then Vec.push new_prologue (sub_sp aligned_stack_usage);
+      List.iter save_slots ~f:(fun (reg, offset) ->
+        Vec.push
+          new_prologue
+          (store_reg_at_sp
+             reg
+             (offset + fn.bytes_for_spills + fn.bytes_statically_alloca'd)));
       Vec.push new_prologue move_fp_to_sp;
-      if bytes_for_clobber_saves > 0
-      then Vec.push new_prologue (add_fp bytes_for_clobber_saves);
       Vec.append new_prologue prologue.instructions;
       prologue.instructions <- new_prologue
     in
@@ -146,13 +146,14 @@ let save_and_restore_in_prologue_and_epilogue
             epilogue.instructions
             (add_sp header_bytes_excl_clobber_saves))
       else
-        ([ move_sp_to_fp; sub_sp bytes_for_clobber_saves ]
-         @ List.map (List.rev save_slots) ~f:load_reg_from_sp
-         @ [ add_sp bytes_for_clobber_saves ]
+        ([ move_sp_to_fp ]
+         @ List.map save_slots ~f:(fun (reg, offset) ->
+           load_reg_from_sp
+             reg
+             (offset + fn.bytes_for_spills + fn.bytes_statically_alloca'd))
          @
-         if header_bytes_excl_clobber_saves > 0
-         then [ add_sp header_bytes_excl_clobber_saves ]
-         else [])
+         if aligned_stack_usage > 0 then [ add_sp aligned_stack_usage ] else []
+        )
         |> List.iter ~f:(Vec.push epilogue.instructions)
     in
     ())
@@ -195,16 +196,16 @@ let save_and_restore_around_calls
          let bytes, slots = layout_reg_saves regs in
          Stack.push pending (slots, bytes);
          if bytes > 0 then Vec.push new_instructions (sub_sp bytes);
-         List.iter slots ~f:(fun slot ->
-           Vec.push new_instructions (store_reg_at_sp slot))
+         List.iter slots ~f:(fun (reg, off) ->
+           Vec.push new_instructions (store_reg_at_sp reg off))
        | Ir0.Arm64 Restore_clobbers ->
          let slots, bytes =
            match Stack.pop pending with
            | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in
-         List.iter (List.rev slots) ~f:(fun slot ->
-           Vec.push new_instructions (load_reg_from_sp slot));
+         List.iter (List.rev slots) ~f:(fun (reg, off) ->
+           Vec.push new_instructions (load_reg_from_sp reg off));
          if bytes > 0 then Vec.push new_instructions (add_sp bytes)
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
@@ -232,6 +233,33 @@ let process (functions : Function.t String.Map.t) =
         (save_and_restore_around_calls
            (module Calc_liveness)
            ~state
-           ~liveness_state));
+           ~liveness_state);
+    let alloca_offset = ref fn.bytes_statically_alloca'd in
+    Block.iter fn.root ~f:(fun block ->
+      let map_ir (ir : Ir.t) =
+        let ir =
+          match ir with
+          | Arm64 (Alloca (dest, i)) ->
+            alloca_offset := !alloca_offset - Int64.to_int_exn i;
+            (match dest with
+             | Reg dst ->
+               Ir0.Arm64
+                 (Int_binary
+                    { op = Int_op.Sub
+                    ; dst
+                    ; lhs = Reg Reg.fp
+                    ; rhs = Imm (Int64.of_int !alloca_offset)
+                    })
+             | _ -> failwith "alloca dest must be a register")
+          | ir -> ir
+        in
+        Ir.map_arm64_operands ir ~f:(function
+          | Spill_slot i ->
+            let offset = fn.bytes_statically_alloca'd + (i * 8) in
+            Mem (Reg.fp, offset)
+          | x -> x)
+      in
+      Vec.map_inplace block.instructions ~f:map_ir;
+      block.terminal <- map_ir block.terminal));
   functions
 ;;
