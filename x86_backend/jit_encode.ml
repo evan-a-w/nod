@@ -25,9 +25,7 @@ module Writer = struct
 
   let emit_int32_le t v =
     let open Int32 in
-    let byte shift =
-      to_int (logand (shift_right_logical v shift) 0xFFl)
-    in
+    let byte shift = to_int_exn (shift_right_logical v shift land 0xFFl) in
     emit_u8 t (byte 0);
     emit_u8 t (byte 8);
     emit_u8 t (byte 16);
@@ -36,9 +34,7 @@ module Writer = struct
 
   let emit_int64_le t v =
     let open Int64 in
-    let byte shift =
-      to_int_exn (logand (shift_right_logical v shift) 0xFFL)
-    in
+    let byte shift = to_int_exn (shift_right_logical v shift land 0xFFL) in
     emit_u8 t (byte 0);
     emit_u8 t (byte 8);
     emit_u8 t (byte 16);
@@ -92,7 +88,7 @@ type encoding =
 let int32_of_int64_exn imm ~context =
   let min = Int64.of_int32 Int32.min_value in
   let max = Int64.of_int32 Int32.max_value in
-  if Int64.(imm < min || imm > max)
+  if Int64.compare imm min < 0 || Int64.compare imm max > 0
   then failwithf "immediate out of int32 range in %s: %Ld" context imm ()
   else Int64.to_int32_exn imm
 ;;
@@ -101,7 +97,7 @@ let int32_of_int_exn disp ~context =
   let min = Int64.of_int32 Int32.min_value in
   let max = Int64.of_int32 Int32.max_value in
   let disp64 = Int64.of_int disp in
-  if Int64.(disp64 < min || disp64 > max)
+  if Int64.compare disp64 min < 0 || Int64.compare disp64 max > 0
   then failwithf "displacement out of int32 range in %s: %d" context disp ()
   else Int64.to_int32_exn disp64
 ;;
@@ -303,7 +299,7 @@ let size_of_instr instr ~add_literal =
        let rm_code = rm_code_of_operand dst in
        let size = sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm in
        size, None
-     | Reg dst_reg, Imm _ ->
+     | Reg _, Imm _ ->
        let rex = 1 in
        (rex + 1 + 8), None
      | Reg _, (Reg _ | Mem _) ->
@@ -330,7 +326,7 @@ let size_of_instr instr ~add_literal =
        let rm_code = rm_code_of_operand src_op in
        let size = sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm in
        size, None
-     | Mem _dst_mem, Reg src_reg ->
+     | Mem _, Reg src_reg ->
        let rm = rm_size dst in
        let rm_code = rm_code_of_operand dst in
        let size = sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm in
@@ -338,18 +334,18 @@ let size_of_instr instr ~add_literal =
      | _ -> failwith "unsupported movsd operands")
   | Movq (dst, src) ->
     (match dst, src with
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) ->
+     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
        let rm = rm_size src_op in
        let rm_code = rm_code_of_operand src_op in
        let size = rex_size ~w:true ~reg:(reg_code_exn dst_reg) ~rm:rm_code + 3 + rm in
        size, None
-     | (Reg _ | Mem _ as dst_op), Reg src_reg ->
+     | (Reg _ | Mem _ as dst_op), Reg src_reg when reg_is_xmm src_reg ->
        let rm = rm_size dst_op in
        let rm_code = rm_code_of_operand dst_op in
        let size = rex_size ~w:true ~reg:(reg_code_exn src_reg) ~rm:rm_code + 3 + rm in
        size, None
      | _ -> failwith "unsupported movq operands")
-  | Cvtsi2sd (dst, src) ->
+  | Cvtsi2sd (_dst, src) ->
     let literal_id =
       match src with
       | Imm imm -> Some (add_literal imm)
@@ -362,7 +358,7 @@ let size_of_instr instr ~add_literal =
     in
     let rex = 1 in
     (rex + 3 + rm_size'), literal_id
-  | Cvttsd2si (dst, src) ->
+  | Cvttsd2si (_dst, src) ->
     let literal_id =
       match src with
       | Imm imm -> Some (add_literal imm)
@@ -386,7 +382,7 @@ let size_of_instr instr ~add_literal =
          match dst_op, src_op with
          | Reg _, Mem _ -> rm_size src_op
          | Mem _, _ | Reg _, Reg _ -> rm_size dst_op
-         | Mem _, Mem _ -> failwith "unexpected mem-mem" 
+         | _ -> failwith "unexpected binop operands"
        in
        let rex = 1 in
        (rex + 1 + rm), None
@@ -415,7 +411,14 @@ let size_of_instr instr ~add_literal =
       | Some _ -> 0
       | None -> rm_code_of_operand src
     in
-    let size = sse_size ~reg:(reg_code_exn dst) ~rm:rm_code ~rm_size:rm_size' in
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "sse op expects register dst"
+    in
+    let size =
+      sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm_size'
+    in
     size, literal_id
   | Imul op | Idiv op | Mod op ->
     let rm = rm_size op in
@@ -446,7 +449,7 @@ let size_of_instr instr ~add_literal =
   | Ret -> 1, None
 ;;
 
-let layout_fn fn =
+let layout_fn (fn : Asm.fn) =
   let literals_rev = ref [] in
   let add_literal value =
     let id = List.length !literals_rev in
@@ -580,17 +583,18 @@ let encode_instr
   match instr with
   | Asm.Mov (dst, src) ->
     (match dst, src with
-     | Reg dst_reg, Imm imm when reg_is_xmm dst_reg ->
+     | Reg dst_reg, Imm _ when reg_is_xmm dst_reg ->
        expect_xmm_reg dst_reg ~context:"mov xmm, imm";
        let rm = emit_literal_rm () in
        emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x10 ~dst_reg ~src_rm:rm
      | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
        (match src_op with
         | Reg src_reg -> expect_xmm_reg src_reg ~context:"mov xmm, reg"
-        | Mem _ -> ());
+        | Mem _ -> ()
+        | _ -> assert false);
        let rm = rm_of_operand src_op in
        emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x10 ~dst_reg ~src_rm:rm
-     | Mem _dst_mem, Reg src_reg when reg_is_xmm src_reg ->
+     | Mem _, Reg src_reg when reg_is_xmm src_reg ->
        expect_xmm_reg src_reg ~context:"mov mem, xmm";
        let rm = rm_of_operand dst in
        emit_sse_reg_rm writer ~prefix:0xF2 ~opcode:0x11 ~dst_rm:rm ~src_reg
@@ -625,7 +629,7 @@ let encode_instr
           Writer.emit_u8 writer 0x8B;
           emit_modrm writer ~reg ~rm
         | _ -> assert false)
-     | Mem _dst_mem, Reg src_reg ->
+     | Mem _, Reg src_reg ->
        let rm = rm_of_operand dst in
        let reg = reg_code_exn src_reg in
        emit_rex writer
@@ -635,7 +639,7 @@ let encode_instr
          ~b:(rex_b rm = 1);
        Writer.emit_u8 writer 0x89;
        emit_modrm writer ~reg ~rm
-     | Mem _dst_mem, Imm imm ->
+     | Mem _, Imm imm ->
        let rm = rm_of_operand dst in
        emit_rex writer ~w_bit:true ~r:false ~x:false ~b:(rex_b rm = 1);
        Writer.emit_u8 writer 0xC7;
@@ -652,17 +656,18 @@ let encode_instr
        expect_xmm_reg dst_reg ~context:"movsd dst";
        (match src_op with
         | Reg src_reg -> expect_xmm_reg src_reg ~context:"movsd src"
-        | Mem _ -> ());
+        | Mem _ -> ()
+        | _ -> assert false);
        let rm = rm_of_operand src_op in
        emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x10 ~dst_reg ~src_rm:rm
-     | Mem _dst_mem, Reg src_reg ->
+     | Mem _, Reg src_reg ->
        expect_xmm_reg src_reg ~context:"movsd store";
        let rm = rm_of_operand dst in
        emit_sse_reg_rm writer ~prefix:0xF2 ~opcode:0x11 ~dst_rm:rm ~src_reg
      | _ -> failwith "unsupported movsd")
   | Movq (dst, src) ->
     (match dst, src with
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) ->
+     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
        expect_xmm_reg dst_reg ~context:"movq dst";
        (match src_op with
         | Reg src_reg when reg_is_xmm src_reg ->
@@ -693,7 +698,12 @@ let encode_instr
        emit_modrm writer ~reg:(reg_code_exn src_reg) ~rm
      | _ -> failwith "unsupported movq")
   | Cvtsi2sd (dst, src) ->
-    expect_xmm_reg dst ~context:"cvtsi2sd dst";
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "cvtsi2sd expects register dst"
+    in
+    expect_xmm_reg dst_reg ~context:"cvtsi2sd dst";
     let rm =
       match src with
       | Imm _ -> emit_literal_rm ()
@@ -702,13 +712,18 @@ let encode_instr
     Writer.emit_u8 writer 0xF2;
     emit_rex writer
       ~w_bit:true
-      ~r:(reg_code_exn dst lsr 3 = 1)
+      ~r:(reg_code_exn dst_reg lsr 3 = 1)
       ~x:false
       ~b:(rex_b rm = 1);
     Writer.emit_u8 writer 0x0F;
     Writer.emit_u8 writer 0x2A;
-    emit_modrm writer ~reg:(reg_code_exn dst) ~rm
+    emit_modrm writer ~reg:(reg_code_exn dst_reg) ~rm
   | Cvttsd2si (dst, src) ->
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "cvttsd2si expects register dst"
+    in
     (match src with
      | Reg src_reg -> expect_xmm_reg src_reg ~context:"cvttsd2si src"
      | _ -> ());
@@ -720,14 +735,19 @@ let encode_instr
     Writer.emit_u8 writer 0xF2;
     emit_rex writer
       ~w_bit:true
-      ~r:(reg_code_exn dst lsr 3 = 1)
+      ~r:(reg_code_exn dst_reg lsr 3 = 1)
       ~x:false
       ~b:(rex_b rm = 1);
     Writer.emit_u8 writer 0x0F;
     Writer.emit_u8 writer 0x2C;
-    emit_modrm writer ~reg:(reg_code_exn dst) ~rm
+    emit_modrm writer ~reg:(reg_code_exn dst_reg) ~rm
   | Addsd (dst, src) ->
-    expect_xmm_reg dst ~context:"addsd dst";
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "addsd expects register dst"
+    in
+    expect_xmm_reg dst_reg ~context:"addsd dst";
     (match src with
      | Reg src_reg -> expect_xmm_reg src_reg ~context:"addsd src"
      | _ -> ());
@@ -736,9 +756,14 @@ let encode_instr
       | Imm _ -> emit_literal_rm ()
       | _ -> rm_of_operand src
     in
-    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x58 ~dst_reg:dst ~src_rm:rm
+    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x58 ~dst_reg ~src_rm:rm
   | Subsd (dst, src) ->
-    expect_xmm_reg dst ~context:"subsd dst";
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "subsd expects register dst"
+    in
+    expect_xmm_reg dst_reg ~context:"subsd dst";
     (match src with
      | Reg src_reg -> expect_xmm_reg src_reg ~context:"subsd src"
      | _ -> ());
@@ -747,9 +772,14 @@ let encode_instr
       | Imm _ -> emit_literal_rm ()
       | _ -> rm_of_operand src
     in
-    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x5C ~dst_reg:dst ~src_rm:rm
+    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x5C ~dst_reg ~src_rm:rm
   | Mulsd (dst, src) ->
-    expect_xmm_reg dst ~context:"mulsd dst";
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "mulsd expects register dst"
+    in
+    expect_xmm_reg dst_reg ~context:"mulsd dst";
     (match src with
      | Reg src_reg -> expect_xmm_reg src_reg ~context:"mulsd src"
      | _ -> ());
@@ -758,9 +788,14 @@ let encode_instr
       | Imm _ -> emit_literal_rm ()
       | _ -> rm_of_operand src
     in
-    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x59 ~dst_reg:dst ~src_rm:rm
+    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x59 ~dst_reg ~src_rm:rm
   | Divsd (dst, src) ->
-    expect_xmm_reg dst ~context:"divsd dst";
+    let dst_reg =
+      match dst with
+      | Reg reg -> reg
+      | _ -> failwith "divsd expects register dst"
+    in
+    expect_xmm_reg dst_reg ~context:"divsd dst";
     (match src with
      | Reg src_reg -> expect_xmm_reg src_reg ~context:"divsd src"
      | _ -> ());
@@ -769,7 +804,7 @@ let encode_instr
       | Imm _ -> emit_literal_rm ()
       | _ -> rm_of_operand src
     in
-    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x5E ~dst_reg:dst ~src_rm:rm
+    emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x5E ~dst_reg ~src_rm:rm
   | Add (dst, src) ->
     emit_binop writer ~opcode_rm_reg:0x01 ~opcode_reg_rm:0x03 ~imm_reg:0 ~dst ~src
   | Sub (dst, src) ->
@@ -788,7 +823,7 @@ let encode_instr
          | Reg dst_reg, Reg src_reg ->
            Rm_reg (reg_code_exn dst_reg), reg_code_exn src_reg, 0x39
          | Mem _, Reg src_reg -> rm_of_operand dst_op, reg_code_exn src_reg, 0x39
-         | Mem _, Mem _ -> failwith "unexpected mem-mem"
+         | _ -> failwith "unexpected cmp operands"
        in
        emit_rex writer
          ~w_bit:true
