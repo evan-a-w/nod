@@ -146,3 +146,14 @@ CAMLprim value nod_jit_call2_i64(value v_ptr, value v_arg0, value v_arg1)
   int64_t result = fn(Int64_val(v_arg0), Int64_val(v_arg1));
   CAMLreturn(caml_copy_int64(result));
 }
+
+static int64_t nod_jit_add3(int64_t x)
+{
+  return x + 3;
+}
+
+CAMLprim value nod_jit_add3_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_jit_add3));
+}
