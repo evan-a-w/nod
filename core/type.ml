@@ -130,3 +130,21 @@ let leaf_offsets type_ =
   fold_leaves type_ ~offset:0 [] ~f:(fun ~offset acc leaf -> (offset, leaf) :: acc)
   |> List.rev
 ;;
+
+let pointer_mask_words type_ =
+  let size_bytes = size_in_bytes type_ in
+  let words = align_up size_bytes 8 / 8 in
+  let mask_len = (words + 63) / 64 in
+  let masks = Array.create ~len:mask_len 0L in
+  List.iter (leaf_offsets type_) ~f:(fun (offset, leaf) ->
+    if equal leaf Ptr
+    then (
+      let word = offset / 8 in
+      let idx = word / 64 in
+      let bit = word mod 64 in
+      let value = Int64.shift_left 1L bit in
+      masks.(idx) <- Int64.logor masks.(idx) value));
+  if Array.for_all masks ~f:(fun value -> Int64.equal value 0L)
+  then []
+  else Array.to_list masks
+;;

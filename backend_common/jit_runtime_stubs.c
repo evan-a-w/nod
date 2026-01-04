@@ -157,3 +157,40 @@ CAMLprim value nod_jit_add3_ptr(value v_unit)
   CAMLparam1(v_unit);
   CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_jit_add3));
 }
+
+extern void* nod_gc_alloc(uint64_t size, const uint64_t* mask,
+                          uint64_t mask_len);
+extern void nod_gc_collect(void);
+extern void nod_gc_push_frame(void* frame, uint64_t count);
+extern void nod_gc_pop_frame(void);
+extern uint64_t nod_gc_live_bytes(void);
+
+CAMLprim value nod_gc_alloc_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_gc_alloc));
+}
+
+CAMLprim value nod_gc_collect_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_gc_collect));
+}
+
+CAMLprim value nod_gc_push_frame_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_gc_push_frame));
+}
+
+CAMLprim value nod_gc_pop_frame_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_gc_pop_frame));
+}
+
+CAMLprim value nod_gc_live_bytes_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_gc_live_bytes));
+}

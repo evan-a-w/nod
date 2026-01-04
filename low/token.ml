@@ -39,6 +39,7 @@ let keywords =
   ; "else"
   ; "while"
   ; "alloca"
+  ; "alloc"
   ; "cast"
   ]
 ;;
