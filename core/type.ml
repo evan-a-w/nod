@@ -143,7 +143,7 @@ let pointer_mask_words type_ =
       let idx = word / 64 in
       let bit = word mod 64 in
       let value = Int64.shift_left 1L bit in
-      masks.(idx) <- Int64.logor masks.(idx) value));
+      masks.(idx) <- Stdlib.Int64.logor masks.(idx) value));
   if Array.for_all masks ~f:(fun value -> Int64.equal value 0L)
   then []
   else Array.to_list masks

@@ -138,7 +138,7 @@ let fresh_name used_names base =
 let call_targets root =
   let targets = String.Hash_set.create () in
   Block.iter_instructions root ~f:(function
-    | Ir.Call { fn; _ } -> Hash_set.add targets fn
+    | Ir0.Call { fn; _ } -> Hash_set.add targets fn
     | _ -> ());
   String.Set.of_hash_set targets
 ;;
@@ -148,16 +148,15 @@ let gc_reachable_functions functions =
     Map.map functions ~f:(fun fn -> call_targets fn.Function.root)
   in
   let direct =
-    Map.fold functions ~init:String.Set.empty ~f:(fun ~key:name ~data:fn acc ->
+    Map.fold functions ~init:String.Set.empty ~f:(fun ~key:name ~data:_fn acc ->
       let calls = Map.find_exn call_graph name in
       if Set.mem calls gc_alloc_name || Set.mem calls gc_collect_name
       then Set.add acc name
       else acc)
   in
   let reachable = ref direct in
-  let changed = ref true in
-  while !changed do
-    changed := false;
+  let rec expand () =
+    let changed = ref false in
     Map.iteri functions ~f:(fun ~key:name ~data:_fn ->
       if not (Set.mem !reachable name)
       then (
@@ -165,8 +164,10 @@ let gc_reachable_functions functions =
         if Set.exists calls ~f:(fun callee -> Set.mem !reachable callee)
         then (
           reachable := Set.add !reachable name;
-          changed := true))))
-  done;
+          changed := true)));
+    if !changed then expand ()
+  in
+  expand ();
   !reachable
 ;;
 

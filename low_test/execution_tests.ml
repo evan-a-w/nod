@@ -93,3 +93,40 @@ i64 root(i64 n) {
 |}
     "720"
 ;;
+
+let%expect_test "exec gc live bytes after alloc" =
+  check_low_program
+    {|
+struct Node {
+  next: struct Node*;
+  value: i64;
+};
+
+i64 root() {
+  struct Node* n = alloc(struct Node);
+  n->value = 1;
+  return gc_live_bytes();
+}
+|}
+    "16"
+;;
+
+let%expect_test "exec gc collect frees dead object" =
+  check_low_program
+    {|
+struct Node {
+  next: struct Node*;
+  value: i64;
+};
+
+i64 root() {
+  if (1) {
+    struct Node* n = alloc(struct Node);
+    n->value = 1;
+  }
+  gc_collect();
+  return gc_live_bytes();
+}
+|}
+    "0"
+;;

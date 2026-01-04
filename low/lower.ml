@@ -135,6 +135,16 @@ let rec type_equal a b =
   | _ -> false
 ;;
 
+let reserved_fn_names =
+  String.Set.of_list [ "gc_collect"; "gc_live_bytes" ]
+;;
+
+let builtin_call = function
+  | "gc_collect" -> Some `Collect
+  | "gc_live_bytes" -> Some `Live_bytes
+  | _ -> None
+;;
+
 let core_type_of struct_env =
   let go = function
     | Ast.I64 -> Ok Type.I64
@@ -399,34 +409,39 @@ let rec lower_expr ctx expr =
               (Ast.sexp_of_type_expr left.type_ |> Sexp.to_string)
               (Ast.sexp_of_type_expr right.type_ |> Sexp.to_string))))
   | Ast.Call (name, args) ->
-    (match Map.find ctx.fn_env name with
-     | None -> Error (`Unknown_function name)
-     | Some sig_ ->
-       let%bind arg_operands = lower_call_args ctx sig_.args args in
-       (match sig_.return_type with
-        | Ast.Struct _ ->
-          let%bind core = core_type_of ctx.struct_env sig_.return_type in
-          let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
-          let dest = fresh_temp ctx ~type_:Type.Ptr in
-          let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
-          let%bind () =
-            emit
-              ctx.builder
-              (Ir.call
-                 ~fn:name
-                 ~results:[]
-                 ~args:(Ir.Lit_or_var.Var dest :: arg_operands))
-          in
-          Ok { operand = Ir.Lit_or_var.Var dest; type_ = sig_.return_type }
-        | _ ->
-          let%bind result_type = core_type_of ctx.struct_env sig_.return_type in
-          let dest = fresh_temp ctx ~type_:result_type in
-          let%bind () =
-            emit
-              ctx.builder
-              (Ir.call ~fn:name ~results:[ dest ] ~args:arg_operands)
-          in
-          Ok { operand = Ir.Lit_or_var.Var dest; type_ = sig_.return_type }))
+    (match builtin_call name with
+     | Some _ -> lower_builtin_call ctx name args
+     | None ->
+       (match Map.find ctx.fn_env name with
+        | None -> Error (`Unknown_function name)
+        | Some sig_ ->
+          let%bind arg_operands = lower_call_args ctx sig_.args args in
+          (match sig_.return_type with
+           | Ast.Struct _ ->
+             let%bind core = core_type_of ctx.struct_env sig_.return_type in
+             let size =
+               Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
+             in
+             let dest = fresh_temp ctx ~type_:Type.Ptr in
+             let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
+             let%bind () =
+               emit
+                 ctx.builder
+                 (Ir.call
+                    ~fn:name
+                    ~results:[]
+                    ~args:(Ir.Lit_or_var.Var dest :: arg_operands))
+             in
+             Ok { operand = Ir.Lit_or_var.Var dest; type_ = sig_.return_type }
+           | _ ->
+             let%bind result_type = core_type_of ctx.struct_env sig_.return_type in
+             let dest = fresh_temp ctx ~type_:result_type in
+             let%bind () =
+               emit
+                 ctx.builder
+                 (Ir.call ~fn:name ~results:[ dest ] ~args:arg_operands)
+             in
+             Ok { operand = Ir.Lit_or_var.Var dest; type_ = sig_.return_type })))
   | Ast.Field _ ->
     let%bind place = lower_lvalue ctx expr in
     (match place with
@@ -519,6 +534,31 @@ let rec lower_expr ctx expr =
       let dest = fresh_temp ctx ~type_:dest_core in
       let%bind () = emit ctx.builder (Ir.cast dest value.operand) in
       Ok { operand = Ir.Lit_or_var.Var dest; type_ = dest_type })
+
+and ensure_no_args name args =
+  if List.is_empty args
+  then Ok ()
+  else Error (`Type_mismatch (sprintf "%s expects no arguments" name))
+
+and lower_builtin_call ctx name args =
+  let open Result.Let_syntax in
+  match builtin_call name with
+  | Some `Collect ->
+    let%bind () = ensure_no_args name args in
+    let%bind () =
+      emit ctx.builder (Ir.call ~fn:"nod_gc_collect" ~results:[] ~args:[])
+    in
+    Ok { operand = Ir.Lit_or_var.Lit 0L; type_ = Ast.I64 }
+  | Some `Live_bytes ->
+    let%bind () = ensure_no_args name args in
+    let dest = fresh_temp ctx ~type_:Type.I64 in
+    let%bind () =
+      emit
+        ctx.builder
+        (Ir.call ~fn:"nod_gc_live_bytes" ~results:[ dest ] ~args:[])
+    in
+    Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.I64 }
+  | None -> Error (`Unknown_function name)
 
 and lower_call_args ctx param_types arg_exprs =
   if List.length param_types <> List.length arg_exprs
@@ -776,28 +816,33 @@ let rec lower_stmt ctx stmt =
   | Ast.Expr expr ->
     (match expr with
      | Ast.Call (name, args) ->
-       (match Map.find ctx.fn_env name with
-        | None -> Error (`Unknown_function name)
-        | Some sig_ ->
-          let%bind arg_operands = lower_call_args ctx sig_.args args in
-          (match sig_.return_type with
-           | Ast.Struct _ ->
-             let%bind core = core_type_of ctx.struct_env sig_.return_type in
-             let size =
-               Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
-             in
-             let dest = fresh_temp ctx ~type_:Type.Ptr in
-             let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
-             emit
-               ctx.builder
-               (Ir.call
-                  ~fn:name
-                  ~results:[]
-                  ~args:(Ir.Lit_or_var.Var dest :: arg_operands))
-           | _ ->
-             emit
-               ctx.builder
-               (Ir.call ~fn:name ~results:[] ~args:arg_operands)))
+       (match builtin_call name with
+        | Some _ ->
+          let%map (_ : value) = lower_expr ctx expr in
+          ()
+        | None ->
+          (match Map.find ctx.fn_env name with
+           | None -> Error (`Unknown_function name)
+           | Some sig_ ->
+             let%bind arg_operands = lower_call_args ctx sig_.args args in
+             (match sig_.return_type with
+              | Ast.Struct _ ->
+                let%bind core = core_type_of ctx.struct_env sig_.return_type in
+                let size =
+                  Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
+                in
+                let dest = fresh_temp ctx ~type_:Type.Ptr in
+                let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
+                emit
+                  ctx.builder
+                  (Ir.call
+                     ~fn:name
+                     ~results:[]
+                     ~args:(Ir.Lit_or_var.Var dest :: arg_operands))
+              | _ ->
+                emit
+                  ctx.builder
+                  (Ir.call ~fn:name ~results:[] ~args:arg_operands))))
      | _ ->
        let%map (_ : value) = lower_expr ctx expr in
        ())
@@ -941,7 +986,9 @@ let build_fn_env (fns : Ast.func list) =
   let open Result.Let_syntax in
   List.fold fns ~init:(Ok String.Map.empty) ~f:(fun acc fn ->
     let%bind acc in
-    if Map.mem acc fn.Ast.name
+    if Set.mem reserved_fn_names fn.Ast.name
+    then Error (`Type_mismatch (sprintf "reserved function name %s" fn.name))
+    else if Map.mem acc fn.Ast.name
     then Error (`Type_mismatch (sprintf "duplicate function %s" fn.name))
     else
       let args = List.map fn.params ~f:(fun p -> p.Ast.type_) in
