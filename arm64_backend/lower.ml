@@ -3,7 +3,7 @@ open! Import
 open! Common
 open Arm64_ir
 module Reg = Arm64_reg
-module Raw = Arm64_reg.Raw
+module Asm = Arm64_asm
 
 let sanitize_identifier s =
   let sanitized =
@@ -15,93 +15,6 @@ let sanitize_identifier s =
   in
   let sanitized = if String.is_empty sanitized then "_" else sanitized in
   if Char.is_digit sanitized.[0] then "_" ^ sanitized else sanitized
-;;
-
-let rec string_of_raw = function
-  | Raw.SP -> "sp"
-  | Raw.X0 -> "x0"
-  | Raw.X1 -> "x1"
-  | Raw.X2 -> "x2"
-  | Raw.X3 -> "x3"
-  | Raw.X4 -> "x4"
-  | Raw.X5 -> "x5"
-  | Raw.X6 -> "x6"
-  | Raw.X7 -> "x7"
-  | Raw.X8 -> "x8"
-  | Raw.X9 -> "x9"
-  | Raw.X10 -> "x10"
-  | Raw.X11 -> "x11"
-  | Raw.X12 -> "x12"
-  | Raw.X13 -> "x13"
-  | Raw.X14 -> "x14"
-  | Raw.X15 -> "x15"
-  | Raw.X16 -> "x16"
-  | Raw.X17 -> "x17"
-  | Raw.X18 -> "x18"
-  | Raw.X19 -> "x19"
-  | Raw.X20 -> "x20"
-  | Raw.X21 -> "x21"
-  | Raw.X22 -> "x22"
-  | Raw.X23 -> "x23"
-  | Raw.X24 -> "x24"
-  | Raw.X25 -> "x25"
-  | Raw.X26 -> "x26"
-  | Raw.X27 -> "x27"
-  | Raw.X28 -> "x28"
-  | Raw.X29 -> "x29"
-  | Raw.X30 -> "x30"
-  | Raw.D0 -> "d0"
-  | Raw.D1 -> "d1"
-  | Raw.D2 -> "d2"
-  | Raw.D3 -> "d3"
-  | Raw.D4 -> "d4"
-  | Raw.D5 -> "d5"
-  | Raw.D6 -> "d6"
-  | Raw.D7 -> "d7"
-  | Raw.D8 -> "d8"
-  | Raw.D9 -> "d9"
-  | Raw.D10 -> "d10"
-  | Raw.D11 -> "d11"
-  | Raw.D12 -> "d12"
-  | Raw.D13 -> "d13"
-  | Raw.D14 -> "d14"
-  | Raw.D15 -> "d15"
-  | Raw.D16 -> "d16"
-  | Raw.D17 -> "d17"
-  | Raw.D18 -> "d18"
-  | Raw.D19 -> "d19"
-  | Raw.D20 -> "d20"
-  | Raw.D21 -> "d21"
-  | Raw.D22 -> "d22"
-  | Raw.D23 -> "d23"
-  | Raw.D24 -> "d24"
-  | Raw.D25 -> "d25"
-  | Raw.D26 -> "d26"
-  | Raw.D27 -> "d27"
-  | Raw.D28 -> "d28"
-  | Raw.D29 -> "d29"
-  | Raw.D30 -> "d30"
-  | Raw.D31 -> "d31"
-  | Raw.Unallocated v | Raw.Allocated (v, None) ->
-    sanitize_identifier (Var.name v)
-  | Raw.Allocated (_, Some reg) -> string_of_raw reg
-;;
-
-let string_of_reg reg = string_of_raw (Reg.raw reg)
-
-let string_of_mem reg disp =
-  let base = string_of_reg reg in
-  match disp with
-  | 0 -> sprintf "[%s]" base
-  | d when d > 0 -> sprintf "[%s, #%d]" base d
-  | d -> sprintf "[%s, #%d]" base d
-;;
-
-let string_of_operand = function
-  | Spill_slot _ -> failwith "Shouldn't have spill slot here"
-  | Reg reg -> string_of_reg reg
-  | Imm imm -> sprintf "#%Ld" imm
-  | Mem (reg, disp) -> string_of_mem reg disp
 ;;
 
 let gpr_scratch_pool = Arm64_reg.scratch ~class_:I64
@@ -119,49 +32,41 @@ let rec pick_scratch pool avoid =
 let ensure_gpr operand ~dst ~avoid =
   match operand with
   | Spill_slot _ -> failwith "Shouldn't have spill slot here"
-  | Reg reg -> [], string_of_reg reg, avoid
+  | Reg reg -> [], reg, avoid
   | Imm imm ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    ( [ sprintf "mov %s, #%Ld" (string_of_reg scratch) imm ]
-    , string_of_reg scratch
+    ( [ Asm.Mov { dst = scratch; src = Imm imm } ]
+    , scratch
     , scratch :: avoid )
   | Mem (reg, disp) ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    ( [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ]
-    , string_of_reg scratch
+    ( [ Asm.Ldr { dst = scratch; addr = Mem (reg, disp) } ]
+    , scratch
     , scratch :: avoid )
 ;;
 
 let ensure_fpr operand ~dst ~avoid =
   match operand with
   | Spill_slot _ -> failwith "Shouldn't have spill slot here"
-  | Reg reg -> [], string_of_reg reg, avoid
+  | Reg reg -> [], reg, avoid
   | Mem (reg, disp) ->
     let scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
-    ( [ sprintf "ldr %s, %s" (string_of_reg scratch) (string_of_mem reg disp) ]
-    , string_of_reg scratch
+    ( [ Asm.Ldr { dst = scratch; addr = Mem (reg, disp) } ]
+    , scratch
     , scratch :: avoid )
   | Imm imm ->
     let fp_scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
     let gpr_scratch = pick_scratch gpr_scratch_pool [] in
-    ( [ sprintf "mov %s, #%Ld" (string_of_reg gpr_scratch) imm
-      ; sprintf
-          "fmov %s, %s"
-          (string_of_reg fp_scratch)
-          (string_of_reg gpr_scratch)
+    ( [ Asm.Mov { dst = gpr_scratch; src = Imm imm }
+      ; Asm.Fmov { dst = fp_scratch; src = Reg gpr_scratch }
       ]
-    , string_of_reg fp_scratch
+    , fp_scratch
     , fp_scratch :: avoid )
 ;;
 
 let rec unwrap_tags = function
   | Tag_use (ins, _) | Tag_def (ins, _) -> unwrap_tags ins
   | ins -> ins
-;;
-
-let add_line buf line =
-  Buffer.add_string buf line;
-  Buffer.add_char buf '\n'
 ;;
 
 let order_blocks root =
@@ -201,17 +106,6 @@ let is_next_block ~idx_by_block ~current_idx target_block =
   | Some target_idx -> target_idx = current_idx + 1
 ;;
 
-let string_of_condition = function
-  | Condition.Eq -> "eq"
-  | Ne -> "ne"
-  | Lt -> "lt"
-  | Le -> "le"
-  | Gt -> "gt"
-  | Ge -> "ge"
-  | Pl -> "pl"
-  | Mi -> "mi"
-;;
-
 let invert_condition = function
   | Condition.Eq -> Condition.Ne
   | Ne -> Eq
@@ -223,73 +117,65 @@ let invert_condition = function
   | Mi -> Pl
 ;;
 
-let string_of_jump_target = function
-  | Jump_target.Reg reg -> string_of_reg reg
-  | Imm imm -> sprintf "#%Ld" imm
-  | Symbol sym -> sanitize_identifier (Symbol.to_string sym)
-;;
-
 let lower_int_binary ~op ~dst ~lhs ~rhs =
-  let dst_name = string_of_reg dst in
   let lhs_setup, lhs_reg, used = ensure_gpr lhs ~dst ~avoid:[] in
   let rhs_setup, rhs_reg, used = ensure_gpr rhs ~dst ~avoid:used in
   let body =
     match op with
-    | Int_op.Add -> [ sprintf "add %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Sub -> [ sprintf "sub %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Mul -> [ sprintf "mul %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Sdiv -> [ sprintf "sdiv %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | Int_op.Add -> [ Asm.Add { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Sub -> [ Asm.Sub { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Mul -> [ Asm.Mul { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Sdiv -> [ Asm.Sdiv { dst; lhs = lhs_reg; rhs = rhs_reg } ]
     | Smod ->
       let scratch = pick_scratch gpr_scratch_pool (dst :: used) in
-      [ sprintf "sdiv %s, %s, %s" (string_of_reg scratch) lhs_reg rhs_reg
-      ; sprintf
-          "msub %s, %s, %s, %s"
-          dst_name
-          (string_of_reg scratch)
-          rhs_reg
-          lhs_reg
+      [ Asm.Sdiv { dst = scratch; lhs = lhs_reg; rhs = rhs_reg }
+      ; Asm.Msub { dst; lhs = scratch; rhs = rhs_reg; acc = lhs_reg }
       ]
-    | And -> [ sprintf "and %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Orr -> [ sprintf "orr %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Eor -> [ sprintf "eor %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Lsl -> [ sprintf "lsl %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Lsr -> [ sprintf "lsr %s, %s, %s" dst_name lhs_reg rhs_reg ]
-    | Asr -> [ sprintf "asr %s, %s, %s" dst_name lhs_reg rhs_reg ]
+    | And -> [ Asm.And { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Orr -> [ Asm.Orr { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Eor -> [ Asm.Eor { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Lsl -> [ Asm.Lsl { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Lsr -> [ Asm.Lsr { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Asr -> [ Asm.Asr { dst; lhs = lhs_reg; rhs = rhs_reg } ]
   in
   lhs_setup @ rhs_setup @ body
 ;;
 
 let lower_float_binary ~op ~dst ~lhs ~rhs =
-  let dst_name = string_of_reg dst in
   let lhs_setup, lhs_reg, used = ensure_fpr lhs ~dst ~avoid:[] in
   let rhs_setup, rhs_reg, _used = ensure_fpr rhs ~dst ~avoid:used in
-  let mnem =
+  let body =
     match op with
-    | Float_op.Fadd -> "fadd"
-    | Fsub -> "fsub"
-    | Fmul -> "fmul"
-    | Fdiv -> "fdiv"
+    | Float_op.Fadd -> [ Asm.Fadd { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Fsub -> [ Asm.Fsub { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Fmul -> [ Asm.Fmul { dst; lhs = lhs_reg; rhs = rhs_reg } ]
+    | Fdiv -> [ Asm.Fdiv { dst; lhs = lhs_reg; rhs = rhs_reg } ]
   in
-  lhs_setup
-  @ rhs_setup
-  @ [ sprintf "%s %s, %s, %s" mnem dst_name lhs_reg rhs_reg ]
+  lhs_setup @ rhs_setup @ body
 ;;
 
-let run ~system (functions : Function.t String.Map.t) =
+type lower_action =
+  | No_emit
+  | Emit_label of string
+  | Branch of Condition.t * Block.t Call_block.t * Block.t Call_block.t option
+  | Emit of Asm.instr list
+
+let lower_to_items ~system (functions : Function.t String.Map.t) =
   let functions_alist = Map.to_alist functions in
   match functions_alist with
-  | [] -> ""
+  | [] -> []
   | _ ->
     let global_prefix =
       match system with
       | `Darwin -> "_"
       | `Linux | `Other -> ""
     in
-    let buffer = Buffer.create 1024 in
-    add_line buffer ".text";
+    let symbol_of_fn name =
+      let asm_label = global_prefix ^ sanitize_identifier name in
+      { Asm.name; asm_label }
+    in
     let used_labels = String.Hash_set.create () in
-    List.iteri functions_alist ~f:(fun fn_index (name, fn) ->
-      if fn_index > 0 then Buffer.add_char buffer '\n';
+    List.map functions_alist ~f:(fun (name, fn) ->
       let sanitized_name = sanitize_identifier name in
       let fn_label_base = global_prefix ^ sanitized_name in
       let ensure_unique label =
@@ -306,7 +192,6 @@ let run ~system (functions : Function.t String.Map.t) =
         loop 0
       in
       let fn_label = ensure_unique fn_label_base in
-      add_line buffer (sprintf ".globl %s" fn_label);
       let ~idx_by_block, ~blocks = order_blocks fn.root in
       let label_by_block = Block.Table.create () in
       Vec.iteri blocks ~f:(fun idx block ->
@@ -317,12 +202,13 @@ let run ~system (functions : Function.t String.Map.t) =
             sanitize_identifier
               (sprintf "%s__%s" sanitized_name block.Block.id_hum)
         in
-        let base_label =
-          if idx = 0 then base_label else ensure_unique base_label
-        in
+        let base_label = if idx = 0 then base_label else ensure_unique base_label in
         Hashtbl.add_exn label_by_block ~key:block ~data:base_label);
-      let emit_instruction line = add_line buffer ("  " ^ line) in
-      let emit_label label = add_line buffer (label ^ ":") in
+      let items_rev = ref [] in
+      let emit_instruction instr =
+        items_rev := Asm.Instr instr :: !items_rev
+      in
+      let emit_label label = items_rev := Asm.Label label :: !items_rev in
       let label_of_block block = Hashtbl.find_exn label_by_block block in
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
@@ -330,91 +216,67 @@ let run ~system (functions : Function.t String.Map.t) =
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
         match instr with
-        | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> `No_emit
+        | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> No_emit
         | Move { dst; src = (Reg _ | Imm _) as src } ->
-          `Emit
-            [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+          Emit [ Asm.Mov { dst; src } ]
         | Move { dst; src = (Spill_slot _ | Mem _) as addr }
-        | Load { dst; addr } ->
-          `Emit
-            [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr)
-            ]
+        | Load { dst; addr } -> Emit [ Asm.Ldr { dst; addr } ]
         | Store { src; addr } ->
-          let addr_str = string_of_operand addr in
           (match src with
-           | Reg reg ->
-             `Emit [ sprintf "str %s, %s" (string_of_reg reg) addr_str ]
+           | Reg reg -> Emit [ Asm.Str { src = Reg reg; addr } ]
            | _ ->
              let setup, src_reg, _ = ensure_gpr src ~dst:Reg.sp ~avoid:[] in
-             `Emit (setup @ [ sprintf "str %s, %s" src_reg addr_str ]))
+             Emit (setup @ [ Asm.Str { src = Reg src_reg; addr } ]))
         | Int_binary { op; dst; lhs; rhs } ->
-          `Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
+          Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
         | Float_binary { op; dst; lhs; rhs } ->
-          `Emit (lower_float_binary ~op ~dst ~lhs ~rhs)
+          Emit (lower_float_binary ~op ~dst ~lhs ~rhs)
         | Convert { op; dst; src } ->
-          let dst_name = string_of_reg dst in
           (match op with
            | Convert_op.Int_to_float ->
              let setup, src_reg, _ = ensure_gpr src ~dst ~avoid:[] in
-             `Emit (setup @ [ sprintf "scvtf %s, %s" dst_name src_reg ])
+             Emit (setup @ [ Asm.Scvtf { dst; src = src_reg } ])
            | Float_to_int ->
              let setup, src_reg, _ = ensure_fpr src ~dst ~avoid:[] in
-             `Emit (setup @ [ sprintf "fcvtzs %s, %s" dst_name src_reg ]))
-        | Bitcast { dst; src } ->
-          `Emit
-            [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
-        | Adr { dst; target } ->
-          `Emit
-            [ sprintf
-                "adr %s, %s"
-                (string_of_reg dst)
-                (string_of_jump_target target)
-            ]
+             Emit (setup @ [ Asm.Fcvtzs { dst; src = src_reg } ]))
+        | Bitcast { dst; src } -> Emit [ Asm.Mov { dst; src } ]
+        | Adr { dst; target } -> Emit [ Asm.Adr { dst; target } ]
         | Comp { kind; lhs; rhs } ->
-          let lhs_s = string_of_operand lhs in
-          let rhs = string_of_operand rhs in
           (match kind with
            | Comp_kind.Int ->
              (match lhs with
-              | Reg _ -> `Emit [ sprintf "cmp %s, %s" lhs_s rhs ]
+              | Reg _ -> Emit [ Asm.Cmp { lhs; rhs } ]
               | _ ->
-                let scratch =
-                  Reg (pick_scratch gpr_scratch_pool []) |> string_of_operand
-                in
-                `Emit
-                  [ sprintf "mov %s, %s" scratch lhs_s
-                  ; sprintf "cmp %s, %s" scratch rhs
+                let scratch = pick_scratch gpr_scratch_pool [] in
+                Emit
+                  [ Asm.Mov { dst = scratch; src = lhs }
+                  ; Asm.Cmp { lhs = Reg scratch; rhs }
                   ])
            | Float ->
              (match lhs with
-              | Reg _ -> `Emit [ sprintf "fcmp %s, %s" lhs_s rhs ]
+              | Reg _ -> Emit [ Asm.Fcmp { lhs; rhs } ]
               | _ ->
-                let scratch =
-                  Reg (pick_scratch fpr_scratch_pool []) |> string_of_operand
-                in
-                `Emit
-                  [ sprintf "fmov %s, %s" scratch lhs_s
-                  ; sprintf "fcmp %s, %s" scratch rhs
+                let scratch = pick_scratch fpr_scratch_pool [] in
+                Emit
+                  [ Asm.Fmov { dst = scratch; src = lhs }
+                  ; Asm.Fcmp { lhs = Reg scratch; rhs }
                   ]))
         | Conditional_branch { condition; then_; else_ } ->
-          `Branch (condition, then_, else_)
+          Branch (condition, then_, else_)
         | Jump cb ->
           if is_next_block ~idx_by_block ~current_idx cb.Call_block.block
-          then `No_emit
-          else `Emit [ sprintf "b %s" (label_of_call_block cb) ]
+          then No_emit
+          else Emit [ Asm.B (label_of_call_block cb) ]
         | Call { fn = callee; _ } ->
-          let callee = global_prefix ^ sanitize_identifier callee in
-          `Emit [ sprintf "bl %s" callee ]
-        | Ret _ -> `Emit [ "ret" ]
+          let symbol = symbol_of_fn callee in
+          Emit [ Asm.Bl symbol ]
+        | Ret _ -> Emit [ Asm.Ret ]
         | Label s ->
           let label = ensure_unique (sanitize_identifier s) in
-          `Emit_label label
+          Emit_label label
         | Tag_use _ | Tag_def _ -> assert false
       in
       let handle_branch ~current_idx condition cb else_opt =
-        let emit_branch cond target =
-          emit_instruction (sprintf "b.%s %s" (string_of_condition cond) target)
-        in
         let target_is_next =
           is_next_block ~idx_by_block ~current_idx cb.Call_block.block
         in
@@ -427,25 +289,32 @@ let run ~system (functions : Function.t String.Map.t) =
         match target_is_next, else_is_next, else_opt with
         | true, _, Some else_cb ->
           let cond = invert_condition condition in
-          emit_branch cond (label_of_call_block else_cb)
+          emit_instruction
+            (Asm.Bcond
+               { condition = cond; target = label_of_call_block else_cb })
         | true, _, None -> ()
-        | false, true, _ -> emit_branch condition (label_of_call_block cb)
+        | false, true, _ ->
+          emit_instruction
+            (Asm.Bcond { condition; target = label_of_call_block cb })
         | false, false, Some else_cb ->
-          emit_branch condition (label_of_call_block cb);
-          emit_instruction (sprintf "b %s" (label_of_call_block else_cb))
-        | false, false, None -> emit_branch condition (label_of_call_block cb)
+          emit_instruction
+            (Asm.Bcond { condition; target = label_of_call_block cb });
+          emit_instruction (Asm.B (label_of_call_block else_cb))
+        | false, false, None ->
+          emit_instruction
+            (Asm.Bcond { condition; target = label_of_call_block cb })
       in
       let process_instruction ~current_idx instr =
         match lower_instruction ~current_idx instr with
-        | `No_emit -> ()
-        | `Emit_label label -> emit_label label
-        | `Branch (cond, cb, else_opt) ->
+        | No_emit -> ()
+        | Emit_label label -> emit_label label
+        | Branch (cond, cb, else_opt) ->
           handle_branch ~current_idx cond cb else_opt
-        | `Emit lines -> List.iter lines ~f:emit_instruction
+        | Emit lines -> List.iter lines ~f:emit_instruction
       in
       Vec.iteri blocks ~f:(fun idx block ->
         let label = label_of_block block in
-        add_line buffer (label ^ ":");
+        emit_label label;
         let instructions = Vec.to_list block.Block.instructions in
         List.iter instructions ~f:(fun ir ->
           match ir with
@@ -457,11 +326,10 @@ let run ~system (functions : Function.t String.Map.t) =
         | Ir0.Arm64_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
         | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
-        | _ -> ()));
-    (match system with
-     | `Linux ->
-       Buffer.add_string buffer {|.section .note.GNU-stack,"",@progbits|};
-       Buffer.add_string buffer "\n"
-     | `Darwin | `Other -> ());
-    Buffer.contents buffer
+        | _ -> ());
+      { Asm.name; asm_label = fn_label; items = List.rev !items_rev })
+;;
+
+let run ~system functions =
+  lower_to_items ~system functions |> Emit_asm.run ~system
 ;;
