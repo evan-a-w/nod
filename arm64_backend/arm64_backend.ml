@@ -23,6 +23,10 @@ let compile_to_asm ~system ?dump_crap functions =
   compile ?dump_crap functions |> Lower.run ~system
 ;;
 
+let compile_to_items ~system ?dump_crap functions =
+  compile ?dump_crap functions |> Lower.lower_to_items ~system
+;;
+
 module For_testing = struct
   let select_instructions (functions : Function.t String.Map.t) =
     Map.map functions ~f:(fun fn -> Instruction_selection.run fn)
