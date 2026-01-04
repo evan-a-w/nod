@@ -12,6 +12,11 @@ external call1_i64 : nativeint -> int64 -> int64 = "nod_jit_call1_i64"
 external call2_i64 : nativeint -> int64 -> int64 -> int64
   = "nod_jit_call2_i64"
 external add3_ptr : unit -> nativeint = "nod_jit_add3_ptr"
+external gc_alloc_ptr : unit -> nativeint = "nod_gc_alloc_ptr"
+external gc_collect_ptr : unit -> nativeint = "nod_gc_collect_ptr"
+external gc_push_frame_ptr : unit -> nativeint = "nod_gc_push_frame_ptr"
+external gc_pop_frame_ptr : unit -> nativeint = "nod_gc_pop_frame_ptr"
+external gc_live_bytes_ptr : unit -> nativeint = "nod_gc_live_bytes_ptr"
 
 type t =
   { region : region

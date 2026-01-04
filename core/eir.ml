@@ -590,5 +590,7 @@ let compile ?opt_flags (input : input) =
   | Error _ as e -> e
   | Ok functions ->
     optimize ?opt_flags functions;
-    Ok (map_function_roots ~f:Ssa.root functions)
+    let functions = map_function_roots ~f:Ssa.root functions in
+    let (_ : _ Function.t String.Map.t) = Gc_roots.apply functions in
+    Ok functions
 ;;

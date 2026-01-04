@@ -466,6 +466,48 @@ let rec lower_expr ctx expr =
     let dest = fresh_temp ctx ~type_:Type.Ptr in
     let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
     Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr type_ }
+  | Ast.Alloc type_ ->
+    let%bind core = core_type_of ctx.struct_env type_ in
+    let size_bytes = Type.size_in_bytes core in
+    let mask_words = Type.pointer_mask_words core in
+    let mask_len = List.length mask_words in
+    let mask_ptr =
+      if mask_len = 0
+      then None
+      else Some (fresh_temp ctx ~type_:Type.Ptr)
+    in
+    let%bind () =
+      match mask_ptr with
+      | None -> Ok ()
+      | Some ptr ->
+        let open Result.Let_syntax in
+        let mask_size =
+          Int64.of_int (mask_len * 8) |> Ir.Lit_or_var.Lit
+        in
+        let%bind () = emit ctx.builder (Ir.alloca { dest = ptr; size = mask_size }) in
+        List.foldi mask_words ~init:(Ok ()) ~f:(fun idx acc word ->
+          let%bind () = acc in
+          let offset = idx * 8 in
+          emit
+            ctx.builder
+            (Ir.store
+               (Ir.Lit_or_var.Lit word)
+               (Ir.Mem.address (Ir.Lit_or_var.Var ptr) ~offset)))
+    in
+    let dest = fresh_temp ctx ~type_:Type.Ptr in
+    let mask_arg =
+      match mask_ptr with
+      | None -> Ir.Lit_or_var.Lit 0L
+      | Some ptr -> Ir.Lit_or_var.Var ptr
+    in
+    let args =
+      [ Ir.Lit_or_var.Lit (Int64.of_int size_bytes)
+      ; mask_arg
+      ; Ir.Lit_or_var.Lit (Int64.of_int mask_len)
+      ]
+    in
+    let%bind () = emit ctx.builder (Ir.call ~fn:"nod_gc_alloc" ~results:[ dest ] ~args) in
+    Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr type_ }
   | Ast.Cast (dest_type, expr) ->
     let%bind value = lower_expr ctx expr in
     if type_equal dest_type value.type_

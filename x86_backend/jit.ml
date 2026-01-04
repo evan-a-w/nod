@@ -35,14 +35,29 @@ let resolve_symbol entry_offsets externals (symbol : X86_asm.symbol) =
   match Map.find entry_offsets symbol.name with
   | Some offset -> `Internal offset
   | None ->
+    let builtin =
+      match symbol.name with
+      | "nod_gc_alloc" -> Some (Runtime.gc_alloc_ptr ())
+      | "nod_gc_collect" -> Some (Runtime.gc_collect_ptr ())
+      | "nod_gc_push_frame" -> Some (Runtime.gc_push_frame_ptr ())
+      | "nod_gc_pop_frame" -> Some (Runtime.gc_pop_frame_ptr ())
+      | "nod_gc_live_bytes" -> Some (Runtime.gc_live_bytes_ptr ())
+      | _ -> None
+    in
     (match externals with
      | None ->
-       failwithf "unresolved external symbol: %s" symbol.name ()
+       (match builtin with
+        | Some addr -> `External addr
+        | None ->
+          failwithf "unresolved external symbol: %s" symbol.name ())
      | Some resolve ->
        (match resolve symbol.name with
         | Some addr -> `External addr
         | None ->
-          failwithf "unresolved external symbol: %s" symbol.name ()))
+          (match builtin with
+           | Some addr -> `External addr
+           | None ->
+             failwithf "unresolved external symbol: %s" symbol.name ())))
 ;;
 
 let compile_items ?externals (program : X86_asm.program) =

@@ -223,6 +223,28 @@ i64 main(i64 x) {
     |}]
 ;;
 
+let%expect_test "alloc lowers to gc alloc" =
+  {|
+struct Node {
+  next: struct Node*;
+  value: i64;
+};
+
+i64 main() {
+  struct Node* n = alloc(struct Node);
+  return 0;
+}
+|}
+  |> with_program ~f:(fun program -> print_fn_summary program "main");
+  [%expect
+    {|
+    (main
+     ((args ()) (allocas 1) (memcpys ())
+      (calls (((fn nod_gc_alloc) (results (ptr)) (args (lit ptr lit)))))
+      (load_fields ()) (store_fields ()) (returns (lit))))
+    |}]
+;;
+
 let%expect_test "struct field reads return pointers for aggregate fields" =
   {|
 struct Inner {

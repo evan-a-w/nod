@@ -191,6 +191,11 @@ and parse_primary () =
     let%bind type_ = parse_type () in
     let%map () = expect_r_paren () in
     Ast.Alloca type_
+  | Token.Keyword "alloc", _ ->
+    let%bind () = expect_l_paren () in
+    let%bind type_ = parse_type () in
+    let%map () = expect_r_paren () in
+    Ast.Alloc type_
   | Token.Keyword "cast", _ ->
     let%bind () = expect_l_paren () in
     let%bind type_ = parse_type () in

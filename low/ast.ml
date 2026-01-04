@@ -29,6 +29,7 @@ type expr =
   | Call of string * expr list
   | Field of expr * string
   | Alloca of type_expr
+  | Alloc of type_expr
   | Cast of type_expr * expr
 [@@deriving sexp, compare, equal]
 
