@@ -232,15 +232,8 @@ module M (A : Arch.S) = struct
         type t = A.Reg.t [@@deriving sexp]
 
         let treat_block_args_as_defs = false
-
-        let filter_physical set =
-          Set.to_list set
-          |> List.filter_map ~f:Util.to_physical
-          |> List.dedup_and_sort ~compare:A.Reg.compare
-        ;;
-
-        let defs_of_ir ir = Util.arch_reg_defs ir |> filter_physical
-        let uses_of_ir ir = Util.arch_reg_uses ir |> filter_physical
+        let defs_of_ir ir = Util.arch_reg_defs ir |> Util.filter_physical_reg
+        let uses_of_ir ir = Util.arch_reg_uses ir |> Util.filter_physical_reg
         let t_of_var = Fn.const None
         let id_of_t reg = Reg_numbering.reg_id reg_numbering (A.Reg.raw reg)
 

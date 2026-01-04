@@ -2,6 +2,17 @@ open! Core
 open! Import
 open! Common
 
+(* stack layout:
+
+   args spilled on stack
+   padding?
+   callee saved regs (incl rbp)
+   spills
+   statically alloca'd memory
+
+   and rbp points at the end of statically alloca'd memory
+*)
+
 let compile ?dump_crap (functions : Function.t String.Map.t) =
   Map.map functions ~f:(fun fn ->
     Instruction_selection.run fn |> Regalloc.run ?dump_crap)

@@ -57,18 +57,19 @@ let%expect_test "trivi" =
             ((dest ((name z) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
              (src2 (Var ((name x) (type_ I64))))))
            (Return (Var ((name z) (type_ I64)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
@@ -90,15 +91,16 @@ let%expect_test "trivi" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -145,18 +147,19 @@ let%expect_test "a" =
              (if_false
               ((block ((id_hum end) (args (((name z%0) (type_ I64))))))
                (args (((name z%1) (type_ I64)))))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum a) (args ()))) (args ())))))))
         (a (args ())
@@ -202,9 +205,9 @@ let%expect_test "a" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
@@ -239,8 +242,9 @@ let%expect_test "a" =
            (X86
             (JMP
              ((block ((id_hum end) (args (((name z%0) (type_ I64)))))) (args ())))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -294,19 +298,19 @@ let%expect_test "e2" =
              (if_false
               ((block ((id_hum end) (args (((name x%2) (type_ I64))))))
                (args (((name x%3) (type_ I64)))))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
@@ -378,9 +382,9 @@ let%expect_test "e2" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 24)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 32)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
@@ -421,8 +425,9 @@ let%expect_test "e2" =
            (X86
             (JMP
              ((block ((id_hum end) (args (((name x%2) (type_ I64)))))) (args ())))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -443,18 +448,19 @@ let%expect_test "c2" =
             ((dest ((name res%0) (type_ I64)))
              (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))
            (Return (Var ((name res%0) (type_ I64)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum entry) (args ()))) (args ())))))))
         (entry (args ())
@@ -486,15 +492,16 @@ let%expect_test "c2" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 24)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -516,31 +523,31 @@ ret %dyn
            (Alloca
             ((dest ((name dyn) (type_ Ptr))) (size (Var ((name n) (type_ I64))))))
            (Return (Var ((name dyn) (type_ Ptr)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
-          ((X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 16)))
-           (X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg RSP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 32)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
          (instrs
           ((X86 (MOV (Reg ((reg R14) (class_ I64))) (Imm 24)))
            (X86_terminal
-            ((MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RBP) (class_ I64))))))
-           (X86
-            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+            ((MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RBP) (class_ I64))))
+             (SUB (Reg ((reg R15) (class_ I64))) (Imm 40))))
            (X86
             (SUB (Reg ((reg RSP) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
            (X86_terminal
@@ -552,17 +559,16 @@ ret %dyn
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 32)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
-           (X86 (POP ((reg RSP) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
-           (X86 (ADD (Reg ((reg RSP) (class_ I64))) (Imm 16)))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 16)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 16)))
     |}]
 ;;
 
@@ -741,20 +747,21 @@ let%expect_test "f" =
                 ((id_hum innerExit)
                  (args (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))))
                (args (((name j%4) (type_ I64)) ((name partial%1) (type_ I64)))))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R12) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 40)))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
@@ -984,9 +991,9 @@ let%expect_test "f" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 40)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
@@ -1083,8 +1090,9 @@ let%expect_test "f" =
                  (((name total%2) (type_ I64)) ((name j%5) (type_ I64))
                   ((name partial%4) (type_ I64))))))
               (args ())))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 40)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 32) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -1129,18 +1137,18 @@ let%expect_test "fib_rec" =
            (Return (Var ((name res) (type_ I64)))))))
         (ret_1 (args (((name m1) (type_ I64)))) (instrs ((Return (Lit 1)))))))
       (args (((name arg) (type_ I64)))) (name fib) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((fib__prologue (args (((name arg1) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1209,9 +1217,9 @@ let%expect_test "fib_rec" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 24)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 32)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
@@ -1244,7 +1252,8 @@ let%expect_test "fib_rec" =
              ((block ((id_hum ret_1) (args (((name m1) (type_ I64))))))
               (args ())))))))))
       (args (((name arg) (type_ I64)))) (name fib) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
+      (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -1263,7 +1272,8 @@ let%expect_test "call_chains" =
             (args ((Var ((name one) (type_ I64))) (Var ((name x) (type_ I64))))))
            (Return (Var ((name fourth) (type_ I64)))))))))
       (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((%root (args (((name p) (type_ I64)) ((name q) (type_ I64))))
@@ -1273,8 +1283,8 @@ let%expect_test "call_chains" =
              (src2 (Var ((name q) (type_ I64))))))
            (Return (Var ((name mix) (type_ I64)))))))))
       (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
-      (prologue ()) (epilogue ()) (bytes_alloca'd 0) (bytes_for_spills 0)
-      (bytes_for_clobber_saves 0))
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((%root (args (((name h) (type_ I64))))
@@ -1284,7 +1294,8 @@ let%expect_test "call_chains" =
              (src2 (Lit 3))))
            (Return (Var ((name res) (type_ I64)))))))))
       (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((%root (args (((name init) (type_ I64))))
@@ -1298,7 +1309,8 @@ let%expect_test "call_chains" =
              ((Var ((name second) (type_ I64))) (Var ((name first) (type_ I64))))))
            (Return (Var ((name third) (type_ I64)))))))))
       (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((%root (args (((name y) (type_ I64))))
@@ -1310,7 +1322,8 @@ let%expect_test "call_chains" =
              (src1 (Var ((name tmp) (type_ I64)))) (src2 (Lit 2))))
            (Return (Var ((name res) (type_ I64)))))))))
       (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 0))
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((%root (args (((name u) (type_ I64)) ((name v) (type_ I64))))
@@ -1322,18 +1335,18 @@ let%expect_test "call_chains" =
             (args ((Var ((name sum) (type_ I64))))))
            (Return (Var ((name helped) (type_ I64)))))))))
       (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
-      (prologue ()) (epilogue ()) (bytes_alloca'd 0) (bytes_for_spills 0)
-      (bytes_for_clobber_saves 0)))
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((first__prologue (args (((name x2) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1368,26 +1381,27 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((fourth__prologue
          (args (((name p0) (type_ I64)) ((name q0) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86
@@ -1420,25 +1434,24 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
-      (prologue ()) (epilogue ()) (bytes_alloca'd 0) (bytes_for_spills 0)
-      (bytes_for_clobber_saves 24))
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 16)
+      (bytes_for_padding 8) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((helper__prologue (args (((name h0) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1463,24 +1476,25 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 16)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 16))
+      (bytes_for_clobber_saves 8) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((root__prologue (args (((name init1) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1527,24 +1541,24 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 24))
+      (bytes_for_clobber_saves 16) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((second__prologue (args (((name y2) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
@@ -1579,24 +1593,25 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 16)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
-      (bytes_alloca'd 0) (bytes_for_spills 0) (bytes_for_clobber_saves 16))
+      (bytes_for_clobber_saves 8) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
        ((third__prologue (args (((name u0) (type_ I64)) ((name v0) (type_ I64))))
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
-           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
            (X86
             (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 24)))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86
             (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
            (X86
@@ -1636,16 +1651,16 @@ let%expect_test "call_chains" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 24)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
       (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
-      (prologue ()) (epilogue ()) (bytes_alloca'd 0) (bytes_for_spills 0)
-      (bytes_for_clobber_saves 24)))
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 16)
+      (bytes_for_padding 8) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -1705,20 +1720,21 @@ let%expect_test "fib" =
                (((name b%1) (type_ I64)) ((name count%1) (type_ I64))
                 ((name a%1) (type_ I64))))))))))
         (fib_exit (args ()) (instrs ((Return (Var ((name a%0) (type_ I64)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R12) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 40)))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum %root) (args ()))) (args ())))))))
         (%root (args ())
@@ -1802,17 +1818,18 @@ let%expect_test "fib" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 40)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
            (X86 (POP ((reg R12) (class_ I64))))
            (X86 (POP ((reg RBP) (class_ I64))))
            (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 40)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 32) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
 
@@ -1874,19 +1891,19 @@ let%expect_test "sum 100" =
                (args (((name i%2) (type_ I64)) ((name sum%2) (type_ I64)))))))))))
         (exit (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))
          (instrs ((Return (Var ((name sum%0) (type_ I64)))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 0)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     (((call_conv Default)
       (root
        ((root__prologue (args ())
          (instrs
           ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R13) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
            (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
-           (X86
-            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
-           (X86 (ADD (Reg ((reg RBP) (class_ I64))) (Imm 32)))
            (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
            (X86 (JMP ((block ((id_hum start) (args ()))) (args ())))))))
         (start (args ())
@@ -1976,9 +1993,9 @@ let%expect_test "sum 100" =
          (instrs
           ((X86
             (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 24)))
            (X86
             (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
-           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 32)))
            (X86 (POP ((reg R15) (class_ I64))))
            (X86 (POP ((reg R14) (class_ I64))))
            (X86 (POP ((reg R13) (class_ I64))))
@@ -2008,7 +2025,8 @@ let%expect_test "sum 100" =
                ((id_hum exit)
                 (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
               (args ())))))))))
-      (args ()) (name root) (prologue ()) (epilogue ()) (bytes_alloca'd 0)
-      (bytes_for_spills 0) (bytes_for_clobber_saves 32)))
+      (args ()) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0)))
     |}]
 ;;
