@@ -245,6 +245,42 @@ i64 main() {
     |}]
 ;;
 
+let%expect_test "alloc scalar uses literal mask" =
+  {|
+i64 main() {
+  i64* p = alloc(i64);
+  return 0;
+}
+|}
+  |> with_program ~f:(fun program -> print_fn_summary program "main");
+  [%expect
+    {|
+    (main
+     ((args ()) (allocas 0) (memcpys ())
+      (calls (((fn nod_gc_alloc) (results (ptr)) (args (lit lit lit)))))
+      (load_fields ()) (store_fields ()) (returns (lit))))
+    |}]
+;;
+
+let%expect_test "gc builtins lower" =
+  {|
+i64 main() {
+  gc_collect();
+  return gc_live_bytes();
+}
+|}
+  |> with_program ~f:(fun program -> print_fn_summary program "main");
+  [%expect
+    {|
+    (main
+     ((args ()) (allocas 0) (memcpys ())
+      (calls
+       (((fn nod_gc_collect) (results ()) (args ()))
+        ((fn nod_gc_live_bytes) (results (i64)) (args ()))))
+      (load_fields ()) (store_fields ()) (returns (i64))))
+    |}]
+;;
+
 let%expect_test "struct field reads return pointers for aggregate fields" =
   {|
 struct Inner {

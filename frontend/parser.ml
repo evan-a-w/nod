@@ -16,6 +16,7 @@ module State = struct
     ; current_block : string
     ; current_instrs : string Ir0.t Vec.t
     ; var_types : Type.t String.Table.t
+    ; temp_counter : int
     }
 
   let create () =
@@ -24,6 +25,7 @@ module State = struct
     ; current_block = "%root"
     ; current_instrs = Vec.create ()
     ; var_types = String.Table.create ()
+    ; temp_counter = 0
     }
   ;;
 end
@@ -76,6 +78,18 @@ let ensure_var_type name =
   match Hashtbl.find state.State.var_types name with
   | Some type_ -> return type_
   | None -> fail (`Unknown_variable name)
+;;
+
+let fresh_temp ?(prefix = "__tmp") type_ =
+  let%bind state = get_state () in
+  let rec pick counter =
+    let name = prefix ^ Int.to_string counter in
+    if Hashtbl.mem state.State.var_types name then pick (counter + 1) else name, counter
+  in
+  let name, counter = pick state.temp_counter in
+  let%bind () = set_state { state with State.temp_counter = counter + 1 } in
+  let%bind () = record_var_type name type_ in
+  return (Var.create ~name ~type_)
 ;;
 
 let rec parse_type_expr () =
@@ -311,6 +325,48 @@ let instr' = function
     let%bind (_ : Pos.t) = comma () in
     let%map size = parse_alloca_size_operand () in
     [ Ir.alloca { dest; size } ]
+  | "alloc" ->
+    let%bind dest = var_decl () in
+    let%bind (_ : Pos.t) = comma () in
+    let%bind type_ = parse_type_expr () in
+    let size = Type.size_in_bytes type_ |> Int64.of_int |> Ir.Lit_or_var.Lit in
+    let mask_words = Type.pointer_mask_words type_ in
+    let mask_len = List.length mask_words in
+    let%bind mask_var =
+      if mask_len = 0
+      then return None
+      else
+        let%map mask = fresh_temp ~prefix:"__gc_mask" Type.Ptr in
+        Some mask
+    in
+    let mask_instrs =
+      match mask_var with
+      | None -> []
+      | Some mask ->
+        let mask_size =
+          Int64.of_int (mask_len * 8) |> Ir.Lit_or_var.Lit
+        in
+        let alloca_instr = Ir.alloca { dest = mask; size = mask_size } in
+        let store_instrs =
+          List.mapi mask_words ~f:(fun idx word ->
+            Ir.store
+              (Ir.Lit_or_var.Lit word)
+              (mem_address (Ir.Lit_or_var.Var mask) ~offset:(idx * 8)))
+        in
+        alloca_instr :: store_instrs
+    in
+    let mask_arg =
+      match mask_var with
+      | None -> Ir.Lit_or_var.Lit 0L
+      | Some mask -> Ir.Lit_or_var.Var mask
+    in
+    let call =
+      Ir.call
+        ~fn:"nod_gc_alloc"
+        ~results:[ dest ]
+        ~args:[ size; mask_arg; Ir.Lit_or_var.Lit (Int64.of_int mask_len) ]
+    in
+    return (mask_instrs @ [ call ])
   | "load_field" ->
     let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
@@ -443,6 +499,7 @@ let function_parser_with_reset () =
       ; State.current_block = "%root"
       ; State.current_instrs = Vec.create ()
       ; State.var_types = String.Table.create ()
+      ; State.temp_counter = 0
       }
   in
   return func
