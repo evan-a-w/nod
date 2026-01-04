@@ -217,7 +217,7 @@ let%expect_test "temp memory asm" =
       mov x29, sp
     root___root:
       mov x14, #0
-      sub x28, x29, x14
+      add x28, x29, x14
       mov x14, #41
       str x14, [x28]
       mov x0, x28
