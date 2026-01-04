@@ -217,6 +217,7 @@ let replace_regs
   ~fn
   ~assignments
   ~reg_numbering
+  ~class_of_var
   =
   let open Calc_liveness in
   let root = fn.Function.root in
@@ -265,37 +266,91 @@ let replace_regs
         Hashtbl.find_and_remove spill_slot_by_var var
         |> Option.iter ~f:free_spill_slot)
   in
-  let map_ir ir =
-    let map_reg (reg : Reg.t) =
-      match reg.reg with
-      | Raw.Unallocated v ->
-        (match Hashtbl.find assignments v with
-         | Some Assignment.Spill ->
-           let offset =
-             fn.bytes_statically_alloca'd
-             + (Hashtbl.find_exn spill_slot_by_var v * 8)
-           in
-           Arm64_ir.Mem (Reg.fp, offset)
-         | Some (Assignment.Reg phys) -> Arm64_ir.Reg phys
-         | None -> Arm64_ir.Reg reg)
-      | Raw.Allocated (v, _) ->
-        let phys =
-          Hashtbl.find_exn assignments v
-          |> Assignment.reg_val
-          |> Option.value_exn
-        in
-        Arm64_ir.Reg phys
-      | _ -> Arm64_ir.Reg reg
+  let free_scratch_regs =
+    let by_class =
+      List.map Reg.Class.all ~f:(fun class_ ->
+        class_, ref (Reg.Set.of_list (Reg.scratch ~class_)))
     in
-    Ir.map_arm64_operands ir ~f:(function
-      | Arm64_ir.Reg r -> map_reg r
-      | Arm64_ir.Mem (r, offset) ->
-        Arm64_ir.Mem
-          ( map_reg r
-            |> (* safe because we enforce no spills on the mem regs *)
-            Arm64_ir.reg_of_operand_exn
-          , offset )
-      | Arm64_ir.Imm _ as t -> t)
+    fun ~class_ -> List.Assoc.find_exn ~equal:Reg.Class.equal by_class class_
+  in
+  let get_scratch ~class_ =
+    let s = free_scratch_regs ~class_ in
+    let res = Set.min_elt_exn !s in
+    s := Set.remove !s res;
+    res
+  in
+  let release_scratch ~class_ reg =
+    let s = free_scratch_regs ~class_ in
+    s := Set.add !s reg
+  in
+  let map_ir ir =
+    let on_ir (ir : 'a Arm64_ir.t) : 'a Arm64_ir.t list =
+      let scratch_mapping = Var.Table.create () in
+      let map var =
+        let class_ = class_of_var var in
+        match Hashtbl.find scratch_mapping var with
+        | Some r -> r
+        | None ->
+          let reg = get_scratch ~class_ in
+          Hashtbl.add_exn scratch_mapping ~key:var ~data:reg;
+          reg
+      in
+      let pre_moves = ref [] in
+      let post_moves = ref [] in
+      let loaded = Reg.Hash_set.create () in
+      let saved = Reg.Hash_set.create () in
+      let load_reg var spill_slot =
+        let reg = map var in
+        if Hash_set.mem loaded reg
+        then ()
+        else (
+          Hash_set.add loaded reg;
+          pre_moves := load ~dst:reg ~addr:(Spill_slot spill_slot) :: !pre_moves);
+        reg
+      in
+      let save_reg var spill_slot =
+        let reg = map var in
+        if Hash_set.mem saved reg
+        then ()
+        else (
+          Hash_set.add saved reg;
+          post_moves
+          := store ~src:(Reg reg) ~addr:(Spill_slot spill_slot) :: !post_moves);
+        reg
+      in
+      let map_reg ~on_spill ~must_be_reg (reg : Reg.t) =
+        match reg.reg with
+        | Raw.Unallocated v ->
+          (match Hashtbl.find assignments v with
+           | Some Assignment.Spill when must_be_reg ->
+             Arm64_ir.Reg (on_spill v (Hashtbl.find_exn spill_slot_by_var v))
+           | Some Assignment.Spill ->
+             Arm64_ir.Spill_slot (Hashtbl.find_exn spill_slot_by_var v)
+           | Some (Assignment.Reg phys) -> Arm64_ir.Reg phys
+           | None -> Arm64_ir.Reg reg)
+        | Raw.Allocated (v, _) ->
+          let phys =
+            Hashtbl.find_exn assignments v
+            |> Assignment.reg_val
+            |> Option.value_exn
+          in
+          Arm64_ir.Reg phys
+        | _ -> Arm64_ir.Reg reg
+      in
+      let ir =
+        Arm64_ir.For_backend.map_use_regs ~f:(map_reg ~on_spill:load_reg) ir
+        |> Arm64_ir.For_backend.map_def_regs ~f:(map_reg ~on_spill:save_reg)
+      in
+      Hashtbl.iteri scratch_mapping ~f:(fun ~key:var ~data:reg ->
+        release_scratch ~class_:(class_of_var var) reg);
+      !pre_moves @ [ ir ] @ !post_moves
+    in
+    match ir with
+    | Ir0.Arm64 arm64_ir ->
+      List.map (on_ir arm64_ir) ~f:(fun ir -> Ir0.Arm64 ir)
+    | Arm64_terminal arm64_irs ->
+      [ Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
+    | _ -> [ ir ]
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in
@@ -307,15 +362,18 @@ let replace_regs
          { live_in = live_out; live_out = block_liveness.overall.live_in });
     let new_instructions =
       Vec.zip_exn block.instructions block_liveness.instructions
-      |> Vec.map ~f:(fun (instruction, liveness) ->
+      |> Vec.concat_map ~f:(fun (instruction, liveness) ->
         update_slots ~which:`Open liveness;
         let ir = map_ir instruction in
         update_slots ~which:`Close liveness;
-        ir)
+        Vec.of_list ir)
     in
     block.instructions <- new_instructions;
     update_slots ~which:`Both block_liveness.terminal;
-    block.terminal <- map_ir block.terminal;
+    block.terminal
+    <- (match map_ir block.terminal with
+        | [ x ] -> x
+        | _ -> failwith "impossible");
     prev_liveness := Some block_liveness.terminal);
   let spill_slots_used =
     match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with
@@ -359,6 +417,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
       ~assignments
       ~liveness_state
       ~reg_numbering
+      ~class_of_var
   in
   fn.bytes_for_spills <- spill_slots_used * 8;
   fn

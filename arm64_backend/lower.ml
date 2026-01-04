@@ -98,6 +98,7 @@ let string_of_mem reg disp =
 ;;
 
 let string_of_operand = function
+  | Spill_slot _ -> failwith "Shouldn't have spill slot here"
   | Reg reg -> string_of_reg reg
   | Imm imm -> sprintf "#%Ld" imm
   | Mem (reg, disp) -> string_of_mem reg disp
@@ -117,6 +118,7 @@ let rec pick_scratch pool avoid =
 
 let ensure_gpr operand ~dst ~avoid =
   match operand with
+  | Spill_slot _ -> failwith "Shouldn't have spill slot here"
   | Reg reg -> [], string_of_reg reg, avoid
   | Imm imm ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
@@ -132,6 +134,7 @@ let ensure_gpr operand ~dst ~avoid =
 
 let ensure_fpr operand ~dst ~avoid =
   match operand with
+  | Spill_slot _ -> failwith "Shouldn't have spill slot here"
   | Reg reg -> [], string_of_reg reg, avoid
   | Mem (reg, disp) ->
     let scratch = pick_scratch fpr_scratch_pool (dst :: avoid) in
@@ -328,9 +331,10 @@ let run ~system (functions : Function.t String.Map.t) =
         let instr = unwrap_tags instr in
         match instr with
         | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> `No_emit
-        | Move { dst; src } ->
+        | Move { dst; src = (Reg _ | Imm _) as src } ->
           `Emit
             [ sprintf "mov %s, %s" (string_of_reg dst) (string_of_operand src) ]
+        | Move { dst; src = (Spill_slot _ | Mem _) as addr }
         | Load { dst; addr } ->
           `Emit
             [ sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr)

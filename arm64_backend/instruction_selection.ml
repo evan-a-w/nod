@@ -182,6 +182,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let fp_arg_regs =
       ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64)
     in
+    Breadcrumbs.arm64_stack_args;
     let take_arg_reg = function
       | Class.I64 ->
         (match !gp_arg_regs with
@@ -245,13 +246,13 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   | Alloca { dest; size = Ir.Lit_or_var.Lit i } ->
     [ alloca (Reg (reg_of_var t dest)) i ]
   | Alloca { dest; size = Ir.Lit_or_var.Var v } ->
-    [ Move { dst = reg_of_var t dest; src = Reg Reg.sp }
-    ; Int_binary
+    [ Int_binary
         { op = Int_op.Sub
         ; dst = Reg.sp
         ; lhs = Reg Reg.sp
         ; rhs = Reg (reg_of_var t v)
         }
+    ; Move { dst = reg_of_var t dest; src = Reg Reg.sp }
     ]
   | Branch (Uncond cb) -> [ Jump cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
@@ -398,29 +399,16 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.map_inplace block.instructions ~f:(function
-      | Arm64 (Alloca (dest, i)) ->
-        let offset = t.fn.bytes_statically_alloca'd in
-        t.fn.bytes_statically_alloca'd
-        <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd;
-        (match dest with
-         | Reg dst ->
-           let base = Move { dst; src = Reg Reg.fp } in
-           let adjust =
-             if offset = 0
-             then []
-             else
-               [ Int_binary
-                   { op = Int_op.Add
-                   ; dst
-                   ; lhs = Reg dst
-                   ; rhs = Imm (Int64.of_int offset)
-                   }
-               ]
-           in
-           Arm64_terminal (base :: adjust)
-         | _ -> failwith "alloca dest must be a register")
-      | ir -> ir);
+    Vec.map_inplace block.instructions ~f:(fun ir ->
+      (match ir with
+       | Arm64 (Alloca (_, i)) ->
+         t.fn.bytes_statically_alloca'd
+         <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
+       | _ -> ());
+      Ir.map_arm64_operands ir ~f:(function
+        | Arm64_ir.Mem ({ reg = Unallocated var; class_ }, offset) ->
+          Arm64_ir.Mem (Reg.allocated ~class_ var None, offset)
+        | x -> x));
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
     match true_terminal block with
