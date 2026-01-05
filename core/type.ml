@@ -9,6 +9,7 @@ type t =
   | F32
   | F64
   | Ptr
+  | Ptr_typed of t
   | Tuple of t list
 [@@deriving sexp, compare, equal, variants, hash]
 
@@ -20,6 +21,7 @@ let rec to_string = function
   | F32 -> "f32"
   | F64 -> "f64"
   | Ptr -> "ptr"
+  | Ptr_typed inner -> sprintf "ptr(%s)" (to_string inner)
   | Tuple elements ->
     let inner = elements |> List.map ~f:to_string |> String.concat ~sep:", " in
     sprintf "(%s)" inner
@@ -37,28 +39,39 @@ let of_string s =
   | _ -> None
 ;;
 
+let is_ptr = function
+  | Ptr | Ptr_typed _ -> true
+  | _ -> false
+;;
+
+let ptr_target = function
+  | Ptr_typed inner -> Some inner
+  | Ptr -> None
+  | _ -> None
+;;
+
 let is_integer = function
   | I8 | I16 | I32 | I64 -> true
-  | F32 | F64 | Ptr | Tuple _ -> false
+  | F32 | F64 | Ptr | Ptr_typed _ | Tuple _ -> false
 ;;
 
 let is_float = function
   | F32 | F64 -> true
-  | I8 | I16 | I32 | I64 | Ptr | Tuple _ -> false
+  | I8 | I16 | I32 | I64 | Ptr | Ptr_typed _ | Tuple _ -> false
 ;;
 
 let is_numeric t = is_integer t || is_float t
 
 let is_aggregate = function
   | Tuple _ -> true
-  | I8 | I16 | I32 | I64 | F32 | F64 | Ptr -> false
+  | I8 | I16 | I32 | I64 | F32 | F64 | Ptr | Ptr_typed _ -> false
 ;;
 
 let rec align_of = function
   | I8 -> 1
   | I16 -> 2
   | I32 | F32 -> 4
-  | I64 | F64 | Ptr -> 8
+  | I64 | F64 | Ptr | Ptr_typed _ -> 8
   | Tuple [] -> 1
   | Tuple fields ->
     List.fold fields ~init:1 ~f:(fun acc field -> Int.max acc (align_of field))
@@ -72,7 +85,7 @@ let rec size_in_bytes = function
   | I8 -> 1
   | I16 -> 2
   | I32 | F32 -> 4
-  | I64 | F64 | Ptr -> 8
+  | I64 | F64 | Ptr | Ptr_typed _ -> 8
   | Tuple fields ->
     let alignment = align_of (Tuple fields) in
     let size =

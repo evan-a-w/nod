@@ -204,21 +204,21 @@ i64 main(i64 x) {
   [%expect
     {|
     (make
-     ((args (ptr i64)) (allocas 1) (memcpys ("(i64, i64)")) (calls ())
-      (load_fields ())
+     ((args ("ptr((i64, i64))" i64)) (allocas 1) (memcpys ("(i64, i64)"))
+      (calls ()) (load_fields ())
       (store_fields
        (((indices (0)) (src_type i64)) ((indices (1)) (src_type i64))))
-      (returns (ptr))))
+      (returns ("ptr((i64, i64))"))))
     (sum
-     ((args (ptr)) (allocas 0) (memcpys ()) (calls ())
+     ((args ("ptr((i64, i64))")) (allocas 0) (memcpys ()) (calls ())
       (load_fields
        (((indices (0)) (dest_type i64)) ((indices (1)) (dest_type i64))))
       (store_fields ()) (returns (i64))))
     (main
      ((args (i64)) (allocas 3) (memcpys ("(i64, i64)" "(i64, i64)"))
       (calls
-       (((fn make) (results ()) (args (ptr i64)))
-        ((fn sum) (results (i64)) (args (ptr)))))
+       (((fn make) (results ()) (args ("ptr((i64, i64))" i64)))
+        ((fn sum) (results (i64)) (args ("ptr((i64, i64))")))))
       (load_fields ()) (store_fields ()) (returns (i64))))
     |}]
 ;;
@@ -249,9 +249,9 @@ i64 use_inner(i64 x) {
     (use_inner
      ((args (i64)) (allocas 2) (memcpys ("(i64)")) (calls ())
       (load_fields
-       (((indices (0)) (dest_type ptr)) ((indices (0)) (dest_type i64))))
+       (((indices (0)) (dest_type "ptr((i64))")) ((indices (0)) (dest_type i64))))
       (store_fields
-       (((indices (0)) (src_type i64)) ((indices (0)) (src_type ptr))))
+       (((indices (0)) (src_type i64)) ((indices (0)) (src_type "ptr((i64))"))))
       (returns (i64))))
     |}]
 ;;

@@ -124,7 +124,7 @@ module Aggregate = struct
     match operand with
     | Lit_or_var.Lit _ -> Ok ()
     | Var v ->
-      if Type.equal (Var.type_ v) Type.Ptr
+      if Type.is_ptr (Var.type_ v)
       then Ok ()
       else
         type_error
@@ -135,13 +135,41 @@ module Aggregate = struct
           (Type.to_string (Var.type_ v))
   ;;
 
+  let ensure_pointer_target type_ ~expected ~op ~position =
+    match Type.ptr_target type_ with
+    | None -> Ok ()
+    | Some inner ->
+      if Type.equal inner expected
+      then Ok ()
+      else
+        type_error
+          "%s expects %s pointer to %s but got %s"
+          op
+          position
+          (Type.to_string expected)
+          (Type.to_string type_)
+  ;;
+
+  let ensure_pointer_operand_target operand ~expected ~op ~position =
+    match operand with
+    | Lit_or_var.Lit _ -> Ok ()
+    | Var v -> ensure_pointer_target (Var.type_ v) ~expected ~op ~position
+  ;;
+
   let lower_load_field ({ dest; base; type_; indices } : load_field) =
     let%bind () = ensure_pointer_operand base ~op:"load_field" ~position:"base" in
     let%bind offset, raw_field_type = field_offset type_ indices in
     match raw_field_type with
     | Tuple _ ->
-      if Type.equal (Var.type_ dest) Type.Ptr
+      if Type.is_ptr (Var.type_ dest)
       then
+        let%bind () =
+          ensure_pointer_target
+            (Var.type_ dest)
+            ~expected:raw_field_type
+            ~op:"load_field"
+            ~position:"destination"
+        in
         Ok
           [ add
               { dest
@@ -178,7 +206,14 @@ module Aggregate = struct
       let%bind () =
         ensure_pointer_operand src ~op:"store_field" ~position:"source"
       in
-      let dest = fresh_temp ~type_:Type.Ptr in
+      let dest = fresh_temp ~type_:(Type.Ptr_typed raw_field_type) in
+      let%bind () =
+        ensure_pointer_operand_target
+          src
+          ~expected:raw_field_type
+          ~op:"store_field"
+          ~position:"source"
+      in
       Ok
         [ add
             { dest
@@ -207,6 +242,20 @@ module Aggregate = struct
       ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
     in
     let%bind () = ensure_pointer_operand src ~op:"memcpy" ~position:"source" in
+    let%bind () =
+      ensure_pointer_operand_target
+        dest
+        ~expected:type_
+        ~op:"memcpy"
+        ~position:"destination"
+    in
+    let%bind () =
+      ensure_pointer_operand_target
+        src
+        ~expected:type_
+        ~op:"memcpy"
+        ~position:"source"
+    in
     let leaves = Type.leaf_offsets type_ in
     let rec emit acc = function
       | [] -> Ok (List.rev acc)
@@ -235,7 +284,7 @@ module Type_check = struct
     Printf.ksprintf (fun msg -> Error (`Type_mismatch msg)) fmt
   ;;
 
-  let literal_allowed type_ = Type.is_numeric type_ || Type.equal type_ Type.Ptr
+  let literal_allowed type_ = Type.is_numeric type_ || Type.is_ptr type_
 
   let ensure_operand_matches operand ~expected_type ~op ~position =
     match operand with
@@ -283,7 +332,7 @@ module Type_check = struct
     match operand with
     | Lit_or_var.Lit _ -> Ok ()
     | Var var ->
-      if Type.equal (Var.type_ var) Type.Ptr
+      if Type.is_ptr (Var.type_ var)
       then Ok ()
       else
         type_error
@@ -292,6 +341,21 @@ module Type_check = struct
           position
           (Var.name var)
           (Type.to_string (Var.type_ var))
+  ;;
+
+  let ensure_pointer_target type_ ~expected ~op ~position =
+    match Type.ptr_target type_ with
+    | None -> Ok ()
+    | Some inner ->
+      if Type.equal inner expected
+      then Ok ()
+      else
+        type_error
+          "%s expects %s pointer to %s but got %s"
+          op
+          position
+          (Type.to_string expected)
+          (Type.to_string type_)
   ;;
 
   let ensure_pointer_mem mem ~op =
@@ -322,14 +386,14 @@ module Type_check = struct
     let dest_type = Var.type_ dest in
     let is_ptr = function
       | Lit_or_var.Lit _ -> false
-      | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.Ptr
+      | Lit_or_var.Var v -> Type.is_ptr (Var.type_ v)
     in
     let is_i64 = function
       | Lit_or_var.Lit _ -> true
       | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.I64
     in
     match dest_type with
-    | Type.Ptr ->
+    | _ when Type.is_ptr dest_type ->
       (* Pointer arithmetic: ptr ± i64 = ptr *)
       if (is_ptr src1 && is_i64 src2) || (is_i64 src1 && is_ptr src2)
       then Ok ()
@@ -377,7 +441,7 @@ module Type_check = struct
 
   let check_alloca { dest; size } =
     let%bind () =
-      if Type.equal (Var.type_ dest) Type.Ptr
+      if Type.is_ptr (Var.type_ dest)
       then Ok ()
       else
         type_error
@@ -415,7 +479,7 @@ module Type_check = struct
     match src with
     | Lit_or_var.Lit _ ->
       (* Literals can be cast to compatible types *)
-      if Type.is_numeric dest_type || Type.equal dest_type Type.Ptr
+      if Type.is_numeric dest_type || Type.is_ptr dest_type
       then Ok ()
       else
         type_error
@@ -433,6 +497,8 @@ module Type_check = struct
           (Type.to_string dest_type)
       else if Type.is_numeric src_type && Type.is_numeric dest_type
       then Ok () (* Numeric conversions are valid *)
+      else if Type.is_ptr src_type && Type.is_ptr dest_type
+      then Ok () (* Pointer bitcasts are valid *)
       else
         type_error
           "cast cannot convert %s:%s to %s:%s"
@@ -465,8 +531,13 @@ module Type_check = struct
     let%bind _offset, raw_field_type = field_offset type_ indices in
     (match raw_field_type with
      | Tuple _ ->
-       if Type.equal (Var.type_ dest) Type.Ptr
-       then Ok ()
+       if Type.is_ptr (Var.type_ dest)
+       then
+         ensure_pointer_target
+           (Var.type_ dest)
+           ~expected:raw_field_type
+           ~op:"load_field"
+           ~position:"destination"
        else
          type_error
            "load_field expected pointer destination for aggregate field but got %s"
@@ -489,7 +560,17 @@ module Type_check = struct
     let%bind _offset, raw_field_type = field_offset type_ indices in
     (match raw_field_type with
      | Tuple _ ->
-       ensure_pointer_operand src ~op:"store_field" ~position:"source"
+       let%bind () =
+         ensure_pointer_operand src ~op:"store_field" ~position:"source"
+       in
+       (match src with
+        | Lit_or_var.Lit _ -> Ok ()
+        | Var v ->
+          ensure_pointer_target
+            (Var.type_ v)
+            ~expected:raw_field_type
+            ~op:"store_field"
+            ~position:"source")
      | _ ->
        let%bind field_type = ensure_value_type raw_field_type in
        match src with
@@ -507,6 +588,26 @@ module Type_check = struct
       ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
     in
     let%bind () = ensure_pointer_operand src ~op:"memcpy" ~position:"source" in
+    let%bind () =
+      match dest with
+      | Lit_or_var.Lit _ -> Ok ()
+      | Var v ->
+        ensure_pointer_target
+          (Var.type_ v)
+          ~expected:type_
+          ~op:"memcpy"
+          ~position:"destination"
+    in
+    let%bind () =
+      match src with
+      | Lit_or_var.Lit _ -> Ok ()
+      | Var v ->
+        ensure_pointer_target
+          (Var.type_ v)
+          ~expected:type_
+          ~op:"memcpy"
+          ~position:"source"
+    in
     List.fold (Type.leaf_offsets type_) ~init:(Ok ()) ~f:(fun acc (_, leaf) ->
       let%bind () = acc in
       let%map (_ : Type.t) = ensure_value_type leaf in

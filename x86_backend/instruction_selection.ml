@@ -184,6 +184,12 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
            (Reg (reg_of_var t dest))
            (operand_of_lit_or_var t ~class_:src_class src)
        ]
+     | t1, t2 when Type.is_ptr t1 && Type.is_ptr t2 ->
+       (* Pointer bitcasts are just integer moves. *)
+       [ mov
+           (Reg (reg_of_var t dest))
+           (operand_of_lit_or_var t ~class_:Class.I64 src)
+       ]
      | t1, t2 when Type.is_integer t1 && Type.is_integer t2 ->
        (* Int to int conversion (sign-extend or truncate) *)
        (* For now, just use mov - x86 will handle sign extension/truncation *)

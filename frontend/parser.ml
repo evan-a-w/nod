@@ -81,9 +81,19 @@ let ensure_var_type name =
 let rec parse_type_expr () =
   match%bind next () with
   | Token.Ident type_name, _ ->
-    (match Type.of_string type_name with
-     | Some type_ -> return type_
-     | None -> fail (`Unknown_type type_name))
+    if String.Caseless.equal type_name "ptr"
+    then (
+      match%bind peek () with
+      | Some (Token.L_paren, _) ->
+        let%bind (_ : Pos.t) = expect Token.L_paren in
+        let%bind inner = parse_type_expr () in
+        let%bind (_ : Pos.t) = expect Token.R_paren in
+        return (Type.Ptr_typed inner)
+      | _ -> return Type.Ptr)
+    else (
+      match Type.of_string type_name with
+      | Some type_ -> return type_
+      | None -> fail (`Unknown_type type_name))
   | Token.L_paren, _ ->
     let%bind first = parse_type_expr () in
     let rec parse_elements acc =
