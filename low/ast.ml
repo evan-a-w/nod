@@ -61,8 +61,23 @@ type struct_def =
   }
 [@@deriving sexp, compare, equal]
 
+type global_init =
+  | Zero
+  | Int of int64
+  | Float of float
+  | Aggregate of global_init list
+[@@deriving sexp, compare, equal]
+
+type global =
+  { name : string
+  ; type_ : type_expr
+  ; init : global_init
+  }
+[@@deriving sexp, compare, equal]
+
 type program =
   { structs : struct_def list
+  ; globals : global list
   ; functions : func list
   }
 [@@deriving sexp, compare, equal]

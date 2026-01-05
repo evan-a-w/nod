@@ -53,6 +53,7 @@ let instrs_in_order fn =
 let lit_or_var_type = function
   | Ir0.Lit_or_var.Lit _ -> "lit"
   | Var v -> Type.to_string (Var.type_ v)
+  | Global g -> Type.to_string (Type.Ptr_typed g.Global.type_)
 ;;
 
 let summarize_fn fn =
@@ -93,7 +94,7 @@ let summarize_fn fn =
 ;;
 
 let print_fn_summary program name =
-  let fn = Map.find_exn program name in
+  let fn = Map.find_exn program.Program.functions name in
   let summary = summarize_fn fn in
   print_s [%sexp ((name, summary) : string * fn_summary)]
 ;;

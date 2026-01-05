@@ -4,8 +4,13 @@ open! Import
 let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Nod.compile ~opt_flags program with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
-    let asm = X86_backend.compile_to_asm ~system:`Linux functions in
+  | Ok program ->
+    let asm =
+      X86_backend.compile_to_asm
+        ~system:`Linux
+        ~globals:program.Program.globals
+        program.Program.functions
+    in
     print_endline asm
 ;;
 
@@ -169,6 +174,63 @@ ret %result
       sub rbp, 8
       mov rsp, rbp
       pop r15
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals lower into data section" =
+  compile_and_lower
+    {|
+global @g:i64 = 42
+global @pair:(i64, i64) = (10, 32)
+global @zeros:(i64, i64) = zero
+root() {
+  load %x:i64, @g
+  load_field %y:i64, @pair, (i64, i64), 1
+  add %z:i64, %x, %y
+  ret %z
+}
+|};
+  [%expect {|
+    .intel_syntax noprefix
+    .data
+    .balign 8
+    g:
+    .byte 42
+    .zero 7
+    .balign 8
+    pair:
+    .byte 10
+    .zero 7
+    .byte 32
+    .zero 7
+    .balign 8
+    zeros:
+    .zero 16
+    .text
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r13
+      push r14
+      push r15
+    root___root:
+      lea r15, [rip + g]
+      mov r13, [r15]
+      lea r15, [rip + pair]
+      mov r14, [r15 + 8]
+      mov r15, r13
+      add r15, r14
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 24
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
       pop rbp
       ret
     .section .note.GNU-stack,"",@progbits

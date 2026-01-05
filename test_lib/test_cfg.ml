@@ -1,8 +1,8 @@
 open! Core
 open! Import
 
-let map_function_roots ~f functions =
-  Map.map ~f:(Function.map_root ~f) functions
+let map_function_roots ~f program =
+  Program.map_function_roots program ~f
 ;;
 
 let test s =
@@ -11,9 +11,9 @@ let test s =
   |> Result.map ~f:(map_function_roots ~f:Cfg.process)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok fns ->
+  | Ok program ->
     Map.iter
-      fns
+      program.Program.functions
       ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =

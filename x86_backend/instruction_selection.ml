@@ -56,10 +56,16 @@ let lower_aggregates_exn (fn : Function.t) =
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
-  | Lit l -> Imm l
+  | Lit l -> [], Imm l
   | Var v ->
     require_class t v class_;
-    Reg (Reg.unallocated ~class_ v)
+    [], Reg (Reg.unallocated ~class_ v)
+  | Global g ->
+    if not (Class.equal class_ Class.I64)
+    then failwith "global addresses are only supported in integer contexts";
+    let tmp = fresh_var t "global_addr" in
+    let reg = Reg.unallocated ~class_:Class.I64 tmp in
+    [ mov (Reg reg) (Symbol g.Global.name) ], Reg reg
 ;;
 
 let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
@@ -67,9 +73,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   let make_arith f ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.I64;
     let dest_op = Reg (reg_of_var t dest) in
-    [ mov dest_op (operand_of_lit_or_var t ~class_:Class.I64 src1)
-    ; f dest_op (operand_of_lit_or_var t ~class_:Class.I64 src2)
-    ]
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.I64 src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.I64 src2 in
+    pre1 @ pre2 @ [ mov dest_op op1; f dest_op op2 ]
   in
   let reg v = Reg (reg_of_var t v) in
   let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
@@ -89,7 +95,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     (* IMUL/IDIV only accept register or memory operands, not immediates.
        If src2 is a literal, we need to load it into a register first. *)
-    let src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
+    let pre2, src2_op = operand_of_lit_or_var t ~class_:Class.I64 src2 in
     let src2_final, extra_mov =
       match src2_op with
       | Spill_slot _ -> failwith "unexpected spill slot"
@@ -98,10 +104,13 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_imm") None
         in
         Reg tmp_reg, [ mov (Reg tmp_reg) src2_op ]
-      | Reg _ | Mem _ -> src2_op, []
+      | Reg _ | Mem _ | Symbol _ -> src2_op, []
     in
-    extra_mov
-    @ [ mov (Reg tmp_rax) (operand_of_lit_or_var t ~class_:Class.I64 src1)
+    let pre1, src1_op = operand_of_lit_or_var t ~class_:Class.I64 src1 in
+    pre2
+    @ extra_mov
+    @ pre1
+    @ [ mov (Reg tmp_rax) src1_op
       ; tag_def
           (tag_def
              (tag_use (make_instr src2_final) (Reg tmp_rax))
@@ -109,6 +118,26 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
           (Reg tmp_other)
       ; mov (reg dest) (Reg tmp_dst)
       ]
+  in
+  let rec mem_operand mem =
+    match mem with
+    | Ir.Mem.Global global ->
+      mem_operand (Ir.Mem.address (Ir.Lit_or_var.Global global))
+    | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
+    | Ir.Mem.Address { base; offset } ->
+      let pre_base, base_op = operand_of_lit_or_var t ~class_:Class.I64 base in
+      let pre_addr, base_reg =
+        match base_op with
+        | Reg reg -> pre_base, reg
+        | Imm _ | Symbol _ ->
+          let tmp_addr =
+            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+          in
+          pre_base @ [ mov (Reg tmp_addr) base_op ], tmp_addr
+        | Mem _ | Spill_slot _ ->
+          failwith "unexpected operand in address computation"
+      in
+      pre_addr, Mem (base_reg, offset)
   in
   match ir with
   | X86 x -> [ x ]
@@ -124,33 +153,35 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Fadd arith ->
     require_class t arith.dest Class.F64;
     let dest_op = Reg (reg_of_var t arith.dest) in
-    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
-    ; addsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
-    ]
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.F64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.F64 arith.src2 in
+    pre1 @ pre2 @ [ movsd dest_op op1; addsd dest_op op2 ]
   | Fsub arith ->
     require_class t arith.dest Class.F64;
     let dest_op = Reg (reg_of_var t arith.dest) in
-    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
-    ; subsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
-    ]
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.F64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.F64 arith.src2 in
+    pre1 @ pre2 @ [ movsd dest_op op1; subsd dest_op op2 ]
   | Fmul arith ->
     require_class t arith.dest Class.F64;
     let dest_op = Reg (reg_of_var t arith.dest) in
-    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
-    ; mulsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
-    ]
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.F64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.F64 arith.src2 in
+    pre1 @ pre2 @ [ movsd dest_op op1; mulsd dest_op op2 ]
   | Fdiv arith ->
     require_class t arith.dest Class.F64;
     let dest_op = Reg (reg_of_var t arith.dest) in
-    [ movsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src1)
-    ; divsd dest_op (operand_of_lit_or_var t ~class_:Class.F64 arith.src2)
-    ]
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.F64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.F64 arith.src2 in
+    pre1 @ pre2 @ [ movsd dest_op op1; divsd dest_op op2 ]
   | Return lit_or_var ->
-    [ RET [ operand_of_lit_or_var t ~class_:Class.I64 lit_or_var ] ]
+    let pre, op = operand_of_lit_or_var t ~class_:Class.I64 lit_or_var in
+    pre @ [ RET [ op ] ]
   | Move (v, lit_or_var) ->
     let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
     require_class t v class_;
-    [ mov (reg v) (operand_of_lit_or_var t ~class_ lit_or_var) ]
+    let pre, op = operand_of_lit_or_var t ~class_ lit_or_var in
+    pre @ [ mov (reg v) op ]
   | Cast (dest, src) ->
     (* Type conversion between different types *)
     let dest_type = Var.type_ dest in
@@ -158,6 +189,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
       match src with
       | Ir.Lit_or_var.Var v -> Var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64 (* literals are treated as i64 *)
+      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.Global.type_
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
@@ -166,37 +198,33 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
      | t1, t2 when Type.is_integer t1 && Type.is_float t2 ->
        (* Int to float conversion *)
        (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
-       let src_operand = operand_of_lit_or_var t ~class_:src_class src in
-       (match src_operand with
-        | Spill_slot _ -> failwith "unexpected spill slot"
-        | Imm _ ->
-          (* Load immediate into a temporary register first *)
-          let tmp_reg =
-            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_cvt") None
-          in
-          [ mov (Reg tmp_reg) src_operand
-          ; cvtsi2sd (Reg (reg_of_var t dest)) (Reg tmp_reg)
-          ]
-        | Reg _ | Mem _ -> [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
+       let pre, src_operand = operand_of_lit_or_var t ~class_:src_class src in
+       pre
+       @ (match src_operand with
+         | Spill_slot _ -> failwith "unexpected spill slot"
+         | Imm _ ->
+           (* Load immediate into a temporary register first *)
+           let tmp_reg =
+             Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_cvt") None
+           in
+           [ mov (Reg tmp_reg) src_operand
+           ; cvtsi2sd (Reg (reg_of_var t dest)) (Reg tmp_reg)
+           ]
+         | Reg _ | Mem _ | Symbol _ ->
+           [ cvtsi2sd (Reg (reg_of_var t dest)) src_operand ])
      | t1, t2 when Type.is_float t1 && Type.is_integer t2 ->
        (* Float to int conversion (with truncation) *)
-       [ cvttsd2si
-           (Reg (reg_of_var t dest))
-           (operand_of_lit_or_var t ~class_:src_class src)
-       ]
+       let pre, src_operand = operand_of_lit_or_var t ~class_:src_class src in
+       pre @ [ cvttsd2si (Reg (reg_of_var t dest)) src_operand ]
      | t1, t2 when Type.is_ptr t1 && Type.is_ptr t2 ->
        (* Pointer bitcasts are just integer moves. *)
-       [ mov
-           (Reg (reg_of_var t dest))
-           (operand_of_lit_or_var t ~class_:Class.I64 src)
-       ]
+       let pre, src_operand = operand_of_lit_or_var t ~class_:Class.I64 src in
+       pre @ [ mov (Reg (reg_of_var t dest)) src_operand ]
      | t1, t2 when Type.is_integer t1 && Type.is_integer t2 ->
        (* Int to int conversion (sign-extend or truncate) *)
        (* For now, just use mov - x86 will handle sign extension/truncation *)
-       [ mov
-           (Reg (reg_of_var t dest))
-           (operand_of_lit_or_var t ~class_:Class.I64 src)
-       ]
+       let pre, src_operand = operand_of_lit_or_var t ~class_:Class.I64 src in
+       pre @ [ mov (Reg (reg_of_var t dest)) src_operand ]
      | _ ->
        (* Float to float or other conversions not yet supported *)
        failwithf
@@ -206,53 +234,39 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
          ())
   | Load (v, mem) ->
     require_class t v Class.I64;
-    let pre, mem_op =
-      match mem with
-      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
-        let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, offset)
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp_addr =
-          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
-        in
-        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, offset)
-    in
+    let pre, mem_op = mem_operand mem in
     pre @ [ mov (reg v) mem_op ]
   | Store (lit_or_var, mem) ->
-    let pre, mem_op =
-      match mem with
-      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_x86_ir_operand mem
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
-        let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, offset)
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp_addr =
-          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
-        in
-        [ mov (Reg tmp_addr) (Imm addr) ], Mem (tmp_addr, offset)
+    let pre_mem, mem_op = mem_operand mem in
+    let pre_val, val_op =
+      operand_of_lit_or_var t ~class_:Class.I64 lit_or_var
     in
-    pre @ [ mov mem_op (operand_of_lit_or_var t ~class_:Class.I64 lit_or_var) ]
+    pre_mem @ pre_val @ [ mov mem_op val_op ]
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
     let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
-    let reg_args, stack_args = List.split_n args (List.length gp_arg_regs) in
+    let arg_infos =
+      List.map args ~f:(operand_of_lit_or_var t ~class_:Class.I64)
+    in
+    let arg_operands = List.map arg_infos ~f:snd in
+    let reg_infos, stack_infos =
+      List.split_n arg_infos (List.length gp_arg_regs)
+    in
     let stack_arg_pushes =
-      List.rev stack_args
-      |> List.map ~f:(fun arg ->
-        push (operand_of_lit_or_var t ~class_:Class.I64 arg))
+      List.rev stack_infos
+      |> List.concat_map ~f:(fun (pre, op) -> pre @ [ push op ])
     in
     let reg_arg_moves =
-      List.zip_with_remainder reg_args gp_arg_regs
+      List.zip_with_remainder reg_infos gp_arg_regs
       |> fst
-      |> List.map ~f:(fun (arg, reg) ->
+      |> List.concat_map ~f:(fun ((pre, op), reg) ->
         let force_physical =
           Reg.allocated ~class_:Class.I64 (fresh_var t "arg_reg") (Some reg)
         in
-        mov (Reg force_physical) (operand_of_lit_or_var t ~class_:Class.I64 arg))
+        pre @ [ mov (Reg force_physical) op ])
     in
     let pre_moves = stack_arg_pushes @ reg_arg_moves in
     assert (List.length results <= 2);
@@ -282,17 +296,17 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     let updated_results = results_with_physical @ results_on_stack in
     let post_pop =
-      if List.is_empty stack_args
+      if List.is_empty stack_infos
       then []
       else
-        [ add (Reg Reg.rsp) (Imm (Int64.of_int (List.length stack_args * 8))) ]
+        [ add (Reg Reg.rsp) (Imm (Int64.of_int (List.length stack_infos * 8))) ]
     in
     [ save_clobbers ]
     @ pre_moves
     @ [ CALL
           { fn
           ; results = updated_results
-          ; args = List.map args ~f:(operand_of_lit_or_var t ~class_:Class.I64)
+          ; args = arg_operands
           }
       ]
     @ post_moves
@@ -303,11 +317,12 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     [ sub (Reg Reg.rsp) (Reg (Reg.unallocated v))
     ; mov (reg dest) (Reg Reg.rsp)
     ]
+  | Alloca { size = Global _; _ } ->
+    failwith "alloca size must be a literal or variable"
   | Branch (Uncond cb) -> [ jmp cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
-    [ cmp (operand_of_lit_or_var t ~class_:Class.I64 cond) (Imm Int64.zero)
-    ; jne if_true (Some if_false)
-    ]
+    let pre, cond_op = operand_of_lit_or_var t ~class_:Class.I64 cond in
+    pre @ [ cmp cond_op (Imm Int64.zero); jne if_true (Some if_false) ]
 ;;
 
 let get_fn = fn

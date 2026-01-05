@@ -197,7 +197,7 @@ let rm_size = function
   | Mem (reg, disp) ->
     let base = reg_code_exn reg in
     rm_size_for_base base disp
-  | Imm _ | Spill_slot _ -> failwith "unexpected rm operand"
+  | Imm _ | Spill_slot _ | Symbol _ -> failwith "unexpected rm operand"
 ;;
 
 let rex_needed ~w ~reg ~rm =
@@ -268,13 +268,13 @@ let emit_modrm w ~reg ~rm =
 let rm_of_operand = function
   | Reg reg -> Rm_reg (reg_code_exn reg)
   | Mem (reg, disp) -> Rm_mem { base = reg_code_exn reg; disp }
-  | Imm _ | Spill_slot _ -> failwith "unexpected rm operand"
+  | Imm _ | Spill_slot _ | Symbol _ -> failwith "unexpected rm operand"
 ;;
 
 let rm_code_of_operand = function
   | Reg reg -> reg_code_exn reg
   | Mem (reg, _) -> reg_code_exn reg
-  | Imm _ | Spill_slot _ -> failwith "unexpected rm operand"
+  | Imm _ | Spill_slot _ | Symbol _ -> failwith "unexpected rm operand"
 ;;
 
 let rex_size ~w ~reg ~rm = if rex_needed ~w ~reg ~rm then 1 else 0
@@ -439,7 +439,8 @@ let size_of_instr instr ~add_literal =
        let rm_code = rm_code_of_operand op in
        let rex = rex_size ~w:false ~reg:0 ~rm:rm_code in
        (rex + 1 + rm), None
-     | Spill_slot _ -> failwith "unexpected spill slot")
+     | Spill_slot _ -> failwith "unexpected spill slot"
+     | Symbol _ -> failwith "globals are not supported in the x86 jit")
   | Pop reg ->
     let code = reg_code_exn reg in
     let rex = if code >= 8 then 1 else 0 in
@@ -871,7 +872,8 @@ let encode_instr
        emit_rex writer ~w_bit:false ~r:false ~x:false ~b:(rex_b rm = 1);
        Writer.emit_u8 writer 0xFF;
        emit_modrm writer ~reg:6 ~rm
-     | Spill_slot _ -> failwith "unexpected spill slot")
+     | Spill_slot _ -> failwith "unexpected spill slot"
+     | Symbol _ -> failwith "globals are not supported in the x86 jit")
   | Pop reg ->
     let code = reg_code_exn reg in
     emit_rex writer ~w_bit:false ~r:false ~x:false ~b:(code lsr 3 = 1);
