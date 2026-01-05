@@ -116,7 +116,10 @@ let is_type_start = function
   | _ -> false
 ;;
 
-let rec parse_expr () = parse_additive ()
+let rec parse_expr ()
+  : (Ast.expr, Pos.t, unit, _) Parser_comb.parser
+  =
+  parse_additive ()
 
 and parse_additive () =
   let%bind left = parse_multiplicative () in
@@ -182,10 +185,12 @@ and parse_postfix () =
   in
   loop base
 
-and parse_primary () =
+and parse_primary ()
+  : (Ast.expr, Pos.t, unit, _) Parser_comb.parser
+  =
   match%bind next () with
-  | Token.Int i, _ -> return (Ast.Int (Int64.of_int i))
-  | Token.Float f, _ -> return (Ast.Float f)
+  | Token.Int i, _ -> return ((Ast.Int (Int64.of_int i)) : Ast.expr)
+  | Token.Float f, _ -> return ((Ast.Float f) : Ast.expr)
   | Token.Keyword "alloca", _ ->
     let%bind () = expect_l_paren () in
     let%bind type_ = parse_type () in
@@ -290,7 +295,11 @@ let parse_program () =
   let rec loop structs functions =
     match%bind peek () with
     | None ->
-      return { Ast.structs = List.rev structs; functions = List.rev functions }
+      return
+        { Ast.structs = List.rev structs
+        ; globals = []
+        ; functions = List.rev functions
+        }
     | Some (Token.Keyword "struct", _) ->
       let%bind is_struct_def = peek_struct_def () in
       if is_struct_def

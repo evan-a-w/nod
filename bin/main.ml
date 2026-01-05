@@ -11,12 +11,21 @@ let read_program source =
 let compile_program ~opt_flags ~dump_crap program =
   match Eir.compile ~opt_flags program with
   | Error parse_error -> Or_error.error_string (Nod_error.to_string parse_error)
-  | Ok functions ->
+  | Ok program ->
     let system = Lazy.force Nod.host_system in
     let asm =
       if dump_crap
-      then X86_backend.compile_to_asm ~system ~dump_crap:true functions
-      else X86_backend.compile_to_asm ~system functions
+      then
+        X86_backend.compile_to_asm
+          ~system
+          ~dump_crap:true
+          ~globals:program.Program.globals
+          program.Program.functions
+      else
+        X86_backend.compile_to_asm
+          ~system
+          ~globals:program.Program.globals
+          program.Program.functions
     in
     Or_error.return asm
 ;;
@@ -126,8 +135,8 @@ let () =
        Nod.compile ~opt_flags:Eir.Opt_flags.default Examples.Textual.sum_100
      with
      | Error e -> Nod_error.to_string e |> print_endline
-     | Ok functions ->
-       X86_backend.For_testing.print_selected_instructions functions)
+     | Ok program ->
+       X86_backend.For_testing.print_selected_instructions program.Program.functions)
   | _ :: "emit-asm" :: args ->
     (match
        parse_emit_asm

@@ -4,8 +4,13 @@ open! Import
 let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Nod.compile ~opt_flags program with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
-    let asm = Arm64_backend.compile_to_asm ~system:`Linux functions in
+  | Ok program ->
+    let asm =
+      Arm64_backend.compile_to_asm
+        ~system:`Linux
+        ~globals:program.Program.globals
+        program.Program.functions
+    in
     print_endline asm
 ;;
 
@@ -196,6 +201,63 @@ ret %result
       ldr x28, [sp]
       ldr x29, [sp, #8]
       mov x14, #16
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals lower into data section" =
+  compile_and_lower
+    {|
+global @g:i64 = 42
+global @pair:(i64, i64) = (10, 32)
+global @zeros:(i64, i64) = zero
+root() {
+  load %x:i64, @g
+  load_field %y:i64, @pair, (i64, i64), 1
+  add %z:i64, %x, %y
+  ret %z
+}
+|};
+  [%expect {|
+    .data
+    .balign 8
+    g:
+    .byte 42
+    .zero 7
+    .balign 8
+    pair:
+    .byte 10
+    .zero 7
+    .byte 32
+    .zero 7
+    .balign 8
+    zeros:
+    .zero 16
+    .text
+    .globl root
+    root:
+      mov x14, #32
+      sub sp, sp, x14
+      str x27, [sp]
+      str x28, [sp, #8]
+      str x29, [sp, #16]
+      mov x29, sp
+    root___root:
+      adr x28, g
+      ldr x27, [x28]
+      adr x28, pair
+      ldr x28, [x28, #8]
+      add x28, x27, x28
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x27, [sp]
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
+      mov x14, #32
       add sp, sp, x14
       ret
     .section .note.GNU-stack,"",@progbits

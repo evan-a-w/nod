@@ -69,6 +69,7 @@ let string_of_operand = function
   | Reg reg -> string_of_reg reg
   | Imm imm -> Int64.to_string imm
   | Mem (reg, disp) -> string_of_mem reg disp
+  | Symbol sym -> sym
 ;;
 
 let string_of_operand_with_size ~size_for_mem operand =
@@ -89,6 +90,8 @@ let emit_binary_instr op dst src =
 ;;
 
 let string_of_instr = function
+  | Asm.Mov (Reg dst, Symbol sym) ->
+    sprintf "lea %s, [rip + %s]" (string_of_reg dst) sym
   | Asm.Mov (dst, src) -> emit_binary_instr "mov" dst src
   | Movsd (dst, src) -> emit_binary_instr "movsd" dst src
   | Movq (dst, src) -> emit_binary_instr "movq" dst src
@@ -120,12 +123,22 @@ let add_line buf line =
   Buffer.add_char buf '\n'
 ;;
 
-let run ~system (program : Asm.program) =
-  match program with
-  | [] -> ""
+let run ~system ?(globals = []) (program : Asm.program) =
+  match program, globals with
+  | [], [] -> ""
   | _ ->
     let buffer = Buffer.create 1024 in
     add_line buffer ".intel_syntax noprefix";
+    let global_prefix =
+      match system with
+      | `Darwin -> "_"
+      | `Linux | `Other -> ""
+    in
+    let label_of name = global_prefix ^ sanitize_identifier name in
+    let data_lines =
+      Nod_backend_common.Global_data.data_section_lines ~label_of globals
+    in
+    List.iter data_lines ~f:(add_line buffer);
     add_line buffer ".text";
     List.iteri program ~f:(fun fn_index fn ->
       if fn_index > 0 then Buffer.add_char buffer '\n';

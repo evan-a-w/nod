@@ -19,7 +19,7 @@ let sanitize_identifier s =
 let is_valid_move_dest = function
   | Spill_slot _ -> failwith "unexpected spill slot"
   | Reg _ | Mem _ -> true
-  | Imm _ -> false
+  | Imm _ | Symbol _ -> false
 ;;
 
 let rec unwrap_tags = function
@@ -114,9 +114,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       | `Darwin -> "_"
       | `Linux | `Other -> ""
     in
+    let asm_label name = global_prefix ^ sanitize_identifier name in
     let symbol_of_fn name =
-      let asm_label = global_prefix ^ sanitize_identifier name in
+      let asm_label = asm_label name in
       { Asm.name; asm_label }
+    in
+    let map_operand = function
+      | Symbol name -> Symbol (asm_label name)
+      | other -> other
     in
     let used_labels = String.Hash_set.create () in
     List.map functions_alist ~f:(fun (name, fn) ->
@@ -174,6 +179,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         | _ -> [ Asm.Sub (dst, src) ]
       in
       let lower_instruction ~current_idx instr =
+        let instr = X86_ir.map_operands instr ~f:map_operand in
         let instr = unwrap_tags instr in
         match instr with
         | NOOP | Save_clobbers | Restore_clobbers -> No_emit
@@ -323,6 +329,6 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       { Asm.name; asm_label = fn_label; items = List.rev !items_rev })
 ;;
 
-let run ~system functions =
-  lower_to_items ~system functions |> Emit_asm.run ~system
+let run ~system ?(globals = []) functions =
+  lower_to_items ~system functions |> Emit_asm.run ~system ~globals
 ;;

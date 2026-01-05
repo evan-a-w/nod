@@ -126,6 +126,7 @@ let rec lex' () : (_, _, _) State.Result.t =
     (match%bind peek with
      | Some '%' -> next >> rep Token.L_brace_percent
      | _ -> rep Token.L_brace)
+  | Some '@' -> rep Token.At
   | Some '%' ->
     (match%bind peek with
      | Some '}' -> next >> rep Token.Percent_r_brace

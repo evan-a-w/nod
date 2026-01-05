@@ -7,7 +7,7 @@ type unprocessed_cfg =
   instrs_by_label:string Ir0.t Vec.t Core.String.Map.t * labels:string Vec.t
 [@@deriving sexp]
 
-type output = unprocessed_cfg Function0.t' String.Map.t [@@deriving sexp]
+type output = unprocessed_cfg Program.t [@@deriving sexp]
 
 module State = struct
   type t =
@@ -16,6 +16,7 @@ module State = struct
     ; current_block : string
     ; current_instrs : string Ir0.t Vec.t
     ; var_types : Type.t String.Table.t
+    ; globals : Global.t String.Table.t
     }
 
   let create () =
@@ -24,6 +25,7 @@ module State = struct
     ; current_block = "%root"
     ; current_instrs = Vec.create ()
     ; var_types = String.Table.create ()
+    ; globals = String.Table.create ()
     }
   ;;
 end
@@ -54,6 +56,11 @@ let ident () =
   | tok, pos -> fail (`Unexpected_token (tok, pos))
 ;;
 
+let global_name () =
+  let%bind (_ : Pos.t) = expect Token.At in
+  ident ()
+;;
+
 let record_var_type name type_ =
   let%bind state = get_state () in
   match Hashtbl.find state.State.var_types name with
@@ -76,6 +83,22 @@ let ensure_var_type name =
   match Hashtbl.find state.State.var_types name with
   | Some type_ -> return type_
   | None -> fail (`Unknown_variable name)
+;;
+
+let ensure_global name =
+  let%bind state = get_state () in
+  match Hashtbl.find state.State.globals name with
+  | Some global -> return global
+  | None -> fail (`Unknown_global name)
+;;
+
+let record_global global =
+  let%bind state = get_state () in
+  match Hashtbl.find state.State.globals global.Global.name with
+  | None ->
+    Hashtbl.set state.globals ~key:global.name ~data:global;
+    return ()
+  | Some _ -> fail (`Type_mismatch (sprintf "duplicate global %s" global.name))
 ;;
 
 let rec parse_type_expr () =
@@ -162,6 +185,83 @@ let lit () =
   | tok, pos -> fail (`Unexpected_token (tok, pos))
 ;;
 
+let parse_signed_int () =
+  match%bind peek () with
+  | Some (Token.Minus, _) ->
+    let%bind (_ : Pos.t) = expect Token.Minus in
+    let%map value = lit () in
+    Int64.(neg (of_int value))
+  | _ ->
+    let%map value = lit () in
+    Int64.of_int value
+;;
+
+let rec parse_global_init () =
+  match%bind peek () with
+  | Some (Token.Ident word, _) when String.Caseless.equal word "zero" ->
+    let%map (_ : string) = ident () in
+    Global.Zero
+  | Some (Token.L_paren, _) ->
+    let%bind (_ : Pos.t) = expect Token.L_paren in
+    let%bind elements =
+      delimited0 ~delimiter:(expect Token.Comma) (parse_global_init ())
+    in
+    let%map (_ : Pos.t) = expect Token.R_paren in
+    Global.Aggregate elements
+  | Some (Token.Minus, _) ->
+    let%bind (_ : Pos.t) = expect Token.Minus in
+    (match%bind next () with
+     | Token.Int i, _ -> return (Global.Int (Int64.(neg (of_int i))))
+     | Token.Float f, _ -> return (Global.Float (-.f))
+     | tok, pos -> fail (`Unexpected_token (tok, pos)))
+  | Some (Token.Float _, _) ->
+    (match%bind next () with
+     | Token.Float f, _ -> return (Global.Float f)
+     | tok, pos -> fail (`Unexpected_token (tok, pos)))
+  | _ ->
+    let%map value = parse_signed_int () in
+    Global.Int value
+;;
+
+let validate_global_init global =
+  let type_error msg = fail_type_mismatch "%s" msg in
+  let rec validate type_ init =
+    match type_, init with
+    | Type.Tuple fields, Global.Aggregate values ->
+      if List.length fields <> List.length values
+      then
+        type_error
+          (sprintf
+             "aggregate initializer expects %d fields but got %d"
+             (List.length fields)
+             (List.length values))
+      else
+        List.fold2_exn fields values ~init:(return ()) ~f:(fun acc field init ->
+          let%bind () = acc in
+          validate field init)
+    | Type.Tuple _, Global.Zero -> return ()
+    | Type.Tuple _, _ ->
+      type_error "aggregate globals must be initialized with aggregate or zero"
+    | _, Global.Aggregate _ ->
+      type_error "aggregate initializer requires aggregate global type"
+    | _, Global.Zero -> return ()
+    | _, Global.Int value ->
+      if Type.is_integer type_
+      then return ()
+      else if Type.is_ptr type_
+      then
+        if Int64.(value = 0L)
+        then return ()
+        else type_error "pointer globals can only be initialized to zero"
+      else type_error "integer initializer requires integer or pointer global"
+    | _, Global.Float _ ->
+      if Type.is_float type_
+      then return ()
+      else type_error "float initializer requires f32 or f64 global"
+  in
+  validate global.Global.type_ global.Global.init
+;;
+
 let lit_or_var () =
   match%bind peek () with
   | Some (Token.Int _, _) ->
@@ -170,9 +270,24 @@ let lit_or_var () =
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     Ir.Lit_or_var.Var v
+  | Some (Token.At, _) ->
+    let%bind name = global_name () in
+    let%map global = ensure_global name in
+    Ir.Lit_or_var.Global global
   | Some (tok, _) when is_sizeof_token tok -> parse_sizeof_literal ()
   | Some (tok, pos) -> fail (`Unexpected_token (tok, pos))
   | None -> fail `Unexpected_end_of_input
+;;
+
+let mem_operand () =
+  match%bind peek () with
+  | Some (Token.At, _) ->
+    let%bind name = global_name () in
+    let%map global = ensure_global name in
+    Ir.Mem.Global global
+  | _ ->
+    let%map base = lit_or_var () in
+    mem_of_lit_or_var base
 ;;
 
 let lit_or_var_or_ident () =
@@ -183,6 +298,10 @@ let lit_or_var_or_ident () =
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
     `Lit_or_var (Ir.Lit_or_var.Var v)
+  | Some (Token.At, _) ->
+    let%bind name = global_name () in
+    let%map global = ensure_global name in
+    `Lit_or_var (Ir.Lit_or_var.Global global)
   | Some (tok, _) when is_sizeof_token tok ->
     let%map lit = parse_sizeof_literal () in
     `Lit_or_var lit
@@ -276,13 +395,13 @@ let instr' = function
   | "load" ->
     let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
-    let%map src = lit_or_var () in
-    [ Ir.load dest (mem_of_lit_or_var src) ]
+    let%map src = mem_operand () in
+    [ Ir.load dest src ]
   | "store" ->
-    let%bind mem = var_use () in
+    let%bind mem = mem_operand () in
     let%bind (_ : Pos.t) = comma () in
     let%map src = lit_or_var () in
-    [ Ir.store src (mem_of_lit_or_var (Ir.Lit_or_var.Var mem)) ]
+    [ Ir.store src mem ]
   | "add" ->
     let%map a = arith () in
     [ Ir.add a ]
@@ -324,45 +443,28 @@ let instr' = function
   | "load_field" ->
     let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in
-    let%bind base = var_use () in
+    let%bind base = lit_or_var () in
     let%bind (_ : Pos.t) = comma () in
     let%bind type_ = parse_type_expr () in
     let%bind (_ : Pos.t) = comma () in
     let%map indices = parse_field_indices () in
-    [ Ir.load_field
-        { dest
-        ; base = Ir.Lit_or_var.Var base
-        ; type_
-        ; indices
-        }
-    ]
+    [ Ir.load_field { dest; base; type_; indices } ]
   | "store_field" ->
-    let%bind base = var_use () in
+    let%bind base = lit_or_var () in
     let%bind (_ : Pos.t) = comma () in
     let%bind src = lit_or_var () in
     let%bind (_ : Pos.t) = comma () in
     let%bind type_ = parse_type_expr () in
     let%bind (_ : Pos.t) = comma () in
     let%map indices = parse_field_indices () in
-    [ Ir.store_field
-        { base = Ir.Lit_or_var.Var base
-        ; src
-        ; type_
-        ; indices
-        }
-    ]
+    [ Ir.store_field { base; src; type_; indices } ]
   | "memcpy" ->
-    let%bind dest = var_use () in
+    let%bind dest = lit_or_var () in
     let%bind (_ : Pos.t) = comma () in
-    let%bind src = var_use () in
+    let%bind src = lit_or_var () in
     let%bind (_ : Pos.t) = comma () in
     let%map type_ = parse_type_expr () in
-    [ Ir.memcpy
-        { dest = Ir.Lit_or_var.Var dest
-        ; src = Ir.Lit_or_var.Var src
-        ; type_
-        }
-    ]
+    [ Ir.memcpy { dest; src; type_ } ]
   | "call" ->
     let%bind fn = ident () in
     let%bind (_ : Pos.t) = expect Token.L_paren in
@@ -447,24 +549,62 @@ let function_parser_with_reset () =
   let%bind func = function_parser () in
   (* Reset state after parsing each function for the next one *)
   let%bind () =
+    let%bind state = get_state () in
     set_state
-      { State.instrs_by_label = String.Map.empty
-      ; State.labels = Vec.create ()
-      ; State.current_block = "%root"
-      ; State.current_instrs = Vec.create ()
-      ; State.var_types = String.Table.create ()
+      { state with
+        State.instrs_by_label = String.Map.empty
+      ; labels = Vec.create ()
+      ; current_block = "%root"
+      ; current_instrs = Vec.create ()
+      ; var_types = String.Table.create ()
       }
   in
   return func
 ;;
 
+let parse_global_decl () =
+  let%bind keyword = ident () in
+  if not (String.Caseless.equal keyword "global")
+  then fail (`Unexpected_token (Token.Ident keyword, Pos.create ~file:""))
+  else (
+    let%bind name = global_name () in
+    let%bind (_ : Pos.t) = expect Token.Colon in
+    let%bind type_ = parse_type_expr () in
+    let%bind init =
+      match%bind peek () with
+      | Some (Token.Equal, _) ->
+        let%bind (_ : Pos.t) = expect Token.Equal in
+        parse_global_init ()
+      | _ -> return Global.Zero
+    in
+    let global = { Global.name; type_; init } in
+    let%bind () = validate_global_init global in
+    let%map () = record_global global in
+    global)
+;;
+
 let program_parser () =
-  exhaust (function_parser_with_reset ())
-  >>| String.Map.of_list_with_key_exn ~get_key:Function.name
+  let%bind globals =
+    let rec gather acc =
+      match%bind peek () with
+      | Some (Token.Ident "global", _)
+      | Some (Token.Ident "GLOBAL", _) ->
+        let%bind global = parse_global_decl () in
+        gather (global :: acc)
+      | _ -> return (List.rev acc)
+    in
+    gather []
+  in
+  let%map functions =
+    exhaust (function_parser_with_reset ())
+    >>| String.Map.of_list_with_key_exn ~get_key:Function.name
+  in
+  { Program.globals; functions }
 ;;
 
 let parser () : (output, Pos.t, State.t, _) Parser_comb.parser =
-  assume_root () <|> program_parser ()
+  (assume_root () >>| fun functions -> { Program.globals = []; functions })
+  <|> program_parser ()
 ;;
 
 let parse_string s =
