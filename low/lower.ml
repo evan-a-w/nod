@@ -136,10 +136,11 @@ let rec type_equal a b =
 ;;
 
 let core_type_of struct_env =
-  let go = function
+  let rec go = function
     | Ast.I64 -> Ok Type.I64
     | Ast.F64 -> Ok Type.F64
-    | Ast.Ptr _ -> Ok Type.Ptr
+    | Ast.Ptr inner ->
+      Result.map (go inner) ~f:(fun inner_core -> Type.Ptr_typed inner_core)
     | Ast.Struct name ->
       (match Map.find struct_env name with
        | None -> Error (`Unknown_struct name)
@@ -147,6 +148,8 @@ let core_type_of struct_env =
   in
   go
 ;;
+
+let ptr_core_type_of struct_env type_ = core_type_of struct_env (Ast.Ptr type_)
 
 let fresh_name ctx prefix =
   let rec loop () =
@@ -208,7 +211,8 @@ let declare_struct_local ctx name type_ =
   let open Result.Let_syntax in
   let%bind core = core_type_of ctx.struct_env type_ in
   let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
-  let ptr_var = Var.create ~name ~type_:Type.Ptr in
+  let%bind ptr_type = ptr_core_type_of ctx.struct_env type_ in
+  let ptr_var = Var.create ~name ~type_:ptr_type in
   let%bind () = emit ctx.builder (Ir.alloca { dest = ptr_var; size }) in
   add_binding ctx name (Struct { type_; ptr = Ir.Lit_or_var.Var ptr_var })
 ;;
@@ -371,20 +375,22 @@ let rec lower_expr ctx expr =
          emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.F64 }
-     | (Ast.Add | Ast.Sub), Ast.Ptr inner, Ast.I64 ->
-       let dest = fresh_temp ctx ~type_:Type.Ptr in
-       let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
-       let%bind () =
-         emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
-       in
-       Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
-     | (Ast.Add | Ast.Sub), Ast.I64, Ast.Ptr inner ->
-       let dest = fresh_temp ctx ~type_:Type.Ptr in
-       let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
-       let%bind () =
-         emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
-       in
-       Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
+    | (Ast.Add | Ast.Sub), Ast.Ptr inner, Ast.I64 ->
+      let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
+      let dest = fresh_temp ctx ~type_:dest_type in
+      let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
+      let%bind () =
+        emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
+      in
+      Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
+    | (Ast.Add | Ast.Sub), Ast.I64, Ast.Ptr inner ->
+      let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
+      let dest = fresh_temp ctx ~type_:dest_type in
+      let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
+      let%bind () =
+        emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
+      in
+      Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
      | Ast.Sub, Ast.Ptr _, Ast.Ptr _ ->
        let dest = fresh_temp ctx ~type_:Type.I64 in
        let%bind () =
@@ -407,7 +413,10 @@ let rec lower_expr ctx expr =
         | Ast.Struct _ ->
           let%bind core = core_type_of ctx.struct_env sig_.return_type in
           let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
-          let dest = fresh_temp ctx ~type_:Type.Ptr in
+          let%bind dest_type =
+            ptr_core_type_of ctx.struct_env sig_.return_type
+          in
+          let dest = fresh_temp ctx ~type_:dest_type in
           let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
           let%bind () =
             emit
@@ -433,7 +442,8 @@ let rec lower_expr ctx expr =
      | Field { base; struct_name; indices; field_type } ->
        (match field_type with
         | Ast.Struct _ ->
-          let dest = fresh_temp ctx ~type_:Type.Ptr in
+          let%bind dest_type = ptr_core_type_of ctx.struct_env field_type in
+          let dest = fresh_temp ctx ~type_:dest_type in
           let%bind () =
             emit
               ctx.builder
@@ -463,7 +473,8 @@ let rec lower_expr ctx expr =
   | Ast.Alloca type_ ->
     let%bind core = core_type_of ctx.struct_env type_ in
     let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
-    let dest = fresh_temp ctx ~type_:Type.Ptr in
+    let%bind dest_type = ptr_core_type_of ctx.struct_env type_ in
+    let dest = fresh_temp ctx ~type_:dest_type in
     let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
     Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr type_ }
   | Ast.Cast (dest_type, expr) ->
@@ -507,7 +518,8 @@ and lower_call_args ctx param_types arg_exprs =
           let size =
             Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
           in
-          let dest = fresh_temp ctx ~type_:Type.Ptr in
+          let%bind dest_type = ptr_core_type_of ctx.struct_env param in
+          let dest = fresh_temp ctx ~type_:dest_type in
           let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
           let%bind () =
             emit
@@ -738,13 +750,16 @@ let rec lower_stmt ctx stmt =
         | None -> Error (`Unknown_function name)
         | Some sig_ ->
           let%bind arg_operands = lower_call_args ctx sig_.args args in
-          (match sig_.return_type with
-           | Ast.Struct _ ->
+           (match sig_.return_type with
+            | Ast.Struct _ ->
              let%bind core = core_type_of ctx.struct_env sig_.return_type in
              let size =
                Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
              in
-             let dest = fresh_temp ctx ~type_:Type.Ptr in
+             let%bind dest_type =
+               ptr_core_type_of ctx.struct_env sig_.return_type
+             in
+             let dest = fresh_temp ctx ~type_:dest_type in
              let%bind () = emit ctx.builder (Ir.alloca { dest; size }) in
              emit
                ctx.builder
@@ -886,7 +901,12 @@ let build_struct_env defs =
   and core_type_of_type visiting = function
     | Ast.I64 -> Ok Type.I64
     | Ast.F64 -> Ok Type.F64
-    | Ast.Ptr _ -> Ok Type.Ptr
+    | Ast.Ptr inner ->
+      (match inner with
+       | Ast.Struct name when Set.mem visiting name -> Ok Type.Ptr
+       | _ ->
+         let%map inner_core = core_type_of_type visiting inner in
+         Type.Ptr_typed inner_core)
     | Ast.Struct name -> core_type_of_struct visiting name
   in
   List.fold (Map.to_alist base) ~init:(Ok String.Map.empty) ~f:(fun acc (name, fields) ->
@@ -927,21 +947,23 @@ let lower_function struct_env fn_env (func : Ast.func) =
       let%bind () = acc in
       match param.Ast.type_ with
       | Ast.Struct _ ->
-        let ptr_var = Var.create ~name:param.name ~type_:Type.Ptr in
+        let%bind ptr_type = ptr_core_type_of struct_env param.type_ in
+        let ptr_var = Var.create ~name:param.name ~type_:ptr_type in
         add_binding
           ctx
           param.name
           (Struct { type_ = param.type_; ptr = Ir.Lit_or_var.Var ptr_var })
       | _ -> declare_scalar ctx param.name param.type_)
   in
-  let return_arg =
+  let%bind return_arg =
     match func.Ast.return_type with
     | Ast.Struct _ ->
       let name = fresh_name ctx "__ret" in
-      let ret_var = Var.create ~name ~type_:Type.Ptr in
+      let%map ptr_type = ptr_core_type_of struct_env func.Ast.return_type in
+      let ret_var = Var.create ~name ~type_:ptr_type in
       ctx.return_slot <- Some (Ir.Lit_or_var.Var ret_var);
       Some ret_var
-    | _ -> None
+    | _ -> Ok None
   in
   let%bind () = lower_block ctx func.body in
   let%bind () = finish_builder builder in
@@ -950,8 +972,8 @@ let lower_function struct_env fn_env (func : Ast.func) =
       (List.map func.params ~f:(fun param ->
          match param.Ast.type_ with
          | Ast.Struct _ ->
-           let ptr_type = Type.Ptr in
-           Ok (Var.create ~name:param.name ~type_:ptr_type)
+           let%map ptr_type = ptr_core_type_of struct_env param.type_ in
+           Var.create ~name:param.name ~type_:ptr_type
          | _ ->
            let%map core_type = core_type_of struct_env param.type_ in
            Var.create ~name:param.name ~type_:core_type))

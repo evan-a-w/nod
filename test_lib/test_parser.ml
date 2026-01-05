@@ -112,6 +112,29 @@ ret %ptr
     |}]
 ;;
 
+let%expect_test "typed ptr parses" =
+  {|
+alloca %buf:ptr(i64), 8
+ret %buf
+|}
+  |> test;
+  [%expect
+    {|
+    ((root
+      ((call_conv Default)
+       (root
+        ((~instrs_by_label
+          ((%root
+            ((Alloca
+              ((dest ((name buf) (type_ (Ptr_typed I64)))) (size (Lit 8))))
+             (Return (Var ((name buf) (type_ (Ptr_typed I64)))))))))
+         (~labels (%root))))
+       (args ()) (name root) (prologue ()) (epilogue ())
+       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+       (bytes_statically_alloca'd 0))))
+    |}]
+;;
+
 let%expect_test "call parses" =
   {|
 call bar(%a:i64, 7) -> (%r0:i64, %r1:i64)
