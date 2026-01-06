@@ -20,6 +20,7 @@ module Function0 = Nod_core.Function0
 module Import = Nod_core.Import
 module Ir = Nod_core.Ir
 module Ir0 = Nod_core.Ir0
+module Program = Nod_core.Program
 module Ssa = Nod_core.Ssa
 module Var = Nod_core.Var
 module X86_ir = Nod_core.X86_ir
@@ -138,11 +139,12 @@ let use_qemu_arm64 =
 let compile_and_lower_functions
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
+  ?(globals = [])
   functions
   =
   match arch with
-  | `X86_64 -> X86_backend.compile_to_asm ~system functions
-  | `Arm64 -> Arm64_backend.compile_to_asm ~system functions
+  | `X86_64 -> X86_backend.compile_to_asm ~system ~globals functions
+  | `Arm64 -> Arm64_backend.compile_to_asm ~system ~globals functions
   | `Other -> failwith "unsupported target architecture"
 ;;
 
@@ -153,10 +155,14 @@ type lowered_items =
 let compile_and_lower_functions_to_items
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
+  ?(globals = [])
   functions
   =
+  if not (List.is_empty globals)
+  then failwith "globals are not supported in item lowering";
   match arch with
-  | `X86_64 -> X86_backend.compile_to_items ~system functions |> fun items -> X86 items
+  | `X86_64 ->
+    X86_backend.compile_to_items ~system functions |> fun items -> X86 items
   | `Arm64 ->
     Arm64_backend.compile_to_items ~system functions |> fun items -> Arm64 items
   | `Other -> failwith "unsupported target architecture"
@@ -171,7 +177,12 @@ let compile_and_lower
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok functions -> compile_and_lower_functions ~arch ~system functions
+  | Ok program ->
+    compile_and_lower_functions
+      ~arch
+      ~system
+      ~globals:program.Program.globals
+      program.Program.functions
 ;;
 
 let compile_and_lower_items
@@ -183,8 +194,12 @@ let compile_and_lower_items
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok functions ->
-    compile_and_lower_functions_to_items ~arch ~system functions
+  | Ok program ->
+    compile_and_lower_functions_to_items
+      ~arch
+      ~system
+      ~globals:program.Program.globals
+      program.Program.functions
 ;;
 
 type jit_module = X86_jit.Module.t
@@ -199,8 +214,10 @@ let compile_and_jit_x86
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok functions ->
-    X86_jit.compile ?dump_crap ?externals ~system functions
+  | Ok program ->
+    if not (List.is_empty program.Program.globals)
+    then failwith "globals are not supported in the x86 jit";
+    X86_jit.compile ?dump_crap ?externals ~system program.Program.functions
 ;;
 
 let qemu_aarch64_ld_prefix =

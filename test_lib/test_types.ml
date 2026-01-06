@@ -5,8 +5,8 @@ let test s =
   s
   |> Parser.parse_string
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
-  |> Result.bind ~f:(fun fns ->
-    Map.fold fns ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
+  |> Result.bind ~f:(fun program ->
+    Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
       let%bind.Result () = acc in
       let { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } = data in
       Vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->

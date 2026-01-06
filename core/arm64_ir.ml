@@ -15,6 +15,7 @@ module Jump_target = struct
     | Reg of Reg.t
     | Imm of Int64.t
     | Symbol of Symbol.t
+    | Label of string
   [@@deriving sexp, equal, compare, hash]
 end
 
@@ -174,7 +175,7 @@ let fold_operand op ~f ~init = f init op
 let fold_jump_target target ~f ~init =
   match target with
   | Jump_target.Reg reg -> fold_operand (Reg reg) ~f ~init
-  | Jump_target.Imm _ | Jump_target.Symbol _ -> init
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> init
 ;;
 
 let rec fold_operands ins ~f ~init =
@@ -238,7 +239,7 @@ let map_reg (reg : Reg.t) ~f =
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
-  | Jump_target.Imm _ | Jump_target.Symbol _ -> target
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> target
 ;;
 
 let map_var_operand op ~f =
@@ -350,7 +351,7 @@ let regs_of_operand = function
 
 let regs_of_jump_target = function
   | Jump_target.Reg r -> Reg.Set.singleton r
-  | Jump_target.Imm _ | Jump_target.Symbol _ -> Reg.Set.empty
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> Reg.Set.empty
 ;;
 
 let rec reg_defs ins : Reg.Set.t =
@@ -558,7 +559,7 @@ let rec map_operands t ~f =
     let target =
       match target with
       | Jump_target.Reg r -> Jump_target.Reg (map_reg_operand r)
-      | Jump_target.Imm _ | Jump_target.Symbol _ -> target
+      | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> target
     in
     Adr { dst = map_reg_operand dst; target }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
@@ -671,7 +672,8 @@ module For_backend = struct
     in
     let map_jump_target = function
       | Jump_target.Reg r -> Jump_target.Reg (map_reg r)
-      | (Jump_target.Imm _ | Jump_target.Symbol _) as t -> t
+      | (Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _) as t ->
+        t
     in
     let map_cb cb = cb in
     match t with

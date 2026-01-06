@@ -10,22 +10,22 @@ let test ?don't_opt s =
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok fns ->
-    let go fns =
-      Map.iter fns ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+  | Ok program ->
+    let go program =
+      Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
         Vec.iter ssa.in_order ~f:(fun block ->
           let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
           print_s
             [%message
               block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
     in
-    go fns;
+    go program;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize fns;
-       go fns)
+       Eir.optimize program;
+       go program)
 ;;
 
 let%expect_test "funs" =
@@ -47,8 +47,8 @@ let%expect_test "funs" =
 let%expect_test "eir compile with args" =
   match Eir.compile {| a(%x:i64, %y:i64) {add %z:i64, %x, %y return %z} |} with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok fns ->
-    Map.iter fns ~f:(fun { Function.root = block; _ } ->
+  | Ok program ->
+    Map.iter program.Program.functions ~f:(fun { Function.root = block; _ } ->
       let instrs = Vec.to_list block.Block.instructions @ [ block.terminal ] in
       print_s
         [%message

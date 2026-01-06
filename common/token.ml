@@ -20,6 +20,7 @@ type t =
   | Greater
   | Greater_equal
   | Percent
+  | At
   | Arrow
   | Colon
   | Semi_colon

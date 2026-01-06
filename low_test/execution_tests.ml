@@ -6,20 +6,24 @@ let compile_low source =
   | Error err -> Error (Nod_low.Error.to_string err)
   | Ok eir ->
     (match Nod.Eir.compile_parsed (Ok eir) with
-     | Ok functions -> Ok functions
+     | Ok program -> Ok program
      | Error err -> Error (Nod.Nod_error.to_string err))
 ;;
 
 let check_low_program ?harness source expected =
   List.iter test_architectures ~f:(function
     | (`X86_64 | `Arm64) as arch ->
-      let functions =
+      let program =
         match compile_low source with
         | Error err -> failwith err
-        | Ok functions -> functions
+        | Ok program -> program
       in
       let asm =
-        Nod.compile_and_lower_functions ~arch ~system:host_system functions
+        Nod.compile_and_lower_functions
+          ~arch
+          ~system:host_system
+          ~globals:program.Program.globals
+          program.Program.functions
       in
       let output = Nod.execute_asm ~arch ~system:host_system ?harness asm in
       if not (String.equal output expected)

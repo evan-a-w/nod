@@ -19,12 +19,14 @@ let compile ?dump_crap (functions : Function.t String.Map.t) =
   |> Save_clobbers.process
 ;;
 
-let compile_to_asm ~system ?dump_crap functions =
-  compile ?dump_crap functions |> Lower.run ~system
+let compile_to_asm ~system ?dump_crap ?(globals = []) functions =
+  compile ?dump_crap functions |> Lower.run ~system ~globals
 ;;
 
-let compile_to_items ~system ?dump_crap functions =
-  compile ?dump_crap functions |> Lower.lower_to_items ~system
+let compile_to_items ~system ?dump_crap ?(globals = []) functions =
+  if not (List.is_empty globals)
+  then failwith "globals are not supported in item lowering"
+  else compile ?dump_crap functions |> Lower.lower_to_items ~system
 ;;
 
 module For_testing = struct
