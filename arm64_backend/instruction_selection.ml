@@ -48,6 +48,7 @@ let type_of_class = function
 let class_of_lit_or_var t = function
   | Ir.Lit_or_var.Lit _ -> Class.I64
   | Ir.Lit_or_var.Var v -> class_of_var t v
+  | Ir.Lit_or_var.Global _ -> Class.I64
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
@@ -68,10 +69,16 @@ let lower_aggregates_exn (fn : Function.t) =
 
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
-  | Ir.Lit_or_var.Lit l -> Imm l
+  | Ir.Lit_or_var.Lit l -> [], Imm l
   | Ir.Lit_or_var.Var v ->
     require_class t v class_;
-    Reg (Reg.unallocated ~class_ v)
+    [], Reg (Reg.unallocated ~class_ v)
+  | Ir.Lit_or_var.Global g ->
+    if not (Class.equal class_ Class.I64)
+    then failwith "global addresses are only supported in integer contexts";
+    let tmp = fresh_var t "global_addr" in
+    let reg = Reg.unallocated ~class_:Class.I64 tmp in
+    [ Adr { dst = reg; target = Jump_target.Label g.Global.name } ], Reg reg
 ;;
 
 let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
@@ -80,26 +87,43 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   let float_operand = operand_of_lit_or_var t ~class_:Class.F64 in
   let make_int_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.I64;
-    [ Int_binary
-        { op
-        ; dst = reg_of_var t dest
-        ; lhs = int_operand src1
-        ; rhs = int_operand src2
-        }
-    ]
+    let pre1, lhs = int_operand src1 in
+    let pre2, rhs = int_operand src2 in
+    pre1
+    @ pre2
+    @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.F64;
-    [ Float_binary
-        { op
-        ; dst = reg_of_var t dest
-        ; lhs = float_operand src1
-        ; rhs = float_operand src2
-        }
-    ]
+    let pre1, lhs = float_operand src1 in
+    let pre2, rhs = float_operand src2 in
+    pre1
+    @ pre2
+    @ [ Float_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let cmp_zero cond =
-    Comp { kind = Comp_kind.Int; lhs = int_operand cond; rhs = Imm Int64.zero }
+    let pre, lhs = int_operand cond in
+    pre @ [ Comp { kind = Comp_kind.Int; lhs; rhs = Imm Int64.zero } ]
+  in
+  let rec mem_operand mem =
+    match mem with
+    | Ir.Mem.Global global ->
+      mem_operand (Ir.Mem.address (Ir.Lit_or_var.Global global))
+    | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_arm64_ir_operand mem
+    | Ir.Mem.Address { base; offset } ->
+      let pre_base, base_op = int_operand base in
+      let pre_addr, base_reg =
+        match base_op with
+        | Reg reg -> pre_base, reg
+        | Imm _ ->
+          let tmp =
+            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+          in
+          pre_base @ [ Move { dst = tmp; src = base_op } ], tmp
+        | Mem _ | Spill_slot _ ->
+          failwith "unexpected operand in address computation"
+      in
+      pre_addr, Mem (base_reg, offset)
   in
   match ir with
   | Arm64 x -> [ x ]
@@ -121,59 +145,40 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   | Fdiv arith -> make_float_arith Float_op.Fdiv arith
   | Return lit_or_var ->
     let class_ = class_of_lit_or_var t lit_or_var in
-    [ Ret [ operand_of_lit_or_var t ~class_ lit_or_var ] ]
+    let pre, op = operand_of_lit_or_var t ~class_ lit_or_var in
+    pre @ [ Ret [ op ] ]
   | Move (v, lit_or_var) ->
     let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
     require_class t v class_;
-    let src = operand_of_lit_or_var t ~class_ lit_or_var in
-    [ Move { dst = reg_of_var t v; src } ]
+    let pre, src = operand_of_lit_or_var t ~class_ lit_or_var in
+    pre @ [ Move { dst = reg_of_var t v; src } ]
   | Cast (dest, src) ->
     let dest_type = Var.type_ dest in
     let src_type =
       match src with
       | Ir.Lit_or_var.Var v -> Var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64
+      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.Global.type_
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
     require_class t dest dest_class;
     let dst = reg_of_var t dest in
-    let src_op = operand_of_lit_or_var t ~class_:src_class src in
+    let pre, src_op = operand_of_lit_or_var t ~class_:src_class src in
     (match src_class, dest_class with
      | Class.I64, Class.F64 ->
-       [ Convert { op = Convert_op.Int_to_float; dst; src = src_op } ]
+       pre @ [ Convert { op = Convert_op.Int_to_float; dst; src = src_op } ]
      | Class.F64, Class.I64 ->
-       [ Convert { op = Convert_op.Float_to_int; dst; src = src_op } ]
-     | _ -> [ Move { dst; src = src_op } ])
+       pre @ [ Convert { op = Convert_op.Float_to_int; dst; src = src_op } ]
+     | _ -> pre @ [ Move { dst; src = src_op } ])
   | Load (v, mem) ->
     require_class t v Class.I64;
-    let prelude, addr =
-      match mem with
-      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_arm64_ir_operand mem
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
-        let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, offset)
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp =
-          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
-        in
-        [ Move { dst = tmp; src = Imm addr } ], Mem (tmp, offset)
-    in
+    let prelude, addr = mem_operand mem in
     prelude @ [ Load { dst = reg_of_var t v; addr } ]
   | Store (lit_or_var, mem) ->
-    let prelude, addr =
-      match mem with
-      | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_arm64_ir_operand mem
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Var v; offset } ->
-        let base = Reg.allocated ~class_:Class.I64 v None in
-        [], Mem (base, offset)
-      | Ir.Mem.Address { base = Ir.Lit_or_var.Lit addr; offset } ->
-        let tmp =
-          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
-        in
-        [ Move { dst = tmp; src = Imm addr } ], Mem (tmp, offset)
-    in
-    prelude @ [ Store { src = int_operand lit_or_var; addr } ]
+    let pre_mem, addr = mem_operand mem in
+    let pre_val, src = int_operand lit_or_var in
+    pre_mem @ pre_val @ [ Store { src; addr } ]
   | Call { fn; results; args } ->
     assert (Call_conv.(equal (call_conv ~fn) default));
     let gp_arg_regs =
@@ -200,12 +205,13 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let reg_arg_moves, call_args =
       List.map args ~f:(fun arg ->
         let class_ = class_of_lit_or_var t arg in
-        let operand = operand_of_lit_or_var t ~class_ arg in
+        let pre, operand = operand_of_lit_or_var t ~class_ arg in
         let reg = take_arg_reg class_ in
         let forced = Reg.allocated ~class_ (fresh_var t "arg_reg") (Some reg) in
-        Move { dst = forced; src = operand }, operand)
+        pre @ [ Move { dst = forced; src = operand } ], operand)
       |> List.unzip
     in
+    let reg_arg_moves = List.concat reg_arg_moves in
     let gp_result_regs =
       ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64)
     in
@@ -254,12 +260,15 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         }
     ; Move { dst = reg_of_var t dest; src = Reg Reg.sp }
     ]
+  | Alloca { size = Ir.Lit_or_var.Global _; _ } ->
+    failwith "alloca size must be a literal or variable"
   | Branch (Uncond cb) -> [ Jump cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
-    [ cmp_zero cond
-    ; Conditional_branch
-        { condition = Condition.Ne; then_ = if_true; else_ = Some if_false }
-    ]
+    let cmp_instrs = cmp_zero cond in
+    cmp_instrs
+    @ [ Conditional_branch
+          { condition = Condition.Ne; then_ = if_true; else_ = Some if_false }
+      ]
 ;;
 
 let get_fn = fn

@@ -55,8 +55,7 @@ end
 
 type input =
   ( (instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t)
-      Function0.t'
-      String.Map.t
+      Program.t
     , Nod_error.t )
     Result.t
 
@@ -390,7 +389,8 @@ module Opt = struct
            | None ->
              (* var can be inactive if it is constant *)
              assert opt_var.active;
-             lit_or_var))
+             lit_or_var)
+        | Global _ -> lit_or_var)
     in
     Ir.constant_fold instr
   ;;
@@ -514,15 +514,13 @@ module Opt = struct
   ;;
 end
 
-let map_function_roots ~f functions =
-  Map.map ~f:(Function.map_root ~f) functions
-;;
+let map_program_roots ~f program = Program.map_function_roots program ~f
 
-let set_entry_block_args functions =
-  Map.iter functions ~f:(fun { Function.root = root_data; args; _ } ->
+let set_entry_block_args program =
+  Map.iter program.Program.functions ~f:(fun { Function.root = root_data; args; _ } ->
     let ~root:block, ~blocks:_, ~in_order:_ = root_data in
     List.iter args ~f:(Vec.push block.Block.args));
-  functions
+  program
 ;;
 
 let type_check_block block =
@@ -551,20 +549,20 @@ let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
   go root
 ;;
 
-let type_check_functions functions =
-  Map.fold functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
+let type_check_program program =
+  Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
     let open Result.Let_syntax in
     let%bind () = acc in
     type_check_cfg fn.Function.root)
 ;;
 
-let lower_aggregate_functions functions =
-  Map.fold functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
+let lower_aggregate_program program =
+  Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
     let open Result.Let_syntax in
     let%bind () = acc in
     let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
     Ir.lower_aggregates ~root:block)
-  |> Result.map ~f:(fun () -> functions)
+  |> Result.map ~f:(fun () -> program)
 ;;
 
 let optimize_root ?(opt_flags = Opt_flags.default) ssa =
@@ -572,23 +570,23 @@ let optimize_root ?(opt_flags = Opt_flags.default) ssa =
   Opt.run opt_state
 ;;
 
-let optimize ?opt_flags functions =
+let optimize ?opt_flags program =
   Map.iter
     ~f:(fun ({ root; _ } : _ Function.t') -> optimize_root ?opt_flags root)
-    functions
+    program.Program.functions
 ;;
 
 let compile ?opt_flags (input : input) =
   match
-    Result.map input ~f:(map_function_roots ~f:Cfg.process)
+    Result.map input ~f:(map_program_roots ~f:Cfg.process)
     |> Result.map ~f:set_entry_block_args
-    |> Result.bind ~f:(fun functions ->
-      type_check_functions functions |> Result.map ~f:(fun () -> functions))
-    |> Result.bind ~f:lower_aggregate_functions
-    |> Result.map ~f:(map_function_roots ~f:Ssa.create)
+    |> Result.bind ~f:(fun program ->
+      type_check_program program |> Result.map ~f:(fun () -> program))
+    |> Result.bind ~f:lower_aggregate_program
+    |> Result.map ~f:(map_program_roots ~f:Ssa.create)
   with
   | Error _ as e -> e
-  | Ok functions ->
-    optimize ?opt_flags functions;
-    Ok (map_function_roots ~f:Ssa.root functions)
+  | Ok program ->
+    optimize ?opt_flags program;
+    Ok (map_program_roots ~f:Ssa.root program)
 ;;

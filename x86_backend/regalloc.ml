@@ -292,7 +292,7 @@ let replace_regs
             |> (* safe because we enforce no spills on the mem regs *)
             reg_of_operand_exn
           , offset )
-      | (Imm _ | Spill_slot _) as t -> t)
+      | (Imm _ | Spill_slot _ | Symbol _) as t -> t)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in

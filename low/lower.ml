@@ -278,7 +278,7 @@ let float_literal_to_value ctx f =
     Ok { operand = Ir.Lit_or_var.Var tmp; type_ = Ast.F64 })
 ;;
 
-let rec lower_expr ctx expr =
+let rec lower_expr ctx (expr : Ast.expr) =
   let open Result.Let_syntax in
   match expr with
   | Ast.Int i -> Ok { operand = Ir.Lit_or_var.Lit i; type_ = Ast.I64 }
@@ -876,7 +876,7 @@ and lower_block ctx stmts =
     lower_stmt ctx stmt)
 ;;
 
-let build_struct_env defs =
+let build_struct_env (defs : Ast.struct_def list) =
   let open Result.Let_syntax in
   let%bind base =
     List.fold defs ~init:(Ok String.Map.empty) ~f:(fun acc def ->
@@ -999,5 +999,5 @@ let lower_program (program : Ast.program) =
     String.Map.of_alist_exn
       (List.map functions ~f:(fun fn -> Function0.name fn, fn))
   in
-  Ok map
+  Ok { Program.globals = []; functions = map }
 ;;

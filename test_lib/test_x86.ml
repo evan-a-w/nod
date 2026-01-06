@@ -4,7 +4,8 @@ open! Import
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok program ->
+    let functions = program.Program.functions in
     print_s
       [%sexp
         (Map.data functions |> List.map ~f:Function.to_sexp_verbose
@@ -23,7 +24,8 @@ let test_program ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) fragments =
       | Ok functions ->
         (match Eir.compile ~opt_flags fragment with
          | Error _ as e -> e
-         | Ok new_functions ->
+         | Ok new_program ->
+           let new_functions = new_program.Program.functions in
            let merged =
              Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
                Map.set acc ~key ~data)

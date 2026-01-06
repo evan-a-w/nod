@@ -1,8 +1,8 @@
 open! Core
 open! Import
 
-let map_function_roots ~f functions =
-  Map.map ~f:(Function.map_root ~f) functions
+let map_function_roots ~f program =
+  Program.map_function_roots program ~f
 ;;
 
 let test_cfg s =
@@ -11,9 +11,9 @@ let test_cfg s =
   |> Result.map ~f:(map_function_roots ~f:Cfg.process)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok fns ->
+  | Ok program ->
     Map.iter
-      fns
+      program.Program.functions
       ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
@@ -31,22 +31,22 @@ let test_ssa ?don't_opt s =
   |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok fns ->
-    let go fns =
-      Map.iter fns ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+  | Ok program ->
+    let go program =
+      Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
         Vec.iter ssa.in_order ~f:(fun block ->
           let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
           print_s
             [%message
               block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
     in
-    go fns;
+    go program;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize fns;
-       go fns)
+       Eir.optimize program;
+       go program)
 ;;
 
 let assert_execution
@@ -387,15 +387,15 @@ let system = `Darwin
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok program ->
     (match arch with
      | `X86_64 ->
-       let x86 = X86_backend.compile ?dump_crap functions in
+       let x86 = X86_backend.compile ?dump_crap program.Program.functions in
        print_s
          [%sexp
            (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
      | `Arm64 ->
-       let arm64 = Arm64_backend.compile ?dump_crap functions in
+       let arm64 = Arm64_backend.compile ?dump_crap program.Program.functions in
        print_s
          [%sexp
            (Map.data arm64 |> List.map ~f:Function.to_sexp_verbose
@@ -417,10 +417,12 @@ let%expect_test "run" =
 let%expect_test "borked regaloc" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok program ->
     (match arch with
-     | `X86_64 -> X86_backend.For_testing.print_assignments functions
-     | `Arm64 -> Arm64_backend.For_testing.print_assignments functions
+     | `X86_64 ->
+       X86_backend.For_testing.print_assignments program.Program.functions
+     | `Arm64 ->
+       Arm64_backend.For_testing.print_assignments program.Program.functions
      | `Other -> failwith "unecpected arch");
     [%expect
       {|
@@ -980,10 +982,12 @@ let%expect_test "debug borked opt x86" =
 let%expect_test "debug borked" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok program ->
     (match arch with
-     | `X86_64 -> X86_backend.For_testing.print_selected_instructions functions
-     | `Arm64 -> Arm64_backend.For_testing.print_selected_instructions functions
+     | `X86_64 ->
+       X86_backend.For_testing.print_selected_instructions program.Program.functions
+     | `Arm64 ->
+       Arm64_backend.For_testing.print_selected_instructions program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
@@ -1111,10 +1115,12 @@ let%expect_test "debug borked" =
 let%expect_test "debug borked opt" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.default borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok program ->
     (match arch with
-     | `X86_64 -> X86_backend.For_testing.print_selected_instructions functions
-     | `Arm64 -> Arm64_backend.For_testing.print_selected_instructions functions
+     | `X86_64 ->
+       X86_backend.For_testing.print_selected_instructions program.Program.functions
+     | `Arm64 ->
+       Arm64_backend.For_testing.print_selected_instructions program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect
       {|

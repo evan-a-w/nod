@@ -6,7 +6,57 @@ let test s =
   |> Parser.parse_string
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok output -> print_s [%sexp (output : Parser.output)]
+  | Ok output ->
+    print_s
+      [%sexp
+        (output.Program.functions
+          : Parser.unprocessed_cfg Function0.t' String.Map.t)]
+;;
+
+let%expect_test "globals parse" =
+  {|
+global @g:i64 = 42
+global @pair:(i64, i64) = (10, 32)
+global @zeros:(i64, i64) = zero
+root() {
+  load %x:i64, @g
+  load_field %y:i64, @pair, (i64, i64), 1
+  add %z:i64, %x, %y
+  ret %z
+}
+|}
+  |> Parser.parse_string
+  |> function
+  | Error e -> Nod_error.to_string e |> print_endline
+  | Ok output -> print_s [%sexp (output.Program.globals : Global.t list)];
+  [%expect
+    {|
+    (((name g) (type_ I64) (init (Int 42)))
+     ((name pair) (type_ (Tuple (I64 I64)))
+      (init (Aggregate ((Int 10) (Int 32)))))
+     ((name zeros) (type_ (Tuple (I64 I64))) (init Zero)))
+    |}]
+;;
+
+let%expect_test "pointer globals require zero init" =
+  {|
+global @p:ptr(i64) = 8
+root() {
+  ret 0
+}
+|}
+  |> Parser.parse_string
+  |> function
+  | Error e ->
+      Nod_error.to_string e |> print_endline;
+      [%expect {|
+        Error: errors in choices `Error: unknown instruction 'global'
+        , Error: type mismatch: pointer globals can only be initialized to zero
+        `
+        |}]
+  | Ok _ ->
+      print_endline "OK";
+      [%expect.unreachable]
 ;;
 
 let%expect_test "simple" =

@@ -170,8 +170,9 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       | `Darwin -> "_"
       | `Linux | `Other -> ""
     in
+    let asm_label name = global_prefix ^ sanitize_identifier name in
     let symbol_of_fn name =
-      let asm_label = global_prefix ^ sanitize_identifier name in
+      let asm_label = asm_label name in
       { Asm.name; asm_label }
     in
     let used_labels = String.Hash_set.create () in
@@ -215,6 +216,12 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       in
       let lower_instruction ~current_idx instr =
         let instr = unwrap_tags instr in
+        let instr =
+          match instr with
+          | Adr { dst; target = Jump_target.Label name } ->
+            Adr { dst; target = Jump_target.Label (asm_label name) }
+          | _ -> instr
+        in
         match instr with
         | Nop | Save_clobbers | Restore_clobbers | Alloca _ -> No_emit
         | Move { dst; src = (Reg _ | Imm _) as src } ->
@@ -330,6 +337,6 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       { Asm.name; asm_label = fn_label; items = List.rev !items_rev })
 ;;
 
-let run ~system functions =
-  lower_to_items ~system functions |> Emit_asm.run ~system
+let run ~system ?(globals = []) functions =
+  lower_to_items ~system functions |> Emit_asm.run ~system ~globals
 ;;
