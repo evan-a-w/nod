@@ -38,6 +38,27 @@ root() {
     |}]
 ;;
 
+let%expect_test "pointer globals require zero init" =
+  {|
+global @p:ptr(i64) = 8
+root() {
+  ret 0
+}
+|}
+  |> Parser.parse_string
+  |> function
+  | Error e ->
+      Nod_error.to_string e |> print_endline;
+      [%expect {|
+        Error: errors in choices `Error: unknown instruction 'global'
+        , Error: type mismatch: pointer globals can only be initialized to zero
+        `
+        |}]
+  | Ok _ ->
+      print_endline "OK";
+      [%expect.unreachable]
+;;
+
 let%expect_test "simple" =
   {|
 mov %a:i64, 3

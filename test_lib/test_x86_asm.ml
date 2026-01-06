@@ -236,3 +236,201 @@ root() {
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
+
+let%expect_test "globals store, load, and reuse values" =
+  compile_and_lower
+    {|
+global @g:i64 = 0
+root() {
+  mov %v:i64, 123
+  store @g, %v
+  load %x:i64, @g
+  add %y:i64, %x, %v
+  ret %y
+}
+|};
+  [%expect {|
+    .intel_syntax noprefix
+    .data
+    .balign 8
+    g:
+    .zero 8
+    .text
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r14
+      push r15
+      sub rsp, 8
+    root___root:
+      mov r14, 123
+      lea r15, [rip + g]
+      mov [r15], r14
+      lea r15, [rip + g]
+      mov r15, [r15]
+      add r15, r14
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals used in pointer arithmetic" =
+  compile_and_lower
+    {|
+global @buf:(i64, i64) = (10, 32)
+root() {
+  add %p:ptr, @buf, 8
+  load %x:i64, %p
+  ret %x
+}
+|};
+  [%expect {|
+    .intel_syntax noprefix
+    .data
+    .balign 8
+    buf:
+    .byte 10
+    .zero 7
+    .byte 32
+    .zero 7
+    .text
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r15
+    root___root:
+      lea r15, [rip + buf]
+      add r15, 8
+      mov r15, [r15]
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals passed as call args" =
+  compile_and_lower
+    {|
+global @g:i64 = 0
+id(%p:ptr(i64)) {
+  mov %tmp:ptr(i64), %p
+  ret 0
+}
+root() {
+  call id(@g)
+  ret 0
+}
+|};
+  [%expect {|
+    .intel_syntax noprefix
+    .data
+    .balign 8
+    g:
+    .zero 8
+    .text
+    .globl id
+    id:
+      push rbp
+      mov rbp, rsp
+      push r15
+      mov r15, rdi
+    id___root:
+      mov r15, 0
+      mov rax, r15
+    id__id__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r15
+    root___root:
+      lea r15, [rip + g]
+      mov rdi, r15
+      call id
+      mov r15, 0
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals data layout for floats and aggregates" =
+  compile_and_lower
+    {|
+global @f:f64 = 1.5
+global @p:ptr(i64) = 0
+global @nested:(i8, (i16, i32), i8) = (1, (2, 3), 4)
+global @mixed:(i8, i64, i16) = (1, 72623859790382856, 7)
+root() {
+  ret 0
+}
+|};
+  [%expect {|
+    .intel_syntax noprefix
+    .data
+    .balign 8
+    f:
+    .zero 6
+    .byte 248, 63
+    .balign 8
+    p:
+    .zero 8
+    .balign 4
+    nested:
+    .byte 1
+    .zero 3
+    .byte 2
+    .zero 3
+    .byte 3
+    .zero 3
+    .byte 4
+    .zero 3
+    .balign 8
+    mixed:
+    .byte 1
+    .zero 7
+    .byte 8, 7, 6, 5, 4, 3, 2, 1, 7
+    .zero 7
+    .text
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r15
+    root___root:
+      mov r15, 0
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;

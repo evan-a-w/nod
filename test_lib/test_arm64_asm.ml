@@ -263,3 +263,221 @@ root() {
     .section .note.GNU-stack,"",@progbits
     |}]
 ;;
+
+let%expect_test "globals store, load, and reuse values" =
+  compile_and_lower
+    {|
+global @g:i64 = 0
+root() {
+  mov %v:i64, 123
+  store @g, %v
+  load %x:i64, @g
+  add %y:i64, %x, %v
+  ret %y
+}
+|};
+  [%expect {|
+    .data
+    .balign 8
+    g:
+    .zero 8
+    .text
+    .globl root
+    root:
+      mov x14, #32
+      sub sp, sp, x14
+      str x27, [sp]
+      str x28, [sp, #8]
+      str x29, [sp, #16]
+      mov x29, sp
+    root___root:
+      mov x27, #123
+      adr x28, g
+      str x27, [x28]
+      adr x28, g
+      ldr x28, [x28]
+      add x28, x28, x27
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x27, [sp]
+      ldr x28, [sp, #8]
+      ldr x29, [sp, #16]
+      mov x14, #32
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals used in pointer arithmetic" =
+  compile_and_lower
+    {|
+global @buf:(i64, i64) = (10, 32)
+root() {
+  add %p:ptr, @buf, 8
+  load %x:i64, %p
+  ret %x
+}
+|};
+  [%expect {|
+    .data
+    .balign 8
+    buf:
+    .byte 10
+    .zero 7
+    .byte 32
+    .zero 7
+    .text
+    .globl root
+    root:
+      mov x14, #16
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      mov x29, sp
+    root___root:
+      adr x28, buf
+      mov x14, #8
+      add x28, x28, x14
+      ldr x28, [x28]
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp]
+      ldr x29, [sp, #8]
+      mov x14, #16
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals passed as call args" =
+  compile_and_lower
+    {|
+global @g:i64 = 0
+id(%p:ptr(i64)) {
+  mov %tmp:ptr(i64), %p
+  ret 0
+}
+root() {
+  call id(@g)
+  ret 0
+}
+|};
+  [%expect {|
+    .data
+    .balign 8
+    g:
+    .zero 8
+    .text
+    .globl id
+    id:
+      mov x14, #16
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      mov x29, sp
+      mov x0, x0
+      mov x28, x0
+    id___root:
+      mov x28, x28
+      mov x28, #0
+      mov x0, x28
+    id__id__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp]
+      ldr x29, [sp, #8]
+      mov x14, #16
+      add sp, sp, x14
+      ret
+
+    .globl root
+    root:
+      mov x14, #32
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      str x30, [sp, #16]
+      mov x29, sp
+    root___root:
+      adr x28, g
+      mov x0, x28
+      bl id
+      mov x28, #0
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp]
+      ldr x29, [sp, #8]
+      ldr x30, [sp, #16]
+      mov x14, #32
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
+
+let%expect_test "globals data layout for floats and aggregates" =
+  compile_and_lower
+    {|
+global @f:f64 = 1.5
+global @p:ptr(i64) = 0
+global @nested:(i8, (i16, i32), i8) = (1, (2, 3), 4)
+global @mixed:(i8, i64, i16) = (1, 72623859790382856, 7)
+root() {
+  ret 0
+}
+|};
+  [%expect {|
+    .data
+    .balign 8
+    f:
+    .zero 6
+    .byte 248, 63
+    .balign 8
+    p:
+    .zero 8
+    .balign 4
+    nested:
+    .byte 1
+    .zero 3
+    .byte 2
+    .zero 3
+    .byte 3
+    .zero 3
+    .byte 4
+    .zero 3
+    .balign 8
+    mixed:
+    .byte 1
+    .zero 7
+    .byte 8, 7, 6, 5, 4, 3, 2, 1, 7
+    .zero 7
+    .text
+    .globl root
+    root:
+      mov x14, #16
+      sub sp, sp, x14
+      str x28, [sp]
+      str x29, [sp, #8]
+      mov x29, sp
+    root___root:
+      mov x28, #0
+      mov x0, x28
+    root__root__epilogue:
+      mov x0, x0
+      mov sp, x29
+      ldr x28, [sp]
+      ldr x29, [sp, #8]
+      mov x14, #16
+      add sp, sp, x14
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
+;;
