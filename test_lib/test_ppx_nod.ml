@@ -17,6 +17,9 @@ module Dsl = struct
         ; src1 = var sum
         ; src2 = lit lit_const
         })
+
+  let bump v =
+    [ Ir.add { dest = v; src1 = var v; src2 = lit 1L } ]
 end
 
 let%expect_test "block builder" =
@@ -105,6 +108,32 @@ let%expect_test "embedded sequences" =
          ((dest ((name sum) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
           (src2 (Lit 6))))
         (Return (Var ((name sum) (type_ I64))))))))
+    |}]
+;;
+
+let%expect_test "sequence depends on prior bindings" =
+  let block =
+    [%nod
+      let (a : i64) = Dsl.mov (Dsl.lit 10L) in
+      seq (Dsl.bump a);
+      let (b : i64) = Dsl.add (Dsl.var a) (Dsl.lit 5L) in
+      return (Dsl.var b)
+    ]
+  in
+  Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
+  print_s (Block.to_sexp_verbose block);
+  [%expect
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Move ((name a) (type_ I64)) (Lit 10))
+        (Add
+         ((dest ((name a) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+          (src2 (Lit 1))))
+        (Add
+         ((dest ((name b) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+          (src2 (Lit 5))))
+        (Return (Var ((name b) (type_ I64))))))))
     |}]
 ;;
 
