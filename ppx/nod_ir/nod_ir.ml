@@ -137,6 +137,8 @@ and translate_statement builder expr =
      | _ -> Location.raise_errorf ~loc:expr.pexp_loc "return expects one argument")
   | Pexp_apply (fn, args) when is_ident fn "b" -> translate_goto builder expr args
   | Pexp_apply (fn, args) when is_ident fn "br" -> translate_branch builder expr args
+  | Pexp_apply (fn, [ (_, seq_expr) ]) when is_ident fn "seq" ->
+    [%expr [%e builder_fun ~loc "emit_many"] [%e builder] [%e seq_expr]]
   | Pexp_ident { txt = Lident "unreachable"; _ } ->
     [%expr [%e builder_fun ~loc "unreachable"] [%e builder]]
   | Pexp_apply (fn, []) when is_ident fn "unreachable" ->

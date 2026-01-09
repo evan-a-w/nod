@@ -9,6 +9,14 @@ module Dsl = struct
   let mov src ~dest = Ir.move dest src
   let add src1 src2 ~dest = Ir.add { dest; src1; src2 }
   let call1 fn arg ~dest = Ir.call ~fn ~results:[ dest ] ~args:[ arg ]
+
+  let accumulate sum consts =
+    List.map consts ~f:(fun lit_const ->
+      Ir.add
+        { dest = sum
+        ; src1 = var sum
+        ; src2 = lit lit_const
+        })
 end
 
 let%expect_test "block builder" =
@@ -69,6 +77,34 @@ let%expect_test "loop label" =
     {|
     ((%entry (args ())
       (instrs ((Branch (Uncond ((block ((id_hum loop) (args ()))) (args ()))))))))
+    |}]
+;;
+
+let%expect_test "embedded sequences" =
+  let block =
+    [%nod
+      let (sum : i64) = Dsl.mov (Dsl.lit 0L) in
+      seq (Dsl.accumulate sum [ 4L; 5L; 6L ]);
+      return (Dsl.var sum)
+    ]
+  in
+  Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
+  print_s (Block.to_sexp_verbose block);
+  [%expect
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Move ((name sum) (type_ I64)) (Lit 0))
+        (Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+          (src2 (Lit 4))))
+        (Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+          (src2 (Lit 5))))
+        (Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+          (src2 (Lit 6))))
+        (Return (Var ((name sum) (type_ I64))))))))
     |}]
 ;;
 
