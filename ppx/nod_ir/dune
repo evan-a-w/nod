@@ -1,0 +1,6 @@
+(library
+ (name ppx_nod_ir)
+ (kind ppx_rewriter)
+ (preprocess
+  (pps ppxlib.metaquot))
+ (libraries ppxlib))
