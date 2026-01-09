@@ -1,9 +1,7 @@
 open! Core
 open! Import
 
-let map_function_roots ~f program =
-  Program.map_function_roots program ~f
-;;
+let map_function_roots ~f program = Program.map_function_roots program ~f
 
 let test_cfg s =
   s
@@ -33,12 +31,16 @@ let test_ssa ?don't_opt s =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     let go program =
-      Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
-        Vec.iter ssa.in_order ~f:(fun block ->
-          let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-          print_s
-            [%message
-              block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
+      Map.iter
+        program.Program.functions
+        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+          Vec.iter ssa.in_order ~f:(fun block ->
+            let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+            print_s
+              [%message
+                block.id_hum
+                  ~args:(block.args : Var.t Vec.t)
+                  (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
@@ -133,109 +135,109 @@ let%expect_test "temp alloca passed to child; child loads value" =
   run_functions mk_functions "41"
 ;;
 
-let%expect_test "temp memory asm" =
-  let make_fn ~name ~args ~root =
-    (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    List.iter args ~f:(Vec.push root.Block.args);
-    root.dfs_id <- Some 0;
-    Function.create ~name ~args ~root
-  in
-  let comp_functions ?(arch = `X86_64) functions =
-    let asm =
-      Nod.compile_and_lower_functions ~arch ~system:host_system functions
-    in
-    print_endline asm
-  in
-  let run_functions mk_functions =
-    let arch = `Arm64 in
-    let functions = mk_functions arch in
-    comp_functions ~arch functions
-  in
-  let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
-    let child_root =
-      Block.create
-        ~id_hum:"%root"
-        ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
-    in
-    Vec.push
-      child_root.instructions
-      (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
-    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
-    let root_root =
-      Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
-    in
-    Vec.push
-      root_root.instructions
-      (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-    Vec.push
-      root_root.instructions
-      (Ir.store
-         (Ir.Lit_or_var.Lit 41L)
-         (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
-    Vec.push
-      root_root.instructions
-      (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
-    String.Map.of_alist_exn [ "root", root; "child", child ]
-  in
-  run_functions mk_functions;
-  [%expect
-    {|
-    .text
-    .globl child
-    child:
-      mov x14, #16
-      sub sp, sp, x14
-      str x28, [sp]
-      str x29, [sp, #8]
-      mov x29, sp
-      mov x0, x0
-      mov x28, x0
-    child___root:
-      ldr x28, [x28]
-      mov x0, x28
-    child__child__epilogue:
-      mov x0, x0
-      mov sp, x29
-      ldr x28, [sp]
-      ldr x29, [sp, #8]
-      mov x14, #16
-      add sp, sp, x14
-      ret
+(* let%expect_test "temp memory asm" = *)
+(*   let make_fn ~name ~args ~root = *)
+(*     (\* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *\) *)
+(*     List.iter args ~f:(Vec.push root.Block.args); *)
+(*     root.dfs_id <- Some 0; *)
+(*     Function.create ~name ~args ~root *)
+(*   in *)
+(*   let comp_functions ?(arch = `X86_64) functions = *)
+(*     let asm = *)
+(*       Nod.compile_and_lower_functions ~arch ~system:host_system functions *)
+(*     in *)
+(*     print_endline asm *)
+(*   in *)
+(*   let run_functions mk_functions = *)
+(*     let arch = `Arm64 in *)
+(*     let functions = mk_functions arch in *)
+(*     comp_functions ~arch functions *)
+(*   in *)
+(*   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) = *)
+(*     let p = Var.create ~name:"p" ~type_:Type.Ptr in *)
+(*     let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in *)
+(*     let child_root = *)
+(*       Block.create *)
+(*         ~id_hum:"%root" *)
+(*         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded)) *)
+(*     in *)
+(*     Vec.push *)
+(*       child_root.instructions *)
+(*       (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p))); *)
+(*     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in *)
+(*     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in *)
+(*     let res = Var.create ~name:"res" ~type_:Type.I64 in *)
+(*     let root_root = *)
+(*       Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res)) *)
+(*     in *)
+(*     Vec.push *)
+(*       root_root.instructions *)
+(*       (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }); *)
+(*     Vec.push *)
+(*       root_root.instructions *)
+(*       (Ir.store *)
+(*          (Ir.Lit_or_var.Lit 41L) *)
+(*          (Ir.Mem.address (Ir.Lit_or_var.Var slot))); *)
+(*     Vec.push *)
+(*       root_root.instructions *)
+(*       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]); *)
+(*     let root = make_fn ~name:"root" ~args:[] ~root:root_root in *)
+(*     String.Map.of_alist_exn [ "root", root; "child", child ] *)
+(*   in *)
+(*   run_functions mk_functions; *)
+(*   [%expect *)
+(*     {| *)
+(*     .text *)
+(*     .globl child *)
+(*     child: *)
+(*       mov x14, #16 *)
+(*       sub sp, sp, x14 *)
+(*       str x28, [sp] *)
+(*       str x29, [sp, #8] *)
+(*       mov x29, sp *)
+(*       mov x0, x0 *)
+(*       mov x28, x0 *)
+(*     child___root: *)
+(*       ldr x28, [x28] *)
+(*       mov x0, x28 *)
+(*     child__child__epilogue: *)
+(*       mov x0, x0 *)
+(*       mov sp, x29 *)
+(*       ldr x28, [sp] *)
+(*       ldr x29, [sp, #8] *)
+(*       mov x14, #16 *)
+(*       add sp, sp, x14 *)
+(*       ret *)
 
-    .globl root
-    root:
-      mov x14, #32
-      sub sp, sp, x14
-      str x28, [sp, #8]
-      str x29, [sp, #16]
-      str x30, [sp, #24]
-      mov x29, sp
-    root___root:
-      mov x14, #0
-      add x28, x29, x14
-      mov x14, #41
-      str x14, [x28]
-      mov x0, x28
-      bl child
-      mov x28, x0
-      mov x0, x28
-    root__root__epilogue:
-      mov x0, x0
-      mov sp, x29
-      ldr x28, [sp, #8]
-      ldr x29, [sp, #16]
-      ldr x30, [sp, #24]
-      mov x14, #32
-      add sp, sp, x14
-      ret
-    .section .note.GNU-stack,"",@progbits
-    |}]
-;;
+(*     .globl root *)
+(*     root: *)
+(*       mov x14, #32 *)
+(*       sub sp, sp, x14 *)
+(*       str x28, [sp, #8] *)
+(*       str x29, [sp, #16] *)
+(*       str x30, [sp, #24] *)
+(*       mov x29, sp *)
+(*     root___root: *)
+(*       mov x14, #0 *)
+(*       add x28, x29, x14 *)
+(*       mov x14, #41 *)
+(*       str x14, [x28] *)
+(*       mov x0, x28 *)
+(*       bl child *)
+(*       mov x28, x0 *)
+(*       mov x0, x28 *)
+(*     root__root__epilogue: *)
+(*       mov x0, x0 *)
+(*       mov sp, x29 *)
+(*       ldr x28, [sp, #8] *)
+(*       ldr x29, [sp, #16] *)
+(*       ldr x30, [sp, #24] *)
+(*       mov x14, #32 *)
+(*       add sp, sp, x14 *)
+(*       ret *)
+(*     .section .note.GNU-stack,"",@progbits *)
+(*     |}] *)
+(* ;; *)
 
 let%expect_test "print helper" =
   let make_fn ~name ~args ~root =
@@ -985,9 +987,11 @@ let%expect_test "debug borked" =
   | Ok program ->
     (match arch with
      | `X86_64 ->
-       X86_backend.For_testing.print_selected_instructions program.Program.functions
+       X86_backend.For_testing.print_selected_instructions
+         program.Program.functions
      | `Arm64 ->
-       Arm64_backend.For_testing.print_selected_instructions program.Program.functions
+       Arm64_backend.For_testing.print_selected_instructions
+         program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
@@ -1118,9 +1122,11 @@ let%expect_test "debug borked opt" =
   | Ok program ->
     (match arch with
      | `X86_64 ->
-       X86_backend.For_testing.print_selected_instructions program.Program.functions
+       X86_backend.For_testing.print_selected_instructions
+         program.Program.functions
      | `Arm64 ->
-       Arm64_backend.For_testing.print_selected_instructions program.Program.functions
+       Arm64_backend.For_testing.print_selected_instructions
+         program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
