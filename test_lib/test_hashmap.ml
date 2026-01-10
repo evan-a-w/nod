@@ -52,8 +52,7 @@ let mk_new (name : string) : (i64_atom, ptr_atom) Dsl.Fn.t =
       let%named entries_ptr = call malloc entries_bytes in
       (* Initialize entries to all zeros (occupied = 0) *)
       let%named zero = mov (lit 0L) in
-      seq
-        [ Instr.call0 memset [ entries_ptr; zero; entries_bytes ] ];
+      let _ = call3 "_" memset entries_ptr zero entries_bytes in
       (* Store capacity at offset 0 *)
       store_addr capacity map_ptr 0;
       (* Store size (0) at offset 8 *)
@@ -125,7 +124,7 @@ let mk_insert
   (name : string)
   (hash_fn : (i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
   (insert_at_fn :
-     (ptr_atom * i64_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
+    (ptr_atom * i64_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
   : (ptr_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
   =
   [%nod
@@ -374,17 +373,15 @@ let%expect_test "hash map basic operations" =
           (* Create a new hash map with capacity 8 *)
           let%named map = call hash_map_new (lit 8L) in
           (* Insert some values: key -> value *)
-          let%named r1 = call3 hash_map_insert map (lit 5L) (lit 100L) in
-          let%named r2 = call3 hash_map_insert map (lit 13L) (lit 200L) in
-          let%named r3 = call3 hash_map_insert map (lit 3L) (lit 300L) in
+          let%named _ = call3 hash_map_insert map (lit 5L) (lit 100L) in
+          let%named _ = call3 hash_map_insert map (lit 13L) (lit 200L) in
+          let%named _ = call3 hash_map_insert map (lit 3L) (lit 300L) in
           (* Get the values back *)
           let%named val1 = call3 hash_map_get map (lit 5L) (lit 0L) in
           let%named val2 = call3 hash_map_get map (lit 13L) (lit 0L) in
           let%named val3 = call3 hash_map_get map (lit 3L) (lit 0L) in
           (* Get a non-existent value (should return default) *)
-          let%named val_missing =
-            call3 hash_map_get map (lit 999L) (lit 42L)
-          in
+          let%named val_missing = call3 hash_map_get map (lit 999L) (lit 42L) in
           (* Get size *)
           let%named size = call hash_map_size map in
           (* Compute result: val1 + val2 + val3 + val_missing + size *)
@@ -440,11 +437,11 @@ let%expect_test "hash map overwrite values" =
           (* Create map with capacity 8 *)
           let%named map = call hash_map_new (lit 8L) in
           (* Insert initial value *)
-          let%named r1 = call3 hash_map_insert map (lit 7L) (lit 100L) in
+          let%named _ = call3 hash_map_insert map (lit 7L) (lit 100L) in
           (* Get the value *)
           let%named val1 = call3 hash_map_get map (lit 7L) (lit 0L) in
           (* Overwrite with new value *)
-          let%named r2 = call3 hash_map_insert map (lit 7L) (lit 200L) in
+          let%named _ = call3 hash_map_insert map (lit 7L) (lit 200L) in
           (* Get the new value *)
           let%named val2 = call3 hash_map_get map (lit 7L) (lit 0L) in
           (* Size should still be 1 (not 2) *)
@@ -498,11 +495,11 @@ let%expect_test "hash map multiple operations" =
           (* Create map with capacity 16 *)
           let%named map = call hash_map_new (lit 16L) in
           (* Insert 5 different values *)
-          let%named r1 = call3 hash_map_insert map (lit 1L) (lit 10L) in
-          let%named r2 = call3 hash_map_insert map (lit 2L) (lit 20L) in
-          let%named r3 = call3 hash_map_insert map (lit 3L) (lit 30L) in
-          let%named r4 = call3 hash_map_insert map (lit 4L) (lit 40L) in
-          let%named r5 = call3 hash_map_insert map (lit 5L) (lit 50L) in
+          let%named _ = call3 hash_map_insert map (lit 1L) (lit 10L) in
+          let%named _ = call3 hash_map_insert map (lit 2L) (lit 20L) in
+          let%named _ = call3 hash_map_insert map (lit 3L) (lit 30L) in
+          let%named _ = call3 hash_map_insert map (lit 4L) (lit 40L) in
+          let%named _ = call3 hash_map_insert map (lit 5L) (lit 50L) in
           (* Verify size is 5 *)
           let%named size = call hash_map_size map in
           (* Get all values and sum them *)

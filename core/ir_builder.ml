@@ -78,25 +78,6 @@ let entry_placeholder_active t =
   && not t.current.terminated
 ;;
 
-let enter_label t ~name =
-  let label = ensure_label t name ~f:(fun () -> new_label_state name) in
-  if not (phys_equal t.current.block label.block)
-  then
-    if entry_placeholder_active t
-    then (
-      let call_block = { Call_block.block = label.block; args = [] } in
-      t.current.block.Block.terminal <- Ir.branch (Ir.Branch.Uncond call_block);
-      t.current.terminated <- true)
-    else if not t.current.terminated
-    then
-      raise_s
-        [%message
-          "previous block missing terminator before defining new label"
-            (t.current.name : string)];
-  t.current <- label;
-  label
-;;
-
 let ensure_current_open label =
   if label.Label.terminated
   then raise_s [%message "block already terminated" (label.name : string)]
@@ -118,6 +99,21 @@ let set_terminal t instr =
 let goto t label ~args =
   let call_block = { Call_block.block = label.Label.block; args } in
   set_terminal t (Ir.branch (Ir.Branch.Uncond call_block))
+;;
+
+let enter_label t ~name =
+  let label = ensure_label t name ~f:(fun () -> new_label_state name) in
+  if not (phys_equal t.current.block label.block)
+  then
+    if entry_placeholder_active t
+    then (
+      let call_block = { Call_block.block = label.block; args = [] } in
+      t.current.block.Block.terminal <- Ir.branch (Ir.Branch.Uncond call_block);
+      t.current.terminated <- true)
+    else if not t.current.terminated
+    then goto t label ~args:[];
+  t.current <- label;
+  label
 ;;
 
 let branch t ~cond ~if_true ~if_false ~args_true ~args_false =

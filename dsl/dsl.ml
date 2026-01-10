@@ -18,6 +18,14 @@ type f32 = float32
 
 module Atom = struct
   type 'a t = Ir.Lit_or_var.t
+
+  let lit_or_var t = t
+
+  let var t =
+    match t with
+    | Lit _ | Global _ -> None
+    | Var v -> Some v
+  ;;
 end
 
 module Fn = struct
@@ -27,6 +35,7 @@ module Fn = struct
     ; returns : Type.t list
     ; body : Function.t option
     }
+  [@@warning "-69"]
 
   let name t = t.name
   let function_exn t = Option.value_exn t.body
@@ -291,81 +300,75 @@ let store_field base src type_ indices =
 
 let memcpy dest src type_ = emit (Ir.memcpy { dest; src; type_ })
 
-module Instr = struct
-  let var_exn = function
-    | L.Var v -> v
-    | _ -> failwith "expected variable atom"
-  ;;
+(* module Instr = struct *)
+(*   let var_exn = function *)
+(*     | L.Var v -> v *)
+(*     | _ -> failwith "expected variable atom" *)
+(*   ;; *)
 
-  let mov ~dest src = Ir.move (var_exn dest) src
-  let add ~dest src1 src2 = Ir.add { dest = var_exn dest; src1; src2 }
-  let sub ~dest src1 src2 = Ir.sub { dest = var_exn dest; src1; src2 }
-  let mul ~dest src1 src2 = Ir.mul { dest = var_exn dest; src1; src2 }
-  let div ~dest src1 src2 = Ir.div { dest = var_exn dest; src1; src2 }
-  let mod_ ~dest src1 src2 = Ir.mod_ { dest = var_exn dest; src1; src2 }
-  let and_ ~dest src1 src2 = Ir.and_ { dest = var_exn dest; src1; src2 }
-  let or_ ~dest src1 src2 = Ir.or_ { dest = var_exn dest; src1; src2 }
-  let fadd ~dest src1 src2 = Ir.fadd { dest = var_exn dest; src1; src2 }
-  let fsub ~dest src1 src2 = Ir.fsub { dest = var_exn dest; src1; src2 }
-  let fmul ~dest src1 src2 = Ir.fmul { dest = var_exn dest; src1; src2 }
-  let fdiv ~dest src1 src2 = Ir.fdiv { dest = var_exn dest; src1; src2 }
-  let load mem ~dest = Ir.load (var_exn dest) mem
-  let store value mem = Ir.store value mem
+(*   let mov ~dest src = Ir.move (var_exn dest) src *)
+(*   let add ~dest src1 src2 = Ir.add { dest = var_exn dest; src1; src2 } *)
+(*   let sub ~dest src1 src2 = Ir.sub { dest = var_exn dest; src1; src2 } *)
+(*   let mul ~dest src1 src2 = Ir.mul { dest = var_exn dest; src1; src2 } *)
+(*   let div ~dest src1 src2 = Ir.div { dest = var_exn dest; src1; src2 } *)
+(*   let mod_ ~dest src1 src2 = Ir.mod_ { dest = var_exn dest; src1; src2 } *)
+(*   let and_ ~dest src1 src2 = Ir.and_ { dest = var_exn dest; src1; src2 } *)
+(*   let or_ ~dest src1 src2 = Ir.or_ { dest = var_exn dest; src1; src2 } *)
+(*   let fadd ~dest src1 src2 = Ir.fadd { dest = var_exn dest; src1; src2 } *)
+(*   let fsub ~dest src1 src2 = Ir.fsub { dest = var_exn dest; src1; src2 } *)
+(*   let fmul ~dest src1 src2 = Ir.fmul { dest = var_exn dest; src1; src2 } *)
+(*   let fdiv ~dest src1 src2 = Ir.fdiv { dest = var_exn dest; src1; src2 } *)
+(*   let load mem ~dest = Ir.load (var_exn dest) mem *)
+(*   let store value mem = Ir.store value mem *)
 
-  let load_addr base offset ~dest =
-    Ir.load (var_exn dest) (Ir.Mem.address base ~offset)
-  ;;
+(*   let load_addr base offset ~dest = *)
+(*     Ir.load (var_exn dest) (Ir.Mem.address base ~offset) *)
+(*   ;; *)
 
-  let store_addr value base offset =
-    Ir.store value (Ir.Mem.address base ~offset)
-  ;;
+(*   let store_addr value base offset = *)
+(*     Ir.store value (Ir.Mem.address base ~offset) *)
+(*   ;; *)
 
-  let alloca size ~dest = Ir.alloca { dest = var_exn dest; size }
-  let cast src ~dest = Ir.cast (var_exn dest) src
+(*   let alloca size ~dest = Ir.alloca { dest = var_exn dest; size } *)
+(*   let cast src ~dest = Ir.cast (var_exn dest) src *)
 
-  let call fn args ~results =
-    Ir.call ~fn:fn.Fn.name ~results:(List.map results ~f:var_exn) ~args
-  ;;
+(*   let load_field base type_ indices ~dest = *)
+(*     Ir.load_field { dest = var_exn dest; base; type_; indices } *)
+(*   ;; *)
 
-  let call0 fn args = Ir.call ~fn:fn.Fn.name ~results:[] ~args
+(*   let store_field base src type_ indices = *)
+(*     Ir.store_field { base; src; type_; indices } *)
+(*   ;; *)
 
-  let load_field base type_ indices ~dest =
-    Ir.load_field { dest = var_exn dest; base; type_; indices }
-  ;;
+(*   let memcpy dest src type_ = Ir.memcpy { dest; src; type_ } *)
 
-  let store_field base src type_ indices =
-    Ir.store_field { base; src; type_; indices }
-  ;;
+(*   let atomic_load addr order ~dest = *)
+(*     Ir.atomic_load { dest = var_exn dest; addr; order } *)
+(*   ;; *)
 
-  let memcpy dest src type_ = Ir.memcpy { dest; src; type_ }
+(*   let atomic_store addr src order = Ir.atomic_store { addr; src; order } *)
 
-  let atomic_load addr order ~dest =
-    Ir.atomic_load { dest = var_exn dest; addr; order }
-  ;;
+(*   let atomic_rmw addr src op order ~dest = *)
+(*     Ir.atomic_rmw { dest = var_exn dest; addr; src; op; order } *)
+(*   ;; *)
 
-  let atomic_store addr src order = Ir.atomic_store { addr; src; order }
-
-  let atomic_rmw addr src op order ~dest =
-    Ir.atomic_rmw { dest = var_exn dest; addr; src; op; order }
-  ;;
-
-  let atomic_cmpxchg
-    addr
-    expected
-    desired
-    success_order
-    failure_order
-    ~dest
-    ~success
-    =
-    Ir.atomic_cmpxchg
-      { dest = var_exn dest
-      ; success = var_exn success
-      ; addr
-      ; expected
-      ; desired
-      ; success_order
-      ; failure_order
-      }
-  ;;
-end
+(*   let atomic_cmpxchg *)
+(*     addr *)
+(*     expected *)
+(*     desired *)
+(*     success_order *)
+(*     failure_order *)
+(*     ~dest *)
+(*     ~success *)
+(*     = *)
+(*     Ir.atomic_cmpxchg *)
+(*       { dest = var_exn dest *)
+(*       ; success = var_exn success *)
+(*       ; addr *)
+(*       ; expected *)
+(*       ; desired *)
+(*       ; success_order *)
+(*       ; failure_order *)
+(*       } *)
+(*   ;; *)
+(* end *)
