@@ -97,6 +97,14 @@ let expand_named expr =
        { expr with
          pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body)
        }
+     | Ppat_any ->
+       let rhs =
+         add_name_arg vb.pvb_expr (estring ~loc:vb.pvb_pat.ppat_loc "_")
+       in
+       let vb = { vb with pvb_expr = rhs } in
+       { expr with
+         pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body)
+       }
      | _ ->
        Location.raise_errorf
          ~loc:vb.pvb_pat.ppat_loc
@@ -145,7 +153,10 @@ and translate_statement builder expr =
   | Pexp_apply (fn, args) when is_ident fn "return" ->
     (match args with
      | [ (_, value) ] ->
-       [%expr [%e builder_fun ~loc "return"] [%e builder] [%e value]]
+       [%expr
+         [%e builder_fun ~loc "return"]
+           [%e builder]
+           (Dsl.Atom.lit_or_var [%e value])]
      | _ ->
        Location.raise_errorf ~loc:expr.pexp_loc "return expects one argument")
   | Pexp_apply (fn, args) when is_ident fn "b" ->

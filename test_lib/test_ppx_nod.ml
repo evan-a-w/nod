@@ -6,11 +6,20 @@ module Dsl = struct
   include Nod_dsl.Dsl
 
   let accumulate sum consts =
-    List.map consts ~f:(fun lit_const ->
-      Instr.add ~dest:sum sum (lit lit_const))
+    [%nod
+      seq
+        (List.map consts ~f:(fun lit_const ->
+           Ir.add { dest = sum; src1 = sum; src2 = Lit lit_const }))]
   ;;
 
-  let bump v = [ Instr.add ~dest:v v (lit 1L) ]
+  let bump v =
+    [ Ir.add
+        { dest = { name = v; type_ = I64 }
+        ; src1 = Var { name = v; type_ = I64 }
+        ; src2 = Lit 1L
+        }
+    ]
+  ;;
 end
 
 let%expect_test "block builder" =
@@ -169,9 +178,7 @@ let%expect_test "compose nod functions" =
   in
   let offset = mk_offset 5L in
   let entry = mk_entry 3L offset in
-  let funcs =
-    [ double; offset; entry ]
-  in
+  let funcs = [ double; offset; entry ] in
   List.iter funcs ~f:(fun fn ->
     let func = Dsl.Fn.function_exn fn in
     Block.iter_and_update_bookkeeping (Function.root func) ~f:(fun _ -> ());

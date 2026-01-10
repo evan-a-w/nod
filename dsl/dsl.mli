@@ -17,6 +17,16 @@ type f32 = float32
 
 module Atom : sig
   type _ t
+
+  val lit_or_var : _ t -> Ir.Lit_or_var.t
+  val var : _ t -> Var.t option
+end
+
+module Instr : sig
+  type t =
+    | Ir : Ir.t -> t
+    | Label : string -> t
+    | Atom : _ Atom.t -> t
 end
 
 module Fn : sig
@@ -105,98 +115,90 @@ val load_field : string -> ptr Atom.t -> Type.t -> int list -> 'a Atom.t
 val store_field : ptr Atom.t -> 'a Atom.t -> Type.t -> int list -> unit
 val memcpy : ptr Atom.t -> ptr Atom.t -> Type.t -> unit
 
-module Instr : sig
-  val mov : dest:'a Atom.t -> 'a Atom.t -> Block.t Ir0.t
-  val add : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val sub : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val mul : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val div : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val mod_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val and_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
-  val or_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t
+(* module Instr : sig *)
+(*   val mov : dest:'a Atom.t -> 'a Atom.t -> Block.t Ir0.t *)
+(*   val add : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val sub : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val mul : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val div : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val mod_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val and_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
+(*   val or_ : dest:int64 Atom.t -> int64 Atom.t -> int64 Atom.t -> Block.t Ir0.t *)
 
-  val fadd
-    :  dest:float64 Atom.t
-    -> float64 Atom.t
-    -> float64 Atom.t
-    -> Block.t Ir0.t
+(*   val fadd *)
+(*     :  dest:float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val fsub
-    :  dest:float64 Atom.t
-    -> float64 Atom.t
-    -> float64 Atom.t
-    -> Block.t Ir0.t
+(*   val fsub *)
+(*     :  dest:float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val fmul
-    :  dest:float64 Atom.t
-    -> float64 Atom.t
-    -> float64 Atom.t
-    -> Block.t Ir0.t
+(*   val fmul *)
+(*     :  dest:float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val fdiv
-    :  dest:float64 Atom.t
-    -> float64 Atom.t
-    -> float64 Atom.t
-    -> Block.t Ir0.t
+(*   val fdiv *)
+(*     :  dest:float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> float64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val load : Ir.Mem.t -> dest:'a Atom.t -> Block.t Ir0.t
-  val store : 'a Atom.t -> Ir.Mem.t -> Block.t Ir0.t
-  val load_addr : ptr Atom.t -> int -> dest:'a Atom.t -> Block.t Ir0.t
-  val store_addr : 'a Atom.t -> ptr Atom.t -> int -> Block.t Ir0.t
-  val alloca : int64 Atom.t -> dest:ptr Atom.t -> Block.t Ir0.t
-  val cast : 'a Atom.t -> dest:'b Atom.t -> Block.t Ir0.t
+(*   val load : Ir.Mem.t -> dest:'a Atom.t -> Block.t Ir0.t *)
+(*   val store : 'a Atom.t -> Ir.Mem.t -> Block.t Ir0.t *)
+(*   val load_addr : ptr Atom.t -> int -> dest:'a Atom.t -> Block.t Ir0.t *)
+(*   val store_addr : 'a Atom.t -> ptr Atom.t -> int -> Block.t Ir0.t *)
+(*   val alloca : int64 Atom.t -> dest:ptr Atom.t -> Block.t Ir0.t *)
+(*   val cast : 'a Atom.t -> dest:'b Atom.t -> Block.t Ir0.t *)
 
-  val call
-    :  ('a, 'b) Fn.t
-    -> Ir.Lit_or_var.t list
-    -> results:Var.t list
-    -> Block.t Ir0.t
+(*   val load_field *)
+(*     :  ptr Atom.t *)
+(*     -> Type.t *)
+(*     -> int list *)
+(*     -> dest:'a Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val call0 : ('a, 'b) Fn.t -> Ir.Lit_or_var.t list -> Block.t Ir0.t
+(*   val store_field *)
+(*     :  ptr Atom.t *)
+(*     -> 'a Atom.t *)
+(*     -> Type.t *)
+(*     -> int list *)
+(*     -> Block.t Ir0.t *)
 
-  val load_field
-    :  ptr Atom.t
-    -> Type.t
-    -> int list
-    -> dest:'a Atom.t
-    -> Block.t Ir0.t
+(*   val memcpy : ptr Atom.t -> ptr Atom.t -> Type.t -> Block.t Ir0.t *)
 
-  val store_field
-    :  ptr Atom.t
-    -> 'a Atom.t
-    -> Type.t
-    -> int list
-    -> Block.t Ir0.t
+(*   val atomic_load *)
+(*     :  ptr Atom.t *)
+(*     -> Ir.Memory_order.t *)
+(*     -> dest:int64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val memcpy : ptr Atom.t -> ptr Atom.t -> Type.t -> Block.t Ir0.t
+(*   val atomic_store *)
+(*     :  ptr Atom.t *)
+(*     -> int64 Atom.t *)
+(*     -> Ir.Memory_order.t *)
+(*     -> Block.t Ir0.t *)
 
-  val atomic_load
-    :  ptr Atom.t
-    -> Ir.Memory_order.t
-    -> dest:int64 Atom.t
-    -> Block.t Ir0.t
+(*   val atomic_rmw *)
+(*     :  ptr Atom.t *)
+(*     -> int64 Atom.t *)
+(*     -> Ir.Rmw_op.t *)
+(*     -> Ir.Memory_order.t *)
+(*     -> dest:int64 Atom.t *)
+(*     -> Block.t Ir0.t *)
 
-  val atomic_store
-    :  ptr Atom.t
-    -> int64 Atom.t
-    -> Ir.Memory_order.t
-    -> Block.t Ir0.t
-
-  val atomic_rmw
-    :  ptr Atom.t
-    -> int64 Atom.t
-    -> Ir.Rmw_op.t
-    -> Ir.Memory_order.t
-    -> dest:int64 Atom.t
-    -> Block.t Ir0.t
-
-  val atomic_cmpxchg
-    :  ptr Atom.t
-    -> int64 Atom.t
-    -> int64 Atom.t
-    -> Ir.Memory_order.t
-    -> Ir.Memory_order.t
-    -> dest:int64 Atom.t
-    -> success:int64 Atom.t
-    -> Block.t Ir0.t
-end
+(*   val atomic_cmpxchg *)
+(*     :  ptr Atom.t *)
+(*     -> int64 Atom.t *)
+(*     -> int64 Atom.t *)
+(*     -> Ir.Memory_order.t *)
+(*     -> Ir.Memory_order.t *)
+(*     -> dest:int64 Atom.t *)
+(*     -> success:int64 Atom.t *)
+(*     -> Block.t Ir0.t *)
+(* end *)
