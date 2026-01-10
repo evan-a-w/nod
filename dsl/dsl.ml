@@ -1,9 +1,9 @@
 open! Core
 open! Import
 
-type int64 = Int64
-type float64 = Float64
-type ptr = Ptr
+type int64 = Int64 [@@warning "-37"]
+type float64 = Float64 [@@warning "-37"]
+type ptr = Ptr [@@warning "-37"]
 
 module Type_repr = struct
   type _ t =
@@ -43,6 +43,8 @@ module Instr = struct
     | Ir : string Ir0.t -> t
     | Label : string -> t
   [@@deriving variants]
+
+  let ir ir0 = Ir ir0
 
   let process ?(root_name = "%entry") ts =
     let labels = Vec.create () in
@@ -91,24 +93,32 @@ module Fn = struct
       ; instrs : Instr.t list
       }
 
+    let args t = t.args
+    let ret t = t.ret
+    let instrs t = t.instrs
+
     let const type_repr instrs =
-      { args = []; ret = Type_repr.type_ type_repr; instrs : Instr.t list }
+      { args = []; ret = Type_repr.type_ type_repr; instrs }
     ;;
 
-    let with_arg { args; ret; instrs } var = { args = var :: args; ret; instrs }
+    let with_arg { args; ret; instrs } var =
+      { args = args @ [ var ]; ret; instrs }
+    ;;
   end
 
   type 'a t =
     { name : string
     ; unnamed : 'a Unnamed.t
     }
-  [@@deriving fields]
+
+  let name t = t.name
+  let unnamed t = t.unnamed
+  let create ~unnamed ~name = { name; unnamed }
 
   let function_ t =
-    Function0.create
-      ~name:t.name
-      ~args:t.unnamed.args
-      ~root:(Instr.process t.unnamed.instrs)
+    let open Result.Let_syntax in
+    let%map root = Instr.process t.unnamed.instrs in
+    Function0.create ~name:t.name ~args:t.unnamed.args ~root
   ;;
 
   module Packed = struct
@@ -119,11 +129,120 @@ module Fn = struct
   let pack t : Packed.t = T t
 end
 
-let process ~functions ~globals =
-  let functions =
+let program ~functions ~globals =
+  let open Result.Let_syntax in
+  let fn_results =
     List.map functions ~f:(fun (function_ : Fn.Packed.t) ->
       match function_ with
-      | T t -> t.name, Fn.function_ t)
+      | Fn.Packed.T fn ->
+        let%map fn_value = Fn.function_ fn in
+        Fn.name fn, fn_value)
   in
-  String.Map.of_alist functions
+  let%bind functions = Result.all fn_results in
+  match String.Map.of_alist functions with
+  | `Ok functions -> Ok { Program.globals; functions }
+  | `Duplicate_key dup ->
+    Error (`Type_mismatch (sprintf "duplicate function %s" dup))
+;;
+
+let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
+let var v : 'a Atom.t = Ir.Lit_or_var.Var v
+let global g : ptr Atom.t = Ir.Lit_or_var.Global g
+let make_dest name type_ = Var.create ~name ~type_
+let atom_of_var var : _ Atom.t = Ir.Lit_or_var.Var var
+let mem_address ?offset ptr = Ir0.Mem.address ?offset (Atom.lit_or_var ptr)
+
+let binary name type_ lhs rhs ctor =
+  let dest = make_dest name type_ in
+  let instr =
+    ctor
+      { Ir0.dest
+      ; Ir0.src1 = Atom.lit_or_var lhs
+      ; Ir0.src2 = Atom.lit_or_var rhs
+      }
+    |> Instr.ir
+  in
+  atom_of_var dest, instr
+;;
+
+let mov name src =
+  let dest = make_dest name (Atom.type_ src) in
+  let instr = Instr.ir (Ir0.Move (dest, Atom.lit_or_var src)) in
+  atom_of_var dest, instr
+;;
+
+let add name lhs rhs = binary name Type.I64 lhs rhs Ir0.add
+let sub name lhs rhs = binary name Type.I64 lhs rhs Ir0.sub
+let mul name lhs rhs = binary name Type.I64 lhs rhs Ir0.mul
+let div name lhs rhs = binary name Type.I64 lhs rhs Ir0.div
+let mod_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.mod_
+let and_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.and_
+let or_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.or_
+let ptr_add name base offset = binary name (Atom.type_ base) base offset Ir0.add
+let ptr_sub name base offset = binary name (Atom.type_ base) base offset Ir0.sub
+let ptr_diff name lhs rhs = binary name Type.I64 lhs rhs Ir0.sub
+let fadd name lhs rhs = binary name Type.F64 lhs rhs Ir0.fadd
+let fsub name lhs rhs = binary name Type.F64 lhs rhs Ir0.fsub
+let fmul name lhs rhs = binary name Type.F64 lhs rhs Ir0.fmul
+let fdiv name lhs rhs = binary name Type.F64 lhs rhs Ir0.fdiv
+
+let load_mem ?(offset = 0) name ptr type_ =
+  let dest = make_dest name type_ in
+  let instr = Instr.ir (Ir0.Load (dest, mem_address ~offset ptr)) in
+  atom_of_var dest, instr
+;;
+
+let load name ptr = load_mem name ptr Type.I64
+let load_ptr name ptr = load_mem name ptr Type.Ptr
+let load_f64 name ptr = load_mem name ptr Type.F64
+let load_addr name ptr offset = load_mem ~offset name ptr Type.I64
+let load_addr_ptr name ptr offset = load_mem ~offset name ptr Type.Ptr
+let load_addr_f64 name ptr offset = load_mem ~offset name ptr Type.F64
+
+let store value ptr =
+  Instr.ir (Ir0.Store (Atom.lit_or_var value, mem_address ptr))
+;;
+
+let store_addr value ptr offset =
+  Instr.ir (Ir0.Store (Atom.lit_or_var value, mem_address ~offset ptr))
+;;
+
+let alloca name size =
+  let dest = make_dest name Type.Ptr in
+  let instr = Instr.ir (Ir0.Alloca { Ir0.dest; size = Atom.lit_or_var size }) in
+  atom_of_var dest, instr
+;;
+
+let cast name type_ src =
+  let dest = make_dest name type_ in
+  let instr = Instr.ir (Ir0.Cast (dest, Atom.lit_or_var src)) in
+  atom_of_var dest, instr
+;;
+
+let call_common name fn args =
+  let dest = make_dest name (Fn.Unnamed.ret (Fn.unnamed fn)) in
+  let instr =
+    Instr.ir
+      (Ir0.Call
+         { fn = Fn.name fn
+         ; results = [ dest ]
+         ; args = List.map args ~f:Atom.lit_or_var
+         })
+  in
+  atom_of_var dest, instr
+;;
+
+let call0 name (fn : 'ret Fn.t) = call_common name fn []
+
+let call1 name (fn : ('a -> 'ret) Fn.t) (arg : 'a Atom.t) =
+  call_common name fn [ arg ]
+;;
+
+let call2
+  name
+  (fn : ('a -> 'b -> 'ret) Fn.t)
+  (arg1 : 'a Atom.t)
+  (arg2 : 'b Atom.t)
+  =
+  call_common name fn [ arg1; arg2 ]
 ;;
