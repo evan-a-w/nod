@@ -56,6 +56,46 @@ let rec string_of_raw = function
 
 let string_of_reg reg = string_of_raw (Reg.raw reg)
 
+let rec string_of_raw8 = function
+  | Raw.RAX -> "al"
+  | Raw.RBX -> "bl"
+  | Raw.RCX -> "cl"
+  | Raw.RDX -> "dl"
+  | Raw.RSI -> "sil"
+  | Raw.RDI -> "dil"
+  | Raw.RSP -> "spl"
+  | Raw.RBP -> "bpl"
+  | Raw.R8 -> "r8b"
+  | Raw.R9 -> "r9b"
+  | Raw.R10 -> "r10b"
+  | Raw.R11 -> "r11b"
+  | Raw.R12 -> "r12b"
+  | Raw.R13 -> "r13b"
+  | Raw.R14 -> "r14b"
+  | Raw.R15 -> "r15b"
+  | Raw.XMM0
+  | Raw.XMM1
+  | Raw.XMM2
+  | Raw.XMM3
+  | Raw.XMM4
+  | Raw.XMM5
+  | Raw.XMM6
+  | Raw.XMM7
+  | Raw.XMM8
+  | Raw.XMM9
+  | Raw.XMM10
+  | Raw.XMM11
+  | Raw.XMM12
+  | Raw.XMM13
+  | Raw.XMM14
+  | Raw.XMM15 -> failwith "expected gpr for byte register"
+  | Raw.Unallocated v | Raw.Allocated (v, None) ->
+    sanitize_identifier (Var.name v) ^ "b"
+  | Raw.Allocated (_, Some reg) -> string_of_raw8 reg
+;;
+
+let string_of_reg8 reg = string_of_raw8 (Reg.raw reg)
+
 let string_of_mem reg disp =
   let base = string_of_reg reg in
   match disp with
@@ -109,6 +149,15 @@ let string_of_instr = function
   | Idiv op -> sprintf "idiv %s" (string_of_operand op)
   | Mod op -> sprintf "idiv %s" (string_of_operand op)
   | Cmp (lhs, rhs) -> emit_binary_instr "cmp" lhs rhs
+  | Sete dst ->
+    (match dst with
+     | Reg reg -> sprintf "sete %s" (string_of_reg8 reg)
+     | Mem _ ->
+       sprintf
+         "sete %s"
+         (string_of_operand_with_size ~size_for_mem:"byte ptr" dst)
+     | Imm _ | Spill_slot _ | Symbol _ ->
+       failwith "sete expects register or memory operand")
   | Call { asm_label; _ } -> sprintf "call %s" asm_label
   | Push op -> sprintf "push %s" (string_of_operand op)
   | Pop reg -> sprintf "pop %s" (string_of_reg reg)
