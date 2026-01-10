@@ -20,8 +20,7 @@ type t =
   ]
 
 let rec to_string : t -> string = function
-  | `Unexpected_character c ->
-    sprintf "Error: unexpected character '%c'\n" c
+  | `Unexpected_character c -> sprintf "Error: unexpected character '%c'\n" c
   | `Unexpected_end_of_input -> "Error: unexpected end of input\n"
   | `Unexpected_eof_in_comment -> "Error: unexpected EOF in comment\n"
   | `Unexpected_token (tok, pos) ->

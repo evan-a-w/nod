@@ -11,3 +11,4 @@ let map_functions t ~f = { t with functions = Map.map t.functions ~f }
 
 let map_function_roots t ~f =
   { t with functions = Map.map t.functions ~f:(Function0.map_root ~f) }
+;;

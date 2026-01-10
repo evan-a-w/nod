@@ -114,8 +114,7 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
   in
   let selected = Map.find_exn selected_map "root" in
   print_selected_mem_fences selected;
-  [%expect
-    {|
+  [%expect {|
     store
     mfence
     mfence
@@ -149,8 +148,7 @@ let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
   print_mnemonics_with_prefixes [ "lock cmpxchg"; "sete"; "and" ] asm;
-  [%expect
-    {|
+  [%expect {|
     lock
     sete
     and
@@ -180,8 +178,7 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
   print_mnemonics_with_prefixes [ "lock cmpxchg" ] asm;
-  [%expect
-    {| lock |}]
+  [%expect {| lock |}]
 ;;
 
 let%expect_test "branches lower with labels" =
@@ -334,7 +331,8 @@ root() {
   ret %z
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -390,7 +388,8 @@ root() {
   ret %y
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -433,7 +432,8 @@ root() {
   ret %x
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -476,7 +476,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -531,7 +532,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8

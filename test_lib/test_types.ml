@@ -239,8 +239,7 @@ let%expect_test "memcpy expands to loads and stores" =
 ;;
 
 let%expect_test "alloca sizeof tuple" =
-  test
-    {|
+  test {|
     alloca %buf:ptr, sizeof[(i64, f64)]
     return %buf
   |};

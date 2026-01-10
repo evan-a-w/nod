@@ -1,6 +1,5 @@
 open! Core
 open! Import
-
 module Ast = Ast
 
 type struct_info =
@@ -101,8 +100,7 @@ let start_block ?(link = true) builder label =
     if link && not builder.terminated
     then (
       let branch =
-        Ir.branch
-          (Ir.Branch.Uncond { Ir.Call_block.block = label; args = [] })
+        Ir.branch (Ir.Branch.Uncond { Ir.Call_block.block = label; args = [] })
       in
       emit builder branch)
     else if link
@@ -167,9 +165,7 @@ let fresh_temp ctx ~type_ =
   Var.create ~name ~type_
 ;;
 
-let push_scope ctx =
-  ctx.scopes := String.Table.create () :: !(ctx.scopes)
-;;
+let push_scope ctx = ctx.scopes := String.Table.create () :: !(ctx.scopes)
 
 let pop_scope ctx =
   match !(ctx.scopes) with
@@ -221,7 +217,8 @@ let resolve_field struct_env struct_name field_name =
   match Map.find struct_env struct_name with
   | None -> Error (`Unknown_struct struct_name)
   | Some info ->
-    (match List.findi info.fields ~f:(fun _ (name, _) ->
+    (match
+       List.findi info.fields ~f:(fun _ (name, _) ->
          String.equal name field_name)
      with
      | None -> Error (`Unknown_field (struct_name, field_name))
@@ -245,9 +242,7 @@ let resolve_field_path struct_env struct_name fields =
           | _ ->
             Error
               (`Invalid_lvalue
-                (sprintf
-                   "field path continues through non-struct %s"
-                   field))))
+                (sprintf "field path continues through non-struct %s" field))))
   in
   go struct_name fields
 ;;
@@ -316,30 +311,22 @@ let rec lower_expr ctx (expr : Ast.expr) =
          emit
            ctx.builder
            (Ir.fsub
-              { dest
-              ; src1 = Ir.Lit_or_var.Var zero
-              ; src2 = value.operand
-              })
+              { dest; src1 = Ir.Lit_or_var.Var zero; src2 = value.operand })
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.F64 }
-     | Ast.Ptr _ ->
-       Error (`Type_mismatch "cannot negate pointer")
-     | Ast.Struct _ ->
-       Error (`Type_mismatch "cannot negate struct value"))
+     | Ast.Ptr _ -> Error (`Type_mismatch "cannot negate pointer")
+     | Ast.Struct _ -> Error (`Type_mismatch "cannot negate struct value"))
   | Ast.Unary (Ast.Deref, expr) ->
     let%bind value = lower_expr ctx expr in
     (match value.type_ with
      | Ast.Ptr inner ->
        (match inner with
-        | Ast.Struct _ ->
-          Ok { operand = value.operand; type_ = inner }
+        | Ast.Struct _ -> Ok { operand = value.operand; type_ = inner }
         | _ ->
           let%bind dest_type = core_type_of ctx.struct_env inner in
           let dest = fresh_temp ctx ~type_:dest_type in
           let%bind () =
-            emit
-              ctx.builder
-              (Ir.load dest (Ir.Mem.address value.operand))
+            emit ctx.builder (Ir.load dest (Ir.Mem.address value.operand))
           in
           Ok { operand = Ir.Lit_or_var.Var dest; type_ = inner })
      | _ -> Error (`Type_mismatch "deref expects pointer"))
@@ -358,7 +345,9 @@ let rec lower_expr ctx (expr : Ast.expr) =
          | Ast.Mod -> Ir.mod_
        in
        let%bind () =
-         emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
+         emit
+           ctx.builder
+           (instr { dest; src1 = left.operand; src2 = right.operand })
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.I64 }
      | (Ast.Add | Ast.Sub | Ast.Mul | Ast.Div), Ast.F64, Ast.F64 ->
@@ -372,29 +361,47 @@ let rec lower_expr ctx (expr : Ast.expr) =
          | Ast.Mod -> failwith "mod not supported for f64"
        in
        let%bind () =
-         emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
+         emit
+           ctx.builder
+           (instr { dest; src1 = left.operand; src2 = right.operand })
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.F64 }
-    | (Ast.Add | Ast.Sub), Ast.Ptr inner, Ast.I64 ->
-      let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
-      let dest = fresh_temp ctx ~type_:dest_type in
-      let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
-      let%bind () =
-        emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
-      in
-      Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
-    | (Ast.Add | Ast.Sub), Ast.I64, Ast.Ptr inner ->
-      let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
-      let dest = fresh_temp ctx ~type_:dest_type in
-      let instr = match op with Ast.Add -> Ir.add | Ast.Sub -> Ir.sub | _ -> Ir.add in
-      let%bind () =
-        emit ctx.builder (instr { dest; src1 = left.operand; src2 = right.operand })
-      in
-      Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
+     | (Ast.Add | Ast.Sub), Ast.Ptr inner, Ast.I64 ->
+       let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
+       let dest = fresh_temp ctx ~type_:dest_type in
+       let instr =
+         match op with
+         | Ast.Add -> Ir.add
+         | Ast.Sub -> Ir.sub
+         | _ -> Ir.add
+       in
+       let%bind () =
+         emit
+           ctx.builder
+           (instr { dest; src1 = left.operand; src2 = right.operand })
+       in
+       Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
+     | (Ast.Add | Ast.Sub), Ast.I64, Ast.Ptr inner ->
+       let%bind dest_type = ptr_core_type_of ctx.struct_env inner in
+       let dest = fresh_temp ctx ~type_:dest_type in
+       let instr =
+         match op with
+         | Ast.Add -> Ir.add
+         | Ast.Sub -> Ir.sub
+         | _ -> Ir.add
+       in
+       let%bind () =
+         emit
+           ctx.builder
+           (instr { dest; src1 = left.operand; src2 = right.operand })
+       in
+       Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.Ptr inner }
      | Ast.Sub, Ast.Ptr _, Ast.Ptr _ ->
        let dest = fresh_temp ctx ~type_:Type.I64 in
        let%bind () =
-         emit ctx.builder (Ir.sub { dest; src1 = left.operand; src2 = right.operand })
+         emit
+           ctx.builder
+           (Ir.sub { dest; src1 = left.operand; src2 = right.operand })
        in
        Ok { operand = Ir.Lit_or_var.Var dest; type_ = Ast.I64 }
      | _ ->
@@ -412,7 +419,9 @@ let rec lower_expr ctx (expr : Ast.expr) =
        (match sig_.return_type with
         | Ast.Struct _ ->
           let%bind core = core_type_of ctx.struct_env sig_.return_type in
-          let size = Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit in
+          let size =
+            Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
+          in
           let%bind dest_type =
             ptr_core_type_of ctx.struct_env sig_.return_type
           in
@@ -513,7 +522,7 @@ and lower_call_args ctx param_types arg_exprs =
                  "function expects %s but got %s"
                  (Sexp.to_string (Ast.sexp_of_type_expr param))
                  (Sexp.to_string (Ast.sexp_of_type_expr value.type_))))
-        else
+        else (
           let%bind core = core_type_of ctx.struct_env param in
           let size =
             Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
@@ -530,7 +539,7 @@ and lower_call_args ctx param_types arg_exprs =
                  ; type_ = core
                  })
           in
-          Ok (Ir.Lit_or_var.Var dest :: acc)
+          Ok (Ir.Lit_or_var.Var dest :: acc))
       | _ ->
         let%bind value = lower_expr ctx arg in
         if not (type_equal param value.type_)
@@ -569,12 +578,7 @@ and lower_lvalue ctx expr =
          resolve_field_path ctx.struct_env struct_name fields
        in
        Ok
-         (Field
-            { base = base_value.operand
-            ; struct_name
-            ; indices
-            ; field_type
-            })
+         (Field { base = base_value.operand; struct_name; indices; field_type })
      | _ ->
        Error (`Invalid_lvalue "field access expects struct value or pointer"))
   | _ -> Error (`Invalid_lvalue "unsupported lvalue")
@@ -600,11 +604,11 @@ let lower_assign ctx lhs rhs =
      | Ast.Struct _ ->
        let%bind value = lower_expr ctx rhs in
        if type_equal type_ value.type_
-       then
+       then (
          let%bind core_type = core_type_of ctx.struct_env type_ in
          emit
            ctx.builder
-           (Ir.memcpy { dest = base; src = value.operand; type_ = core_type })
+           (Ir.memcpy { dest = base; src = value.operand; type_ = core_type }))
        else
          Error
            (`Type_mismatch
@@ -615,10 +619,7 @@ let lower_assign ctx lhs rhs =
      | _ ->
        let%bind value = lower_expr ctx rhs in
        if type_equal type_ value.type_
-       then
-         emit
-           ctx.builder
-           (Ir.store value.operand (Ir.Mem.address base))
+       then emit ctx.builder (Ir.store value.operand (Ir.Mem.address base))
        else
          Error
            (`Type_mismatch
@@ -687,29 +688,10 @@ let rec lower_stmt ctx stmt =
               let%bind core_type = core_type_of ctx.struct_env type_ in
               emit
                 ctx.builder
-                (Ir.memcpy { dest = ptr; src = value.operand; type_ = core_type })
+                (Ir.memcpy
+                   { dest = ptr; src = value.operand; type_ = core_type })
             | Scalar _ -> Error (`Type_mismatch "expected struct binding"))
-          else
-            let msg =
-              sprintf
-                "initializer for %s expected %s but got %s"
-                name
-                (Sexp.to_string (Ast.sexp_of_type_expr type_))
-                (Sexp.to_string (Ast.sexp_of_type_expr value.type_))
-            in
-            Error (`Type_mismatch msg))
-     | _ ->
-       let%bind () = declare_scalar ctx name type_ in
-       (match init with
-        | None -> Ok ()
-        | Some expr ->
-          let%bind value = lower_expr ctx expr in
-          if type_equal type_ value.type_
-          then
-            let%bind core_type = core_type_of ctx.struct_env type_ in
-            let var = Var.create ~name ~type_:core_type in
-            emit ctx.builder (Ir.move var value.operand)
-          else
+          else (
             let msg =
               sprintf
                 "initializer for %s expected %s but got %s"
@@ -718,6 +700,26 @@ let rec lower_stmt ctx stmt =
                 (Sexp.to_string (Ast.sexp_of_type_expr value.type_))
             in
             Error (`Type_mismatch msg)))
+     | _ ->
+       let%bind () = declare_scalar ctx name type_ in
+       (match init with
+        | None -> Ok ()
+        | Some expr ->
+          let%bind value = lower_expr ctx expr in
+          if type_equal type_ value.type_
+          then (
+            let%bind core_type = core_type_of ctx.struct_env type_ in
+            let var = Var.create ~name ~type_:core_type in
+            emit ctx.builder (Ir.move var value.operand))
+          else (
+            let msg =
+              sprintf
+                "initializer for %s expected %s but got %s"
+                name
+                (Sexp.to_string (Ast.sexp_of_type_expr type_))
+                (Sexp.to_string (Ast.sexp_of_type_expr value.type_))
+            in
+            Error (`Type_mismatch msg))))
   | Ast.Assign (lhs, rhs) -> lower_assign ctx lhs rhs
   | Ast.Return expr ->
     let%bind value = lower_expr ctx expr in
@@ -750,8 +752,8 @@ let rec lower_stmt ctx stmt =
         | None -> Error (`Unknown_function name)
         | Some sig_ ->
           let%bind arg_operands = lower_call_args ctx sig_.args args in
-           (match sig_.return_type with
-            | Ast.Struct _ ->
+          (match sig_.return_type with
+           | Ast.Struct _ ->
              let%bind core = core_type_of ctx.struct_env sig_.return_type in
              let size =
                Type.size_in_bytes core |> Int64.of_int |> Ir.Lit_or_var.Lit
@@ -768,9 +770,7 @@ let rec lower_stmt ctx stmt =
                   ~results:[]
                   ~args:(Ir.Lit_or_var.Var dest :: arg_operands))
            | _ ->
-             emit
-               ctx.builder
-               (Ir.call ~fn:name ~results:[] ~args:arg_operands)))
+             emit ctx.builder (Ir.call ~fn:name ~results:[] ~args:arg_operands)))
      | _ ->
        let%map (_ : value) = lower_expr ctx expr in
        ())
@@ -805,8 +805,7 @@ let rec lower_stmt ctx stmt =
           emit
             ctx.builder
             (Ir.branch
-               (Ir.Branch.Uncond
-                  { Ir.Call_block.block = end_label; args = [] }))
+               (Ir.Branch.Uncond { Ir.Call_block.block = end_label; args = [] }))
       in
       let%bind () = start_block ~link:false ctx.builder else_label in
       let%bind () =
@@ -826,8 +825,7 @@ let rec lower_stmt ctx stmt =
           emit
             ctx.builder
             (Ir.branch
-               (Ir.Branch.Uncond
-                  { Ir.Call_block.block = end_label; args = [] }))
+               (Ir.Branch.Uncond { Ir.Call_block.block = end_label; args = [] }))
       in
       if then_terminated && else_terminated
       then Ok ()
@@ -864,8 +862,7 @@ let rec lower_stmt ctx stmt =
           emit
             ctx.builder
             (Ir.branch
-               (Ir.Branch.Uncond
-                  { Ir.Call_block.block = loop_label; args = [] }))
+               (Ir.Branch.Uncond { Ir.Call_block.block = loop_label; args = [] }))
       in
       start_block ~link:false ctx.builder end_label)
 
@@ -909,10 +906,13 @@ let build_struct_env (defs : Ast.struct_def list) =
          Type.Ptr_typed inner_core)
     | Ast.Struct name -> core_type_of_struct visiting name
   in
-  List.fold (Map.to_alist base) ~init:(Ok String.Map.empty) ~f:(fun acc (name, fields) ->
-    let%bind acc in
-    let%map core_type = core_type_of_struct String.Set.empty name in
-    Map.set acc ~key:name ~data:{ fields; core_type })
+  List.fold
+    (Map.to_alist base)
+    ~init:(Ok String.Map.empty)
+    ~f:(fun acc (name, fields) ->
+      let%bind acc in
+      let%map core_type = core_type_of_struct String.Set.empty name in
+      Map.set acc ~key:name ~data:{ fields; core_type })
 ;;
 
 let build_fn_env (fns : Ast.func list) =
@@ -921,10 +921,9 @@ let build_fn_env (fns : Ast.func list) =
     let%bind acc in
     if Map.mem acc fn.Ast.name
     then Error (`Type_mismatch (sprintf "duplicate function %s" fn.name))
-    else
+    else (
       let args = List.map fn.params ~f:(fun p -> p.Ast.type_) in
-      Ok
-        (Map.set acc ~key:fn.name ~data:{ args; return_type = fn.return_type }))
+      Ok (Map.set acc ~key:fn.name ~data:{ args; return_type = fn.return_type })))
 ;;
 
 let lower_function struct_env fn_env (func : Ast.func) =
@@ -983,7 +982,7 @@ let lower_function struct_env fn_env (func : Ast.func) =
     | None -> args
     | Some ret_var -> ret_var :: args
   in
-  let root = (~instrs_by_label:builder.instrs_by_label, ~labels:builder.labels) in
+  let root = ~instrs_by_label:builder.instrs_by_label, ~labels:builder.labels in
   Ok (Function0.create ~name:func.name ~args ~root)
 ;;
 
@@ -993,7 +992,8 @@ let lower_program (program : Ast.program) =
   let%bind fn_env = build_fn_env program.functions in
   let%bind functions =
     result_all
-      (List.map program.functions ~f:(fun fn -> lower_function struct_env fn_env fn))
+      (List.map program.functions ~f:(fun fn ->
+         lower_function struct_env fn_env fn))
   in
   let map =
     String.Map.of_alist_exn

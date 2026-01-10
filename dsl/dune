@@ -1,0 +1,5 @@
+(library
+ (name nod_dsl)
+ (preprocess
+  (pps ppx_jane))
+ (libraries core nod_core))

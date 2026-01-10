@@ -69,7 +69,7 @@ let ensure_label t name ~f =
 
 let new_label_state name =
   let block = Block.create ~id_hum:name ~terminal:Ir.unreachable in
-  { Label.name = name; block; terminated = false }
+  { Label.name; block; terminated = false }
 ;;
 
 let entry_placeholder_active t =
@@ -81,7 +81,7 @@ let entry_placeholder_active t =
 let enter_label t ~name =
   let label = ensure_label t name ~f:(fun () -> new_label_state name) in
   if not (phys_equal t.current.block label.block)
-  then (
+  then
     if entry_placeholder_active t
     then (
       let call_block = { Call_block.block = label.block; args = [] } in
@@ -92,7 +92,7 @@ let enter_label t ~name =
       raise_s
         [%message
           "previous block missing terminator before defining new label"
-            (t.current.name : string)]);
+            (t.current.name : string)];
   t.current <- label;
   label
 ;;
@@ -134,7 +134,6 @@ let branch t ~cond ~if_true ~if_false ~args_true ~args_false =
 
 let return t value = set_terminal t (Ir.return value)
 let unreachable t = set_terminal t Ir.unreachable
-
 let new_var _t ~name ~type_ = Var.create ~name ~type_
 
 let add_arg t ~name ~type_ =

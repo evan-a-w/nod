@@ -191,21 +191,22 @@ let save_and_restore_around_calls
            | Some fn -> fn
            | None -> failwith "Save_clobbers without following CALL"
          in
-        let regs =
-          regs_to_save
-            ~state
-            ~call_fn
-            ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
-        in
-        let bytes, slots = layout_reg_saves regs in
-        let aligned_bytes = align_stack bytes in
-        Stack.push pending (slots, aligned_bytes);
-        if aligned_bytes > 0 then Vec.push new_instructions (sub_sp aligned_bytes);
-        List.iter slots ~f:(fun (reg, off) ->
-          Vec.push new_instructions (store_reg_at_sp reg off))
-      | Ir0.Arm64 Restore_clobbers ->
-        let slots, bytes =
-          match Stack.pop pending with
+         let regs =
+           regs_to_save
+             ~state
+             ~call_fn
+             ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
+         in
+         let bytes, slots = layout_reg_saves regs in
+         let aligned_bytes = align_stack bytes in
+         Stack.push pending (slots, aligned_bytes);
+         if aligned_bytes > 0
+         then Vec.push new_instructions (sub_sp aligned_bytes);
+         List.iter slots ~f:(fun (reg, off) ->
+           Vec.push new_instructions (store_reg_at_sp reg off))
+       | Ir0.Arm64 Restore_clobbers ->
+         let slots, bytes =
+           match Stack.pop pending with
            | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in

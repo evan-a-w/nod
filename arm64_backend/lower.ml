@@ -35,9 +35,7 @@ let ensure_gpr operand ~dst ~avoid =
   | Reg reg -> [], reg, avoid
   | Imm imm ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    ( [ Asm.Mov { dst = scratch; src = Imm imm } ]
-    , scratch
-    , scratch :: avoid )
+    [ Asm.Mov { dst = scratch; src = Imm imm } ], scratch, scratch :: avoid
   | Mem (reg, disp) ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
     ( [ Asm.Ldr { dst = scratch; addr = Mem (reg, disp) } ]
@@ -203,12 +201,12 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
             sanitize_identifier
               (sprintf "%s__%s" sanitized_name block.Block.id_hum)
         in
-        let base_label = if idx = 0 then base_label else ensure_unique base_label in
+        let base_label =
+          if idx = 0 then base_label else ensure_unique base_label
+        in
         Hashtbl.add_exn label_by_block ~key:block ~data:base_label);
       let items_rev = ref [] in
-      let emit_instruction instr =
-        items_rev := Asm.Instr instr :: !items_rev
-      in
+      let emit_instruction instr = items_rev := Asm.Instr instr :: !items_rev in
       let emit_label label = items_rev := Asm.Label label :: !items_rev in
       let label_of_block block = Hashtbl.find_exn label_by_block block in
       let label_of_call_block call_block =
@@ -264,7 +262,9 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
           Emit
             (expected_setup
              @ desired_setup
-             @ [ Asm.Casal { expected = expected_reg; desired = desired_reg; addr } ]
+             @ [ Asm.Casal
+                   { expected = expected_reg; desired = desired_reg; addr }
+               ]
              @ move_dst)
         | Int_binary { op; dst; lhs; rhs } ->
           Emit (lower_int_binary ~op ~dst ~lhs ~rhs)

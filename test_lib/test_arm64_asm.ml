@@ -241,7 +241,8 @@ root() {
   ret %z
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -297,7 +298,8 @@ root() {
   ret %y
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -342,7 +344,8 @@ root() {
   ret %x
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     buf:
@@ -389,7 +392,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -455,7 +459,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     f:
@@ -511,7 +516,9 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   Vec.push
     root.instructions
     (Ir.atomic_store
@@ -527,10 +534,11 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
        ; order = Ir.Memory_order.Seq_cst
        });
   let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
-  [%expect
-    {|
+  [%expect {|
     dmb
     stlr
     dmb
@@ -547,7 +555,9 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
   let root =
     Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   Vec.push
     root.instructions
     (Ir.atomic_cmpxchg
@@ -560,12 +570,13 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
        ; failure_order = Ir.Memory_order.Acquire
        });
   let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes
     [ "casal"; "eor x"; "sub x"; "orr x"; "asr x"; "and x" ]
     asm;
-  [%expect
-    {|
+  [%expect {|
     casal
     eor
     sub
@@ -582,7 +593,9 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
   let root =
     Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   Vec.push
     root.instructions
     (Ir.atomic_rmw
@@ -593,10 +606,11 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
        ; order = Ir.Memory_order.Relaxed
        });
   let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;
-  [%expect
-    {|
+  [%expect {|
     ldaxr
     stlxr
     |}]

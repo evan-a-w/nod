@@ -9,6 +9,7 @@
   nod_frontend
   nod_core
   nod_low
+  nod_dsl
   vec
   feel
   nod_x86_backend

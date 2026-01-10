@@ -112,8 +112,7 @@ let fn = function
   | LOCK_AND (_, _)
   | LOCK_OR (_, _)
   | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _
-  | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
+  | LOCK_CMPXCHG _ | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
   | CMP (_, _)
   | SETE _
   | JE (_, _)
@@ -228,7 +227,8 @@ let rec map_var_operands ins ~f =
     LOCK_SUB (map_var_operand dst ~f, map_var_operand src ~f)
   | LOCK_AND (dst, src) ->
     LOCK_AND (map_var_operand dst ~f, map_var_operand src ~f)
-  | LOCK_OR (dst, src) -> LOCK_OR (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_OR (dst, src) ->
+    LOCK_OR (map_var_operand dst ~f, map_var_operand src ~f)
   | LOCK_XOR (dst, src) ->
     LOCK_XOR (map_var_operand dst ~f, map_var_operand src ~f)
   | LOCK_CMPXCHG { dest; expected; desired } ->
@@ -631,7 +631,11 @@ let rec map_uses t ~f =
   | LOCK_OR (dst, src) -> LOCK_OR (map_op dst, map_op src)
   | LOCK_XOR (dst, src) -> LOCK_XOR (map_op dst, map_op src)
   | LOCK_CMPXCHG { dest; expected; desired } ->
-    LOCK_CMPXCHG { dest = map_op dest; expected = map_op expected; desired = map_op desired }
+    LOCK_CMPXCHG
+      { dest = map_op dest
+      ; expected = map_op expected
+      ; desired = map_op desired
+      }
   | IMUL op -> IMUL (map_op op)
   | IDIV op -> IDIV (map_op op)
   | MOD op -> MOD (map_op op)
@@ -730,8 +734,7 @@ let rec map_call_blocks t ~f =
   | LOCK_AND (_, _)
   | LOCK_OR (_, _)
   | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | LOCK_CMPXCHG _ | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
 ;;
@@ -768,8 +771,7 @@ let rec iter_call_blocks t ~f =
   | LOCK_AND (_, _)
   | LOCK_OR (_, _)
   | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | LOCK_CMPXCHG _ | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> ()
 ;;
@@ -800,8 +802,7 @@ let rec call_blocks = function
   | LOCK_AND (_, _)
   | LOCK_OR (_, _)
   | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _
-  | IMUL _ | IDIV _ | MOD _ | LABEL _
+  | LOCK_CMPXCHG _ | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
 ;;
@@ -833,8 +834,7 @@ let rec is_terminal = function
   | LOCK_AND (_, _)
   | LOCK_OR (_, _)
   | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _
-  | IMUL _ | IDIV _ | LABEL _ | MOD _
+  | LOCK_CMPXCHG _ | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
   | ALLOCA _ | CALL _ | PUSH _ | POP _ -> false
 ;;

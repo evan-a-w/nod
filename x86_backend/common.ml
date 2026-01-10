@@ -52,8 +52,13 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Fdiv _
   | Load (_, _)
   | Store (_, _)
-  | Load_field _ | Store_field _ | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move (_, _)
   | Cast (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> None
@@ -83,8 +88,13 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Fdiv _
   | Load (_, _)
   | Store (_, _)
-  | Load_field _ | Store_field _ | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move (_, _)
   | Cast (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> ()
