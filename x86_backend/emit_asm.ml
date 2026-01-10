@@ -116,6 +116,21 @@ let string_of_instr = function
   | Je target -> sprintf "je %s" target
   | Jne target -> sprintf "jne %s" target
   | Ret -> "ret"
+  (* Atomic operations *)
+  | Mfence -> "mfence"
+  | Xchg (dst, src) -> emit_binary_instr "xchg" dst src
+  | Lock_add (dst, src) -> emit_binary_instr "lock add" dst src
+  | Lock_sub (dst, src) -> emit_binary_instr "lock sub" dst src
+  | Lock_and (dst, src) -> emit_binary_instr "lock and" dst src
+  | Lock_or (dst, src) -> emit_binary_instr "lock or" dst src
+  | Lock_xor (dst, src) -> emit_binary_instr "lock xor" dst src
+  | Lock_cmpxchg { dest; expected = _; desired } ->
+    (* CMPXCHG compares RAX (expected) with dest, if equal stores desired to dest *)
+    (* Note: expected should already be in RAX by the instruction selection *)
+    sprintf
+      "lock cmpxchg %s, %s"
+      (string_of_operand dest)
+      (string_of_operand desired)
 ;;
 
 let add_line buf line =

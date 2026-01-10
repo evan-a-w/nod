@@ -269,6 +269,11 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     @ [ Conditional_branch
           { condition = Condition.Ne; then_ = if_true; else_ = Some if_false }
       ]
+  (* Atomic operations - TODO: implement ARM64 atomic instructions *)
+  | Atomic_load _ -> failwith "ARM64 atomic_load not yet implemented"
+  | Atomic_store _ -> failwith "ARM64 atomic_store not yet implemented"
+  | Atomic_rmw _ -> failwith "ARM64 atomic_rmw not yet implemented"
+  | Atomic_cmpxchg _ -> failwith "ARM64 atomic_cmpxchg not yet implemented"
 ;;
 
 let get_fn = fn

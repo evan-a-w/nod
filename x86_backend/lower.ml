@@ -236,6 +236,28 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         | LABEL s ->
           let label = ensure_unique (sanitize_identifier s) in
           Emit_label label
+        (* Atomic operations *)
+        | MFENCE -> Emit [ Asm.Mfence ]
+        | XCHG (dst, src) ->
+          Emit
+            (match dst, src with
+             | Mem _, Mem _ ->
+               (* XCHG cannot have both operands as memory, use temp register *)
+               let scratch = Reg Reg.r11 in
+               [ Asm.Push (Reg Reg.r11)
+               ; Asm.Mov (scratch, src)
+               ; Asm.Xchg (dst, scratch)
+               ; Asm.Mov (src, scratch)
+               ; Asm.Pop Reg.r11
+               ]
+             | _ -> [ Asm.Xchg (dst, src) ])
+        | LOCK_ADD (dst, src) -> Emit [ Asm.Lock_add (dst, src) ]
+        | LOCK_SUB (dst, src) -> Emit [ Asm.Lock_sub (dst, src) ]
+        | LOCK_AND (dst, src) -> Emit [ Asm.Lock_and (dst, src) ]
+        | LOCK_OR (dst, src) -> Emit [ Asm.Lock_or (dst, src) ]
+        | LOCK_XOR (dst, src) -> Emit [ Asm.Lock_xor (dst, src) ]
+        | LOCK_CMPXCHG { dest; expected; desired } ->
+          Emit [ Asm.Lock_cmpxchg { dest; expected; desired } ]
         | Tag_use _ | Tag_def _ -> assert false
       in
       let pending_const_cmp = ref None in

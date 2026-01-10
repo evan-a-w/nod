@@ -33,6 +33,19 @@ type instr =
   | Je of string
   | Jne of string
   | Ret
+  (* Atomic operations *)
+  | Mfence
+  | Xchg of operand * operand
+  | Lock_add of operand * operand
+  | Lock_sub of operand * operand
+  | Lock_and of operand * operand
+  | Lock_or of operand * operand
+  | Lock_xor of operand * operand
+  | Lock_cmpxchg of
+      { dest : operand
+      ; expected : operand
+      ; desired : operand
+      }
 [@@deriving sexp, equal]
 
 type item =
