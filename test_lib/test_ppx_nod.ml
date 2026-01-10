@@ -30,6 +30,28 @@ let%expect_test "block builder" =
     |}]
 ;;
 
+let%expect_test "no_nod escape and implicit dsl" =
+  let called = ref false in
+  let mark_called () = called := true in
+  let block =
+    [%nod
+      [%no_nod mark_called ()];
+      let (tmp : i64) = mov (lit 1L) in
+      return (var tmp)]
+  in
+  print_s [%sexp (!called : bool)];
+  Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
+  print_s (Block.to_sexp_verbose block);
+  [%expect
+    {|
+    true
+    ((%entry (args ())
+      (instrs
+       ((Move ((name tmp) (type_ I64)) (Lit 1))
+        (Return (Var ((name tmp) (type_ I64))))))))
+    |}]
+;;
+
 let%expect_test "function builder" =
   let mk =
     [%nod

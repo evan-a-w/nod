@@ -2,6 +2,7 @@ open Ppxlib
 open Ast_builder.Default
 
 let ir_builder_mod = "Nod_core.Ir_builder"
+let no_nod_name = "no_nod"
 let lid ?(loc = Location.none) s = Located.mk ~loc (Longident.parse s)
 let evar_lid ~loc name = pexp_ident ~loc (lid ~loc name)
 let type_ast_mod = ir_builder_mod ^ ".Type_ast"
@@ -65,8 +66,17 @@ let builder_fun ~loc fn =
   evar_lid ~loc (Printf.sprintf "%s.%s" ir_builder_mod fn)
 ;;
 
+let expr_payload ~loc payload =
+  match payload with
+  | PStr [ { pstr_desc = Pstr_eval (expr, _); _ } ] -> expr
+  | _ -> Location.raise_errorf ~loc "%s expects an expression payload" no_nod_name
+;;
+
 let rec translate builder expr =
   match expr.pexp_desc with
+  | Pexp_extension ({ txt; loc }, payload)
+    when String.equal txt no_nod_name ->
+    expr_payload ~loc payload
   | Pexp_sequence (lhs, rhs) -> translate_sequence builder lhs rhs
   | Pexp_let (Immutable, Nonrecursive, [ vb ], body) ->
     (match parse_typed_pattern vb.pvb_pat with
@@ -239,9 +249,20 @@ let expand_block expr =
 ;;
 
 let expand expr =
-  match expr.pexp_desc with
-  | Pexp_function _ -> expand_fun expr
-  | _ -> expand_block expr
+  let expanded =
+    match expr.pexp_desc with
+    | Pexp_function _ -> expand_fun expr
+    | _ -> expand_block expr
+  in
+  let loc = expanded.pexp_loc in
+  let open_decl =
+    { popen_expr = pmod_ident ~loc (lid ~loc "Dsl")
+    ; popen_override = Override
+    ; popen_loc = loc
+    ; popen_attributes = []
+    }
+  in
+  pexp_open ~loc open_decl expanded
 ;;
 
 let extension =
@@ -252,4 +273,15 @@ let extension =
     (fun ~loc:_ ~path:_ expr -> expand expr)
 ;;
 
-let () = Driver.register_transformation ~extensions:[ extension ] "ppx_nod_ir"
+let no_nod_extension =
+  Extension.declare
+    no_nod_name
+    Expression
+    Ast_pattern.(single_expr_payload __)
+    (fun ~loc:_ ~path:_ expr -> expr)
+;;
+
+let () =
+  Driver.register_transformation
+    ~extensions:[ extension; no_nod_extension ]
+    "ppx_nod_ir"
