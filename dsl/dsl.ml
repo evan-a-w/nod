@@ -9,7 +9,6 @@ type int8
 type float64
 type float32
 type ptr
-
 type i64 = int64
 type i32 = int32
 type i16 = int16
@@ -38,7 +37,7 @@ module Fn = struct
     let types = ref [] in
     Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ());
     Block.iter_instructions (Function.root fn) ~f:(function
-      | Ir.Return value -> types := value :: !types
+      | Return value -> types := value :: !types
       | _ -> ());
     match !types with
     | [] -> []
@@ -92,11 +91,7 @@ let ptr_type_of_atom = function
 ;;
 
 let atom_of_var v = L.Var v
-
-let new_var ~name ~type_ =
-  Ir_builder.new_var (builder_exn ()) ~name ~type_
-;;
-
+let new_var ~name ~type_ = Ir_builder.new_var (builder_exn ()) ~name ~type_
 let emit instr = Ir_builder.emit (builder_exn ()) instr
 
 (* Atom constructors *)
@@ -266,12 +261,8 @@ let call_with_args name fn args =
 
 let call name fn arg = call_with_args name fn [ arg ]
 let call0 name fn = call_with_args name fn []
-
 let call2 name fn arg1 arg2 = call_with_args name fn [ arg1; arg2 ]
-
-let call3 name fn arg1 arg2 arg3 =
-  call_with_args name fn [ arg1; arg2; arg3 ]
-;;
+let call3 name fn arg1 arg2 arg3 = call_with_args name fn [ arg1; arg2; arg3 ]
 
 let call4 name fn arg1 arg2 arg3 arg4 =
   call_with_args name fn [ arg1; arg2; arg3; arg4 ]
@@ -285,7 +276,7 @@ let call5 name fn arg1 arg2 arg3 arg4 arg5 =
 let load_field name base type_ indices =
   let dest_type =
     match Type.field_offset type_ indices with
-    | Ok (_, Type.Tuple _ as agg) -> Type.Ptr_typed agg
+    | Ok (_, (Type.Tuple _ as agg)) -> Type.Ptr_typed agg
     | Ok (_, field) -> field
     | Error err -> raise (Error.to_exn err)
   in
@@ -318,7 +309,6 @@ module Instr = struct
   let fsub ~dest src1 src2 = Ir.fsub { dest = var_exn dest; src1; src2 }
   let fmul ~dest src1 src2 = Ir.fmul { dest = var_exn dest; src1; src2 }
   let fdiv ~dest src1 src2 = Ir.fdiv { dest = var_exn dest; src1; src2 }
-
   let load mem ~dest = Ir.load (var_exn dest) mem
   let store value mem = Ir.store value mem
 
@@ -334,10 +324,7 @@ module Instr = struct
   let cast src ~dest = Ir.cast (var_exn dest) src
 
   let call fn args ~results =
-    Ir.call
-      ~fn:fn.Fn.name
-      ~results:(List.map results ~f:var_exn)
-      ~args
+    Ir.call ~fn:fn.Fn.name ~results:(List.map results ~f:var_exn) ~args
   ;;
 
   let call0 fn args = Ir.call ~fn:fn.Fn.name ~results:[] ~args
