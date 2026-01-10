@@ -1,3 +1,4 @@
+open! Core
 open Ppxlib
 open Ast_builder.Default
 
@@ -93,19 +94,21 @@ let expand_named expr =
        let name_expr = estring ~loc name in
        let rhs = add_name_arg vb.pvb_expr name_expr in
        let vb = { vb with pvb_expr = rhs } in
-       { expr with pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body) }
+       { expr with
+         pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body)
+       }
      | _ ->
-       Location.raise_errorf ~loc:vb.pvb_pat.ppat_loc "let%%named expects a name")
+       Location.raise_errorf
+         ~loc:vb.pvb_pat.ppat_loc
+         "let%%named expects a name")
   | _ -> Location.raise_errorf ~loc:expr.pexp_loc "let%%named expects a let"
 ;;
 
 let rec translate builder expr =
   match expr.pexp_desc with
-  | Pexp_extension ({ txt; loc }, payload)
-    when String.equal txt no_nod_name ->
+  | Pexp_extension ({ txt; loc }, payload) when String.equal txt no_nod_name ->
     expr_payload ~loc ~name:no_nod_name payload
-  | Pexp_extension ({ txt; loc }, payload)
-    when String.equal txt "named" ->
+  | Pexp_extension ({ txt; loc }, payload) when String.equal txt "named" ->
     expr_payload ~loc ~name:"named" payload |> expand_named |> translate builder
   | Pexp_sequence (lhs, rhs) -> translate_sequence builder lhs rhs
   | Pexp_let (mut_flag, rec_flag, bindings, body) ->
@@ -216,7 +219,7 @@ let rec collect_fun_args expr ~name_opt acc_rev =
     in
     let new_args =
       List.map
-        (fun param ->
+        ~f:(fun param ->
           match param.pparam_desc with
           | Pparam_val (Nolabel, None, pat) -> parse_typed_pattern pat
           | _ ->
@@ -249,31 +252,33 @@ let expand_fun expr =
   let builder_expr = evar ~loc builder_name in
   let body_expr = translate builder_expr body in
   let body_with_args =
-    ListLabels.fold_right args ~init:body_expr ~f:(fun (name, loc, ty, _ty) acc ->
-      let pat = ppat_var ~loc { txt = name; loc } in
-      let type_expr =
+    ListLabels.fold_right
+      args
+      ~init:body_expr
+      ~f:(fun (name, loc, ty, _ty) acc ->
+        let pat = ppat_var ~loc { txt = name; loc } in
+        let type_expr =
+          [%expr
+            [%e evar_lid ~loc (Printf.sprintf "%s.type_of_ast" ir_builder_mod)]
+              [%e ty]]
+        in
+        let arg_var =
+          [%expr
+            [%e builder_fun ~loc "add_arg"]
+              [%e builder_expr]
+              ~name:[%e estring ~loc name]
+              ~type_:[%e type_expr]]
+        in
+        let arg_atom = [%expr Dsl.var [%e arg_var]] in
         [%expr
-          [%e evar_lid ~loc (Printf.sprintf "%s.type_of_ast" ir_builder_mod)]
-            [%e ty]]
-      in
-      let arg_var =
-        [%expr
-          [%e builder_fun ~loc "add_arg"]
-            [%e builder_expr]
-            ~name:[%e estring ~loc name]
-            ~type_:[%e type_expr]]
-      in
-      let arg_atom = [%expr Dsl.var [%e arg_var]] in
-      [%expr
-        let [%p pat] = [%e arg_atom] in
-        [%e acc]])
+          let [%p pat] = [%e arg_atom] in
+          [%e acc]])
   in
-  let atom_type ty =
-    ptyp_constr ~loc (lid ~loc "Atom.t") [ ty ]
-  in
+  let atom_type ty = ptyp_constr ~loc (lid ~loc "Atom.t") [ ty ] in
   let args_type =
-    match ListLabels.map args ~f:(fun (_name, _loc, _ty, ty_core) ->
-      atom_type ty_core)
+    match
+      ListLabels.map args ~f:(fun (_name, _loc, _ty, ty_core) ->
+        atom_type ty_core)
     with
     | [] -> ptyp_constr ~loc (lid ~loc "unit") []
     | [ only ] -> only
@@ -281,9 +286,7 @@ let expand_fun expr =
   in
   let ret_var = gen_symbol ~prefix:"ret" () in
   let ret_type = ptyp_var ~loc ret_var in
-  let fn_type =
-    ptyp_constr ~loc (lid ~loc "Fn.t") [ args_type; ret_type ]
-  in
+  let fn_type = ptyp_constr ~loc (lid ~loc "Fn.t") [ args_type; ret_type ] in
   let fn_expr =
     [%expr
       let fn_name = [%e name_expr] in
@@ -348,3 +351,4 @@ let () =
   Driver.register_transformation
     ~extensions:[ extension; no_nod_extension ]
     "ppx_nod_ir"
+;;
