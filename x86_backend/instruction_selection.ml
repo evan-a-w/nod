@@ -54,6 +54,126 @@ let lower_aggregates_exn (fn : Function.t) =
   | Error err -> failwith (Nod_error.to_string err)
 ;;
 
+let failure_order_of_rmw = function
+  | Ir.Memory_order.Release -> Ir.Memory_order.Relaxed
+  | Ir.Memory_order.Acq_rel -> Ir.Memory_order.Acquire
+  | other -> other
+;;
+
+let expand_atomic_rmw t =
+  let used_names = String.Hash_set.create () in
+  Block.iter t.fn.root ~f:(fun block ->
+    Hash_set.add used_names block.Block.id_hum);
+  let fresh_name base =
+    let rec loop attempt =
+      let candidate =
+        if attempt = 0 then base else sprintf "%s_%d" base attempt
+      in
+      if Hash_set.mem used_names candidate
+      then loop (attempt + 1)
+      else (
+        Hash_set.add used_names candidate;
+        candidate)
+    in
+    loop 0
+  in
+  let rmw_loop_instrs ({ dest; addr; src; op; order } : Ir.atomic_rmw) =
+    require_class t dest Class.I64;
+    let new_val = fresh_var t "rmw_new" in
+    let success = fresh_var t "rmw_success" in
+    let dest_var = Ir.Lit_or_var.Var dest in
+    let compute =
+      match op with
+      | Ir.Rmw_op.Xchg -> [ Ir.move new_val src ]
+      | Add -> [ Ir.add { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Sub -> [ Ir.sub { dest = new_val; src1 = dest_var; src2 = src } ]
+      | And -> [ Ir.and_ { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Or -> [ Ir.or_ { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Xor ->
+        let tmp_and = fresh_var t "rmw_and" in
+        let tmp_sum = fresh_var t "rmw_sum" in
+        let tmp_double = fresh_var t "rmw_double" in
+        [ Ir.and_ { dest = tmp_and; src1 = dest_var; src2 = src }
+        ; Ir.add { dest = tmp_sum; src1 = dest_var; src2 = src }
+        ; Ir.add
+            { dest = tmp_double
+            ; src1 = Ir.Lit_or_var.Var tmp_and
+            ; src2 = Ir.Lit_or_var.Var tmp_and
+            }
+        ; Ir.sub
+            { dest = new_val
+            ; src1 = Ir.Lit_or_var.Var tmp_sum
+            ; src2 = Ir.Lit_or_var.Var tmp_double
+            }
+        ]
+    in
+    ( compute
+      @ [ Ir.atomic_cmpxchg
+            { dest
+            ; success
+            ; addr
+            ; expected = dest_var
+            ; desired = Ir.Lit_or_var.Var new_val
+            ; success_order = order
+            ; failure_order = failure_order_of_rmw order
+            }
+        ]
+    , success )
+  in
+  let rec split_block block =
+    let instrs = Vec.to_list block.Block.instructions in
+    match
+      List.findi instrs ~f:(fun _ instr ->
+        match instr with
+        | Atomic_rmw _ -> true
+        | _ -> false)
+    with
+    | None -> ()
+    | Some (idx, Atomic_rmw atomic) ->
+      let before = List.take instrs idx in
+      let after = List.drop instrs (idx + 1) in
+      let original_terminal = block.Block.terminal in
+      let cont_block =
+        Block.create
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
+          ~terminal:original_terminal
+      in
+      cont_block.dfs_id <- Some 0;
+      cont_block.Block.instructions <- Vec.of_list after;
+      let loop_block =
+        Block.create
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
+          ~terminal:Noop
+      in
+      loop_block.dfs_id <- Some 0;
+      let loop_instrs, success_var = rmw_loop_instrs atomic in
+      loop_block.Block.instructions <- Vec.of_list loop_instrs;
+      let loop_cb = { Call_block.block = loop_block; args = [] } in
+      let cont_cb = { Call_block.block = cont_block; args = [] } in
+      loop_block.Block.terminal
+      <- Branch
+           (Cond
+              { cond = Ir.Lit_or_var.Var success_var
+              ; if_true = cont_cb
+              ; if_false = loop_cb
+              });
+      let init_load =
+        Ir.atomic_load
+          { dest = atomic.dest
+          ; addr = atomic.addr
+          ; order = Ir.Memory_order.Relaxed
+          }
+      in
+      block.Block.instructions <- Vec.of_list (before @ [ init_load ]);
+      block.Block.terminal <- Branch (Uncond loop_cb);
+      split_block cont_block
+    | Some _ -> ()
+  in
+  Block.iter t.fn.root ~f:split_block;
+  Block.iter_and_update_bookkeeping t.fn.root ~f:(fun _ -> ());
+  t
+;;
+
 let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
   match lit_or_var with
   | Lit l -> [], Imm l
@@ -200,7 +320,8 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
        (* cvtsi2sd can't take immediates, so we need to load literals into a register first *)
        let pre, src_operand = operand_of_lit_or_var t ~class_:src_class src in
        pre
-       @ (match src_operand with
+       @
+         (match src_operand with
          | Spill_slot _ -> failwith "unexpected spill slot"
          | Imm _ ->
            (* Load immediate into a temporary register first *)
@@ -303,12 +424,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     [ save_clobbers ]
     @ pre_moves
-    @ [ CALL
-          { fn
-          ; results = updated_results
-          ; args = arg_operands
-          }
-      ]
+    @ [ CALL { fn; results = updated_results; args = arg_operands } ]
     @ post_moves
     @ post_pop
     @ [ restore_clobbers ]
@@ -323,6 +439,69 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Branch (Cond { cond; if_true; if_false }) ->
     let pre, cond_op = operand_of_lit_or_var t ~class_:Class.I64 cond in
     pre @ [ cmp cond_op (Imm Int64.zero); jne if_true (Some if_false) ]
+  (* Atomic operations - leverage x86 TSO memory model *)
+  | Atomic_load { dest; addr; order } ->
+    (* On x86 TSO: regular loads have acquire semantics, only seq_cst needs fence *)
+    require_class t dest Class.I64;
+    let pre, mem_op = mem_operand addr in
+    let load_instr = [ mov (reg dest) mem_op ] in
+    (match order with
+     | Seq_cst -> pre @ [ mfence ] @ load_instr
+     | Relaxed | Acquire | Release | Acq_rel -> pre @ load_instr)
+  | Atomic_store { addr; src; order } ->
+    (* On x86 TSO: regular stores have release semantics, seq_cst needs fence *)
+    let pre_mem, mem_op = mem_operand addr in
+    let pre_val, val_op = operand_of_lit_or_var t ~class_:Class.I64 src in
+    let store_instr = [ mov mem_op val_op ] in
+    (match order with
+     | Seq_cst -> pre_mem @ pre_val @ store_instr @ [ mfence ]
+     | Relaxed | Acquire | Release | Acq_rel -> pre_mem @ pre_val @ store_instr)
+  | Atomic_rmw _ ->
+    failwith "atomic_rmw should be lowered before x86 instruction selection"
+  | Atomic_cmpxchg
+      { dest
+      ; success
+      ; addr
+      ; expected
+      ; desired
+      ; success_order = _
+      ; failure_order = _
+      } ->
+    (* CMPXCHG on x86:
+       - Compares RAX with memory location
+       - If equal, stores desired value to memory and sets ZF
+       - If not equal, loads memory value into RAX and clears ZF
+       - Returns old value in RAX *)
+    require_class t dest Class.I64;
+    require_class t success Class.I64;
+    let pre_mem, mem_op = mem_operand addr in
+    let pre_expected, expected_op =
+      operand_of_lit_or_var t ~class_:Class.I64 expected
+    in
+    let pre_desired, desired_op =
+      operand_of_lit_or_var t ~class_:Class.I64 desired
+    in
+    let success_reg = Reg.allocated ~class_:Class.I64 success None in
+    (* RAX must hold the expected value *)
+    let rax_reg =
+      Reg.allocated ~class_:Class.I64 (fresh_var t "cmpxchg_rax") (Some Reg.rax)
+    in
+    (* Desired value in another register *)
+    let desired_reg =
+      Reg.allocated ~class_:Class.I64 (fresh_var t "cmpxchg_desired") None
+    in
+    pre_mem
+    @ pre_expected
+    @ [ mov (Reg rax_reg) expected_op ]
+    @ pre_desired
+    @ [ mov (Reg desired_reg) desired_op
+      ; LOCK_CMPXCHG
+          { dest = mem_op; expected = Reg rax_reg; desired = Reg desired_reg }
+        (* After CMPXCHG, RAX contains old value *)
+      ; mov (reg dest) (Reg rax_reg)
+      ; sete (Reg success_reg)
+      ; and_ (Reg success_reg) (Imm Int64.one)
+      ]
 ;;
 
 let get_fn = fn
@@ -536,7 +715,14 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | CVTTSD2SI (_, _)
        | IMUL _ | IDIV _ | MOD _ | LABEL _
        | CMP (_, _)
-       | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ -> ()));
+       | Save_clobbers | Restore_clobbers | CALL _ | PUSH _ | POP _ | MFENCE
+       | XCHG (_, _)
+       | LOCK_ADD (_, _)
+       | LOCK_SUB (_, _)
+       | LOCK_AND (_, _)
+       | LOCK_OR (_, _)
+       | LOCK_XOR (_, _)
+       | LOCK_CMPXCHG _ | SETE _ -> ()));
   t
 ;;
 
@@ -628,7 +814,14 @@ let insert_par_moves t =
          | CVTTSD2SI (_, _)
          | IMUL _ | IDIV _ | MOD _ | LABEL _
          | CMP (_, _)
-         | CALL _ | PUSH _ | POP _ -> ())));
+         | CALL _ | PUSH _ | POP _ | MFENCE
+         | XCHG (_, _)
+         | LOCK_ADD (_, _)
+         | LOCK_SUB (_, _)
+         | LOCK_AND (_, _)
+         | LOCK_OR (_, _)
+         | LOCK_XOR (_, _)
+         | LOCK_CMPXCHG _ | SETE _ -> ())));
   t
 ;;
 
@@ -660,6 +853,7 @@ let run (fn : Function.t) =
   lower_aggregates_exn fn;
   fn
   |> create
+  |> expand_atomic_rmw
   |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
   |> split_blocks_and_add_prologue_and_epilogue
   |> insert_par_moves
@@ -675,6 +869,7 @@ module For_testing = struct
     lower_aggregates_exn fn;
     fn
     |> create
+    |> expand_atomic_rmw
     |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
     |> split_blocks_and_add_prologue_and_epilogue
     |> insert_par_moves
