@@ -104,7 +104,8 @@ let rec mem_operand t mem =
 
 let expand_atomic_rmw t =
   let used_names = String.Hash_set.create () in
-  Block.iter t.fn.root ~f:(fun block -> Hash_set.add used_names block.id_hum);
+  Block.iter t.fn.root ~f:(fun block ->
+    Hash_set.add used_names block.Block.id_hum);
   let fresh_name base =
     let rec loop attempt =
       let candidate =
@@ -154,39 +155,39 @@ let expand_atomic_rmw t =
     , status )
   in
   let rec split_block block =
-    let instrs = Vec.to_list block.instructions in
+    let instrs = Vec.to_list block.Block.instructions in
     match
       List.findi instrs ~f:(fun _ instr ->
         match instr with
-        | Ir.Atomic_rmw _ -> true
+        | Atomic_rmw _ -> true
         | _ -> false)
     with
     | None -> ()
-    | Some (idx, Ir.Atomic_rmw atomic) ->
+    | Some (idx, Atomic_rmw atomic) ->
       let before = List.take instrs idx in
       let after = List.drop instrs (idx + 1) in
-      let original_terminal = block.terminal in
+      let original_terminal = block.Block.terminal in
       let cont_block =
         Block.create
-          ~id_hum:(fresh_name (block.id_hum ^ "__atomic_rmw_cont"))
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
           ~terminal:original_terminal
       in
       cont_block.dfs_id <- Some 0;
-      cont_block.instructions <- Vec.of_list after;
+      cont_block.Block.instructions <- Vec.of_list after;
       let loop_block =
         Block.create
-          ~id_hum:(fresh_name (block.id_hum ^ "__atomic_rmw_loop"))
-          ~terminal:Ir.Noop
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
+          ~terminal:Noop
       in
       loop_block.dfs_id <- Some 0;
       let loop_instrs, status_var = rmw_loop_instrs atomic in
-      loop_block.instructions
+      loop_block.Block.instructions
       <- List.map loop_instrs ~f:Ir0.arm64 |> Vec.of_list;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
-      loop_block.terminal
-      <- Ir.Branch
-           (Ir.Branch.Cond
+      loop_block.Block.terminal
+      <- Branch
+           (Cond
               { cond = Ir.Lit_or_var.Var status_var
               ; if_true = loop_cb
               ; if_false = cont_cb
@@ -201,9 +202,9 @@ let expand_atomic_rmw t =
         | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
         | _ -> after
       in
-      cont_block.instructions <- Vec.of_list after;
-      block.instructions <- Vec.of_list before;
-      block.terminal <- Ir.Branch (Ir.Branch.Uncond loop_cb);
+      cont_block.Block.instructions <- Vec.of_list after;
+      block.Block.instructions <- Vec.of_list before;
+      block.Block.terminal <- Branch (Uncond loop_cb);
       split_block cont_block
     | Some _ -> ()
   in
@@ -696,6 +697,12 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | Comp _
        | Label _
        | Call _
+       | Dmb
+       | Ldar _
+       | Stlr _
+       | Ldaxr _
+       | Stlxr _
+       | Casal _
        | Save_clobbers
        | Restore_clobbers -> ()));
   t
@@ -778,6 +785,12 @@ let insert_par_moves t =
          | Comp _
          | Label _
          | Call _
+         | Dmb
+         | Ldar _
+         | Stlr _
+         | Ldaxr _
+         | Stlxr _
+         | Casal _
          | Save_clobbers
          | Restore_clobbers
          | Alloca _ -> ())));
