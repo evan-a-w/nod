@@ -54,6 +54,19 @@ type 'block t =
   (* Type conversion instructions *)
   | CVTSI2SD of operand * operand (* convert int64 to f64 *)
   | CVTTSD2SI of operand * operand (* convert f64 to int64 with truncation *)
+  (* Atomic operations *)
+  | MFENCE (* memory fence - full barrier *)
+  | XCHG of operand * operand (* atomic exchange - always locked on x86 *)
+  | LOCK_ADD of operand * operand (* locked add *)
+  | LOCK_SUB of operand * operand (* locked sub *)
+  | LOCK_AND of operand * operand (* locked and *)
+  | LOCK_OR of operand * operand (* locked or *)
+  | LOCK_XOR of operand * operand (* locked xor *)
+  | LOCK_CMPXCHG of
+      { dest : operand (* memory location *)
+      ; expected : operand (* register with expected value, typically RAX *)
+      ; desired : operand (* register with desired value *)
+      }
   | Save_clobbers
   | Restore_clobbers
   | CALL of
@@ -91,6 +104,14 @@ let fn = function
   | MOVQ (_, _)
   | CVTSI2SD (_, _)
   | CVTTSD2SI (_, _)
+  | MFENCE
+  | XCHG (_, _)
+  | LOCK_ADD (_, _)
+  | LOCK_SUB (_, _)
+  | LOCK_AND (_, _)
+  | LOCK_OR (_, _)
+  | LOCK_XOR (_, _)
+  | LOCK_CMPXCHG _
   | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
   | CMP (_, _)
   | JE (_, _)
@@ -103,7 +124,7 @@ let fold_operand op ~f ~init = f init op
 
 let fold_operands ins ~f ~init =
   match ins with
-  | Save_clobbers | Restore_clobbers -> init
+  | Save_clobbers | Restore_clobbers | MFENCE -> init
   | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
   | MOV (dst, src)
   | AND (dst, src)
@@ -118,9 +139,19 @@ let fold_operands ins ~f ~init =
   | MOVSD (dst, src)
   | MOVQ (dst, src)
   | CVTSI2SD (dst, src)
-  | CVTTSD2SI (dst, src) ->
+  | CVTTSD2SI (dst, src)
+  | XCHG (dst, src)
+  | LOCK_ADD (dst, src)
+  | LOCK_SUB (dst, src)
+  | LOCK_AND (dst, src)
+  | LOCK_OR (dst, src)
+  | LOCK_XOR (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    let init = fold_operand dest ~f ~init in
+    let init = fold_operand expected ~f ~init in
+    fold_operand desired ~f ~init
   | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
   | RET ops -> List.fold ops ~init ~f:(fun acc -> fold_operand ~f ~init:acc)
   | CALL { results; args; _ } ->
@@ -167,6 +198,7 @@ let rec map_var_operands ins ~f =
   match ins with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | ALLOCA (a, b) -> ALLOCA (map_var_operand a ~f, b)
   | Tag_def (ins, r) -> Tag_def (map_var_operands ins ~f, map_var_operand r ~f)
   | Tag_use (ins, r) -> Tag_use (map_var_operands ins ~f, map_var_operand r ~f)
@@ -185,6 +217,22 @@ let rec map_var_operands ins ~f =
     CVTSI2SD (map_var_operand dst ~f, map_var_operand src ~f)
   | CVTTSD2SI (dst, src) ->
     CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
+  | XCHG (dst, src) -> XCHG (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_ADD (dst, src) ->
+    LOCK_ADD (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_SUB (dst, src) ->
+    LOCK_SUB (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_AND (dst, src) ->
+    LOCK_AND (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_OR (dst, src) -> LOCK_OR (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_XOR (dst, src) ->
+    LOCK_XOR (map_var_operand dst ~f, map_var_operand src ~f)
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    LOCK_CMPXCHG
+      { dest = map_var_operand dest ~f
+      ; expected = map_var_operand expected ~f
+      ; desired = map_var_operand desired ~f
+      }
   | IDIV op -> IDIV (map_var_operand op ~f)
   | IMUL op -> IMUL (map_var_operand op ~f)
   | MOD op -> MOD (map_var_operand op ~f)
@@ -276,7 +324,7 @@ let map_use_operand op ~f =
 
 let rec reg_defs ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
+  | Save_clobbers | Restore_clobbers | MFENCE -> Reg.Set.empty
   | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
   | MOV (dst, _)
@@ -293,6 +341,16 @@ let rec reg_defs ins : Reg.Set.t =
   | SUBSD (dst, _)
   | MULSD (dst, _)
   | DIVSD (dst, _) -> regs_of_def_operand dst
+  (* Atomic RMW operations define both operands (dest gets old value, dest is also read) *)
+  | XCHG (dst, _)
+  | LOCK_ADD (dst, _)
+  | LOCK_SUB (dst, _)
+  | LOCK_AND (dst, _)
+  | LOCK_OR (dst, _)
+  | LOCK_XOR (dst, _) -> regs_of_def_operand dst
+  (* CMPXCHG writes to the expected register (EAX) with old value, and may write to dest *)
+  | LOCK_CMPXCHG { dest; expected; desired = _ } ->
+    Set.union (regs_of_def_operand dest) (regs_of_def_operand expected)
   | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
   | CALL { results; _ } -> Reg.Set.of_list results
   | PUSH _ -> Reg.Set.singleton Reg.rsp
@@ -302,7 +360,7 @@ let rec reg_defs ins : Reg.Set.t =
 
 let rec reg_uses ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers -> Reg.Set.empty
+  | Save_clobbers | Restore_clobbers | MFENCE -> Reg.Set.empty
   | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
   | Tag_def (ins, _) -> reg_uses ins
   | IDIV op | MOD op ->
@@ -322,6 +380,18 @@ let rec reg_uses ins : Reg.Set.t =
   | SUBSD (dst, src)
   | MULSD (dst, src)
   | DIVSD (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  (* Atomic RMW operations use both operands *)
+  | XCHG (dst, src)
+  | LOCK_ADD (dst, src)
+  | LOCK_SUB (dst, src)
+  | LOCK_AND (dst, src)
+  | LOCK_OR (dst, src)
+  | LOCK_XOR (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  (* CMPXCHG uses all three operands *)
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    Set.union
+      (Set.union (regs_of_operand dest) (regs_of_operand expected))
+      (regs_of_operand desired)
   | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
   | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
   | PUSH op -> Set.union (Reg.Set.singleton Reg.rsp) (regs_of_operand op)
@@ -351,7 +421,7 @@ let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | MFENCE -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> blocks ins
   | NOOP
   | MOV _
@@ -365,6 +435,13 @@ let rec blocks instr =
   | MOVSD _
   | CVTSI2SD _
   | CVTTSD2SI _
+  | XCHG _
+  | LOCK_ADD _
+  | LOCK_SUB _
+  | LOCK_AND _
+  | LOCK_OR _
+  | LOCK_XOR _
+  | LOCK_CMPXCHG _
   | IMUL _
   | IDIV _
   | MOD _
@@ -386,6 +463,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   match instr with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | ALLOCA (a, b) -> ALLOCA (a, b)
   | Tag_def (ins, r) -> Tag_def (map_blocks ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_blocks ins ~f, r)
@@ -403,6 +481,13 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | SUBSD (x, y) -> SUBSD (x, y)
   | MULSD (x, y) -> MULSD (x, y)
   | DIVSD (x, y) -> DIVSD (x, y)
+  | XCHG (x, y) -> XCHG (x, y)
+  | LOCK_ADD (x, y) -> LOCK_ADD (x, y)
+  | LOCK_SUB (x, y) -> LOCK_SUB (x, y)
+  | LOCK_AND (x, y) -> LOCK_AND (x, y)
+  | LOCK_OR (x, y) -> LOCK_OR (x, y)
+  | LOCK_XOR (x, y) -> LOCK_XOR (x, y)
+  | LOCK_CMPXCHG r -> LOCK_CMPXCHG r
   | IMUL x -> IMUL x
   | IDIV x -> IDIV x
   | MOD x -> MOD x
@@ -425,7 +510,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
 
 let rec filter_map_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | MFENCE -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | NOOP
   | MOV _
@@ -440,6 +525,13 @@ let rec filter_map_call_blocks t ~f =
   | SUBSD _
   | MULSD _
   | DIVSD _
+  | XCHG _
+  | LOCK_ADD _
+  | LOCK_SUB _
+  | LOCK_AND _
+  | LOCK_OR _
+  | LOCK_XOR _
+  | LOCK_CMPXCHG _
   | IMUL _
   | IDIV _
   | MOD _
@@ -463,6 +555,7 @@ let rec map_defs t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | ALLOCA (a, b) -> ALLOCA (map_dst a, b)
   | Tag_def (ins, r) -> Tag_def (map_defs ins ~f, map_dst r)
   | Tag_use (ins, r) -> Tag_use (map_defs ins ~f, r)
@@ -479,6 +572,14 @@ let rec map_defs t ~f =
   | SUBSD (dst, src) -> SUBSD (map_dst dst, src)
   | MULSD (dst, src) -> MULSD (map_dst dst, src)
   | DIVSD (dst, src) -> DIVSD (map_dst dst, src)
+  | XCHG (dst, src) -> XCHG (map_dst dst, src)
+  | LOCK_ADD (dst, src) -> LOCK_ADD (map_dst dst, src)
+  | LOCK_SUB (dst, src) -> LOCK_SUB (map_dst dst, src)
+  | LOCK_AND (dst, src) -> LOCK_AND (map_dst dst, src)
+  | LOCK_OR (dst, src) -> LOCK_OR (map_dst dst, src)
+  | LOCK_XOR (dst, src) -> LOCK_XOR (map_dst dst, src)
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    LOCK_CMPXCHG { dest = map_dst dest; expected = map_dst expected; desired }
   | CALL { fn; results; args } ->
     CALL { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
   | POP reg -> POP (map_def_reg reg ~f)
@@ -496,6 +597,7 @@ let rec map_uses t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | Tag_def (ins, r) -> Tag_def (map_uses ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_uses ins ~f, map_op r)
   | MOV (dst, src) -> MOV (dst, map_op src)
@@ -511,6 +613,14 @@ let rec map_uses t ~f =
   | SUBSD (dst, src) -> SUBSD (map_op dst, map_op src)
   | MULSD (dst, src) -> MULSD (map_op dst, map_op src)
   | DIVSD (dst, src) -> DIVSD (map_op dst, map_op src)
+  | XCHG (dst, src) -> XCHG (map_op dst, map_op src)
+  | LOCK_ADD (dst, src) -> LOCK_ADD (map_op dst, map_op src)
+  | LOCK_SUB (dst, src) -> LOCK_SUB (map_op dst, map_op src)
+  | LOCK_AND (dst, src) -> LOCK_AND (map_op dst, map_op src)
+  | LOCK_OR (dst, src) -> LOCK_OR (map_op dst, map_op src)
+  | LOCK_XOR (dst, src) -> LOCK_XOR (map_op dst, map_op src)
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    LOCK_CMPXCHG { dest = map_op dest; expected = map_op expected; desired = map_op desired }
   | IMUL op -> IMUL (map_op op)
   | IDIV op -> IDIV (map_op op)
   | MOD op -> MOD (map_op op)
@@ -531,6 +641,7 @@ let rec map_operands t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | ALLOCA (a, b) -> ALLOCA (f a, b)
   | Tag_def (ins, r) -> Tag_def (map_operands ins ~f, f r)
   | Tag_use (ins, r) -> Tag_use (map_operands ins ~f, f r)
@@ -547,6 +658,14 @@ let rec map_operands t ~f =
   | SUBSD (dst, src) -> SUBSD (f dst, f src)
   | MULSD (dst, src) -> MULSD (f dst, f src)
   | DIVSD (dst, src) -> DIVSD (f dst, f src)
+  | XCHG (dst, src) -> XCHG (f dst, f src)
+  | LOCK_ADD (dst, src) -> LOCK_ADD (f dst, f src)
+  | LOCK_SUB (dst, src) -> LOCK_SUB (f dst, f src)
+  | LOCK_AND (dst, src) -> LOCK_AND (f dst, f src)
+  | LOCK_OR (dst, src) -> LOCK_OR (f dst, f src)
+  | LOCK_XOR (dst, src) -> LOCK_XOR (f dst, f src)
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    LOCK_CMPXCHG { dest = f dest; expected = f expected; desired = f desired }
   | IMUL op -> IMUL (f op)
   | IDIV op -> IDIV (f op)
   | MOD op -> MOD (f op)
@@ -572,6 +691,7 @@ let rec map_call_blocks t ~f =
   match t with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
+  | MFENCE -> MFENCE
   | Tag_def (ins, r) -> Tag_def (map_call_blocks ins ~f, r)
   | Tag_use (ins, r) -> Tag_use (map_call_blocks ins ~f, r)
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
@@ -591,6 +711,13 @@ let rec map_call_blocks t ~f =
   | SUBSD (_, _)
   | MULSD (_, _)
   | DIVSD (_, _)
+  | XCHG (_, _)
+  | LOCK_ADD (_, _)
+  | LOCK_SUB (_, _)
+  | LOCK_AND (_, _)
+  | LOCK_OR (_, _)
+  | LOCK_XOR (_, _)
+  | LOCK_CMPXCHG _
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
@@ -598,7 +725,7 @@ let rec map_call_blocks t ~f =
 
 let rec iter_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers -> ()
+  | Save_clobbers | Restore_clobbers | MFENCE -> ()
   | Tag_def (ins, _) | Tag_use (ins, _) -> iter_call_blocks ins ~f
   | JE (lbl, next) ->
     f lbl;
@@ -621,13 +748,20 @@ let rec iter_call_blocks t ~f =
   | SUBSD (_, _)
   | MULSD (_, _)
   | DIVSD (_, _)
+  | XCHG (_, _)
+  | LOCK_ADD (_, _)
+  | LOCK_SUB (_, _)
+  | LOCK_AND (_, _)
+  | LOCK_OR (_, _)
+  | LOCK_XOR (_, _)
+  | LOCK_CMPXCHG _
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> ()
 ;;
 
 let rec call_blocks = function
-  | Save_clobbers | Restore_clobbers -> []
+  | Save_clobbers | Restore_clobbers | MFENCE -> []
   | Tag_def (ins, _) | Tag_use (ins, _) -> call_blocks ins
   | JE (lbl, next) | JNE (lbl, next) -> lbl :: Option.to_list next
   | JMP lbl -> [ lbl ]
@@ -645,6 +779,13 @@ let rec call_blocks = function
   | SUBSD (_, _)
   | MULSD (_, _)
   | DIVSD (_, _)
+  | XCHG (_, _)
+  | LOCK_ADD (_, _)
+  | LOCK_SUB (_, _)
+  | LOCK_AND (_, _)
+  | LOCK_OR (_, _)
+  | LOCK_XOR (_, _)
+  | LOCK_CMPXCHG _
   | IMUL _ | IDIV _ | MOD _ | LABEL _
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
@@ -653,7 +794,7 @@ let rec call_blocks = function
 let map_lit_or_vars t ~f:_ = t
 
 let rec is_terminal = function
-  | Save_clobbers | Restore_clobbers -> false
+  | Save_clobbers | Restore_clobbers | MFENCE -> false
   | Tag_def (ins, _) | Tag_use (ins, _) -> is_terminal ins
   | JNE _ | JE _ | RET _ | JMP _ -> true
   | NOOP
@@ -670,6 +811,13 @@ let rec is_terminal = function
   | SUBSD (_, _)
   | MULSD (_, _)
   | DIVSD (_, _)
+  | XCHG (_, _)
+  | LOCK_ADD (_, _)
+  | LOCK_SUB (_, _)
+  | LOCK_AND (_, _)
+  | LOCK_OR (_, _)
+  | LOCK_XOR (_, _)
+  | LOCK_CMPXCHG _
   | IMUL _ | IDIV _ | LABEL _ | MOD _
   | CMP (_, _)
   | ALLOCA _ | CALL _ | PUSH _ | POP _ -> false
