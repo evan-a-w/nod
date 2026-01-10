@@ -81,6 +81,138 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
     [ Adr { dst = reg; target = Jump_target.Label g.Global.name } ], Reg reg
 ;;
 
+let rec mem_operand t mem =
+  match mem with
+  | Ir.Mem.Global global ->
+    mem_operand t (Ir.Mem.address (Ir.Lit_or_var.Global global))
+  | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_arm64_ir_operand mem
+  | Ir.Mem.Address { base; offset } ->
+    let pre_base, base_op = operand_of_lit_or_var t ~class_:Class.I64 base in
+    let pre_addr, base_reg =
+      match base_op with
+      | Reg reg -> pre_base, reg
+      | Imm _ ->
+        let tmp =
+          Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
+        in
+        pre_base @ [ Move { dst = tmp; src = base_op } ], tmp
+      | Mem _ | Spill_slot _ ->
+        failwith "unexpected operand in address computation"
+    in
+    pre_addr, Mem (base_reg, offset)
+;;
+
+let expand_atomic_rmw t =
+  let used_names = String.Hash_set.create () in
+  Block.iter t.fn.root ~f:(fun block ->
+    Hash_set.add used_names block.Block.id_hum);
+  let fresh_name base =
+    let rec loop attempt =
+      let candidate =
+        if attempt = 0 then base else sprintf "%s_%d" base attempt
+      in
+      if Hash_set.mem used_names candidate
+      then loop (attempt + 1)
+      else (
+        Hash_set.add used_names candidate;
+        candidate)
+    in
+    loop 0
+  in
+  let rmw_loop_instrs ({ dest; addr; src; op; order = _ } : Ir.atomic_rmw) =
+    require_class t dest Class.I64;
+    let pre_addr, addr_op = mem_operand t addr in
+    let pre_src, src_op = operand_of_lit_or_var t ~class_:Class.I64 src in
+    let dst = reg_of_var t dest in
+    let status = fresh_var t "rmw_status" in
+    let status_reg = reg_of_var t status in
+    let new_val = fresh_var t "rmw_new" in
+    let new_reg = reg_of_var t new_val in
+    let compute =
+      match op with
+      | Ir.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
+      | Add ->
+        [ Int_binary { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        ]
+      | Sub ->
+        [ Int_binary { op = Int_op.Sub; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        ]
+      | And ->
+        [ Int_binary { op = Int_op.And; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        ]
+      | Or ->
+        [ Int_binary { op = Int_op.Orr; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        ]
+      | Xor ->
+        [ Int_binary { op = Int_op.Eor; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        ]
+    in
+    ( pre_addr
+      @ pre_src
+      @ [ Ldaxr { dst; addr = addr_op } ]
+      @ compute
+      @ [ Stlxr { status = status_reg; src = Reg new_reg; addr = addr_op } ]
+    , status )
+  in
+  let rec split_block block =
+    let instrs = Vec.to_list block.Block.instructions in
+    match
+      List.findi instrs ~f:(fun _ instr ->
+        match instr with
+        | Atomic_rmw _ -> true
+        | _ -> false)
+    with
+    | None -> ()
+    | Some (idx, Atomic_rmw atomic) ->
+      let before = List.take instrs idx in
+      let after = List.drop instrs (idx + 1) in
+      let original_terminal = block.Block.terminal in
+      let cont_block =
+        Block.create
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
+          ~terminal:original_terminal
+      in
+      cont_block.dfs_id <- Some 0;
+      cont_block.Block.instructions <- Vec.of_list after;
+      let loop_block =
+        Block.create
+          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
+          ~terminal:Noop
+      in
+      loop_block.dfs_id <- Some 0;
+      let loop_instrs, status_var = rmw_loop_instrs atomic in
+      loop_block.Block.instructions
+      <- List.map loop_instrs ~f:Ir0.arm64 |> Vec.of_list;
+      let loop_cb = { Call_block.block = loop_block; args = [] } in
+      let cont_cb = { Call_block.block = cont_block; args = [] } in
+      loop_block.Block.terminal
+      <- Branch
+           (Cond
+              { cond = Ir.Lit_or_var.Var status_var
+              ; if_true = loop_cb
+              ; if_false = cont_cb
+              });
+      let before =
+        match atomic.order with
+        | Ir.Memory_order.Seq_cst -> before @ [ Ir0.arm64 Dmb ]
+        | _ -> before
+      in
+      let after =
+        match atomic.order with
+        | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
+        | _ -> after
+      in
+      cont_block.Block.instructions <- Vec.of_list after;
+      block.Block.instructions <- Vec.of_list before;
+      block.Block.terminal <- Branch (Uncond loop_cb);
+      split_block cont_block
+    | Some _ -> ()
+  in
+  Block.iter t.fn.root ~f:split_block;
+  Block.iter_and_update_bookkeeping t.fn.root ~f:(fun _ -> ());
+  t
+;;
+
 let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let int_operand = operand_of_lit_or_var t ~class_:Class.I64 in
@@ -105,25 +237,16 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let pre, lhs = int_operand cond in
     pre @ [ Comp { kind = Comp_kind.Int; lhs; rhs = Imm Int64.zero } ]
   in
-  let rec mem_operand mem =
-    match mem with
-    | Ir.Mem.Global global ->
-      mem_operand (Ir.Mem.address (Ir.Lit_or_var.Global global))
-    | Ir.Mem.Stack_slot _ -> [], Ir.Mem.to_arm64_ir_operand mem
-    | Ir.Mem.Address { base; offset } ->
-      let pre_base, base_op = int_operand base in
-      let pre_addr, base_reg =
-        match base_op with
-        | Reg reg -> pre_base, reg
-        | Imm _ ->
-          let tmp =
-            Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_addr") None
-          in
-          pre_base @ [ Move { dst = tmp; src = base_op } ], tmp
-        | Mem _ | Spill_slot _ ->
-          failwith "unexpected operand in address computation"
-      in
-      pre_addr, Mem (base_reg, offset)
+  let mem_operand = mem_operand t in
+  let dmb_if_seq_cst = function
+    | Ir.Memory_order.Seq_cst -> [ Dmb ]
+    | _ -> []
+  in
+  let dmb_if_any_seq_cst success_order failure_order =
+    if Ir.Memory_order.equal success_order Ir.Memory_order.Seq_cst
+       || Ir.Memory_order.equal failure_order Ir.Memory_order.Seq_cst
+    then [ Dmb ]
+    else []
   in
   match ir with
   | Arm64 x -> [ x ]
@@ -262,6 +385,100 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     ]
   | Alloca { size = Ir.Lit_or_var.Global _; _ } ->
     failwith "alloca size must be a literal or variable"
+  | Atomic_load { dest; addr; order } ->
+    require_class t dest Class.I64;
+    let pre_addr, addr = mem_operand addr in
+    let load =
+      match order with
+      | Ir.Memory_order.Relaxed -> Load { dst = reg_of_var t dest; addr }
+      | Acquire | Release | Acq_rel | Seq_cst ->
+        Ldar { dst = reg_of_var t dest; addr }
+    in
+    pre_addr @ dmb_if_seq_cst order @ [ load ] @ dmb_if_seq_cst order
+  | Atomic_store { addr; src; order } ->
+    let pre_addr, addr = mem_operand addr in
+    let pre_src, src = int_operand src in
+    let store =
+      match order with
+      | Ir.Memory_order.Relaxed -> Store { src; addr }
+      | Acquire | Release | Acq_rel | Seq_cst -> Stlr { src; addr }
+    in
+    pre_addr @ pre_src @ dmb_if_seq_cst order @ [ store ] @ dmb_if_seq_cst order
+  | Atomic_cmpxchg
+      { dest
+      ; success
+      ; addr
+      ; expected
+      ; desired
+      ; success_order
+      ; failure_order
+      }
+    ->
+    require_class t dest Class.I64;
+    require_class t success Class.I64;
+    let pre_addr, addr = mem_operand addr in
+    let pre_expected, expected_op = int_operand expected in
+    let pre_desired, desired_op = int_operand desired in
+    let dst = reg_of_var t dest in
+    let success_reg = reg_of_var t success in
+    let expected_copy = fresh_var t "cmpxchg_expected" in
+    let expected_copy_reg = reg_of_var t expected_copy in
+    let desired_tmp = fresh_var t "cmpxchg_desired" in
+    let desired_reg = reg_of_var t desired_tmp in
+    let tmp_xor = fresh_var t "cmpxchg_xor" in
+    let tmp_neg = fresh_var t "cmpxchg_neg" in
+    let tmp_or = fresh_var t "cmpxchg_or" in
+    let tmp_shift = fresh_var t "cmpxchg_shift" in
+    let tmp_mask = fresh_var t "cmpxchg_mask" in
+    let seq_dmb = dmb_if_any_seq_cst success_order failure_order in
+    seq_dmb
+    @ pre_addr
+    @ pre_expected
+    @ pre_desired
+    @ [ Move { dst; src = expected_op }
+      ; Move { dst = expected_copy_reg; src = Reg dst }
+      ; Move { dst = desired_reg; src = desired_op }
+      ; Casal { dst; expected = Reg dst; desired = Reg desired_reg; addr }
+      ; Int_binary
+          { op = Int_op.Eor
+          ; dst = reg_of_var t tmp_xor
+          ; lhs = Reg dst
+          ; rhs = Reg expected_copy_reg
+          }
+      ; Int_binary
+          { op = Int_op.Sub
+          ; dst = reg_of_var t tmp_neg
+          ; lhs = Imm 0L
+          ; rhs = Reg (reg_of_var t tmp_xor)
+          }
+      ; Int_binary
+          { op = Int_op.Orr
+          ; dst = reg_of_var t tmp_or
+          ; lhs = Reg (reg_of_var t tmp_xor)
+          ; rhs = Reg (reg_of_var t tmp_neg)
+          }
+      ; Int_binary
+          { op = Int_op.Asr
+          ; dst = reg_of_var t tmp_shift
+          ; lhs = Reg (reg_of_var t tmp_or)
+          ; rhs = Imm 63L
+          }
+      ; Int_binary
+          { op = Int_op.And
+          ; dst = reg_of_var t tmp_mask
+          ; lhs = Reg (reg_of_var t tmp_shift)
+          ; rhs = Imm 1L
+          }
+      ; Int_binary
+          { op = Int_op.Sub
+          ; dst = success_reg
+          ; lhs = Imm 1L
+          ; rhs = Reg (reg_of_var t tmp_mask)
+          }
+      ]
+    @ seq_dmb
+  | Atomic_rmw _ ->
+    failwith "atomic_rmw should be lowered before ARM64 instruction selection"
   | Branch (Uncond cb) -> [ Jump cb ]
   | Branch (Cond { cond; if_true; if_false }) ->
     let cmp_instrs = cmp_zero cond in
@@ -480,6 +697,12 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | Comp _
        | Label _
        | Call _
+       | Dmb
+       | Ldar _
+       | Stlr _
+       | Ldaxr _
+       | Stlxr _
+       | Casal _
        | Save_clobbers
        | Restore_clobbers -> ()));
   t
@@ -562,6 +785,12 @@ let insert_par_moves t =
          | Comp _
          | Label _
          | Call _
+         | Dmb
+         | Ldar _
+         | Stlr _
+         | Ldaxr _
+         | Stlxr _
+         | Casal _
          | Save_clobbers
          | Restore_clobbers
          | Alloca _ -> ())));
@@ -596,6 +825,7 @@ let run (fn : Function.t) =
   lower_aggregates_exn fn;
   fn
   |> create
+  |> expand_atomic_rmw
   |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
   |> split_blocks_and_add_prologue_and_epilogue
   |> insert_par_moves
@@ -611,6 +841,7 @@ module For_testing = struct
     lower_aggregates_exn fn;
     fn
     |> create
+    |> expand_atomic_rmw
     |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
     |> split_blocks_and_add_prologue_and_epilogue
     |> insert_par_moves
