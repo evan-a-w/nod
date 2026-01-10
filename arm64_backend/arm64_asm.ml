@@ -21,6 +21,29 @@ type instr =
       { src : Arm64_ir.operand
       ; addr : Arm64_ir.operand
       }
+  | Dmb
+  | Ldar of
+      { dst : Reg.t
+      ; addr : Arm64_ir.operand
+      }
+  | Stlr of
+      { src : Arm64_ir.operand
+      ; addr : Arm64_ir.operand
+      }
+  | Ldaxr of
+      { dst : Reg.t
+      ; addr : Arm64_ir.operand
+      }
+  | Stlxr of
+      { status : Reg.t
+      ; src : Arm64_ir.operand
+      ; addr : Arm64_ir.operand
+      }
+  | Casal of
+      { expected : Reg.t
+      ; desired : Reg.t
+      ; addr : Arm64_ir.operand
+      }
   | Add of
       { dst : Reg.t
       ; lhs : Reg.t

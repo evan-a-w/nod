@@ -145,6 +145,31 @@ type 'block t =
   | Save_clobbers
   | Restore_clobbers
   | Alloca of operand * Int64.t
+  (* Atomic operations *)
+  | Dmb (* Data Memory Barrier - full barrier *)
+  | Ldar of
+      { dst : Reg.t
+      ; addr : operand
+      } (* Load-Acquire Register *)
+  | Stlr of
+      { src : operand
+      ; addr : operand
+      } (* Store-Release Register *)
+  | Ldaxr of
+      { dst : Reg.t
+      ; addr : operand
+      } (* Load-Acquire Exclusive Register *)
+  | Stlxr of
+      { status : Reg.t (* 0 on success, 1 on failure *)
+      ; src : operand
+      ; addr : operand
+      } (* Store-Release Exclusive Register *)
+  | Casal of
+      { dst : Reg.t (* receives old value *)
+      ; expected : operand (* compared value *)
+      ; desired : operand
+      ; addr : operand
+      } (* Compare and Swap Acquire-Release *)
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
@@ -167,7 +192,13 @@ let fn = function
   | Label _
   | Save_clobbers
   | Restore_clobbers
-  | Alloca _ -> None
+  | Alloca _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> None
 ;;
 
 let fold_operand op ~f ~init = f init op
@@ -180,7 +211,7 @@ let fold_jump_target target ~f ~init =
 
 let rec fold_operands ins ~f ~init =
   match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> init
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> init
   | Alloca (dst, _) -> fold_operand dst ~f ~init
   | Tag_use (ins, op) | Tag_def (ins, op) ->
     fold_operand op ~f ~init:(fold_operands ins ~f ~init)
@@ -216,6 +247,25 @@ let rec fold_operands ins ~f ~init =
     in
     List.fold args ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
   | Conditional_branch _ | Jump _ -> init
+  (* Atomic operations *)
+  | Ldar { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Stlr { src; addr } ->
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Ldaxr { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Stlxr { status; src; addr } ->
+    let init = fold_operand (Reg status) ~f ~init in
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Casal { dst; expected; desired; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    let init = fold_operand expected ~f ~init in
+    let init = fold_operand desired ~f ~init in
+    fold_operand addr ~f ~init
 ;;
 
 let rebuild_virtual_reg (reg : Reg.t) ~var =
@@ -321,6 +371,22 @@ let rec map_var_operands ins ~f =
     Conditional_branch
       { condition; then_ = map_cb then_; else_ = Option.map else_ ~f:map_cb }
   | Jump cb -> Jump (Call_block.map_uses cb ~f)
+  | Dmb -> Dmb
+  | Ldar { dst; addr } ->
+    Ldar { dst = map_reg_definition dst; addr = map_op addr }
+  | Stlr { src; addr } -> Stlr { src = map_op src; addr = map_op addr }
+  | Ldaxr { dst; addr } ->
+    Ldaxr { dst = map_reg_definition dst; addr = map_op addr }
+  | Stlxr { status; src; addr } ->
+    Stlxr
+      { status = map_reg_definition status; src = map_op src; addr = map_op addr }
+  | Casal { dst; expected; desired; addr } ->
+    Casal
+      { dst = map_reg_definition dst
+      ; expected = map_op expected
+      ; desired = map_op desired
+      ; addr = map_op addr
+      }
 ;;
 
 let var_of_reg = function
@@ -356,7 +422,8 @@ let regs_of_jump_target = function
 
 let rec reg_defs ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> Reg.Set.empty
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb | Stlr _ ->
+    Reg.Set.empty
   | Tag_def (ins, op) -> Set.union (regs_of_operand op) (reg_defs ins)
   | Tag_use (ins, _) -> reg_defs ins
   | Alloca (dst, _) -> regs_of_operand dst
@@ -366,21 +433,31 @@ let rec reg_defs ins : Reg.Set.t =
   | Float_binary { dst; _ }
   | Convert { dst; _ }
   | Bitcast { dst; _ }
-  | Adr { dst; _ } -> Reg.Set.singleton dst
+  | Adr { dst; _ }
+  | Ldar { dst; _ }
+  | Ldaxr { dst; _ }
+  | Casal { dst; _ } -> Reg.Set.singleton dst
+  | Stlxr { status; _ } -> Reg.Set.singleton status
   | Call { results; _ } -> Set.add (Reg.Set.of_list results) Reg.lr
   | Store _ | Comp _ | Conditional_branch _ | Jump _ | Ret _ -> Reg.Set.empty
 ;;
 
 let rec reg_uses ins : Reg.Set.t =
   match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> Reg.Set.empty
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> Reg.Set.empty
   | Tag_use (ins, op) -> Set.union (regs_of_operand op) (reg_uses ins)
   | Tag_def (ins, _) -> reg_uses ins
   | Alloca _ -> Reg.Set.empty
   | Move { src; _ } -> regs_of_operand src
-  | Load { addr; _ } -> regs_of_operand addr
-  | Store { src; addr } ->
+  | Load { addr; _ } | Ldar { addr; _ } | Ldaxr { addr; _ } ->
+    regs_of_operand addr
+  | Store { src; addr } | Stlr { src; addr } ->
     Set.union (regs_of_operand src) (regs_of_operand addr)
+  | Stlxr { src; addr; _ } ->
+    Set.union (regs_of_operand src) (regs_of_operand addr)
+  | Casal { expected; desired; addr; _ } ->
+    Reg.Set.union_list
+      [ regs_of_operand expected; regs_of_operand desired; regs_of_operand addr ]
   | Int_binary { lhs; rhs; _ } | Float_binary { lhs; rhs; _ } ->
     Set.union (regs_of_operand lhs) (regs_of_operand rhs)
   | Convert { src; _ } | Bitcast { src; _ } -> regs_of_operand src
@@ -416,7 +493,16 @@ let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
+  | Save_clobbers
+  | Restore_clobbers
+  | Nop
+  | Label _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> blocks ins
   | Conditional_branch { then_; else_; _ } ->
     Call_block.blocks then_
@@ -445,6 +531,12 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | Comp cmp -> Comp cmp
   | Call call -> Call call
   | Ret ops -> Ret ops
+  | Dmb -> Dmb
+  | Ldar ld -> Ldar ld
+  | Stlr st -> Stlr st
+  | Ldaxr ld -> Ldaxr ld
+  | Stlxr st -> Stlxr st
+  | Casal cas -> Casal cas
   | Conditional_branch { condition; then_; else_ } ->
     Conditional_branch
       { condition
@@ -456,7 +548,16 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
 
 let rec filter_map_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
+  | Save_clobbers
+  | Restore_clobbers
+  | Nop
+  | Label _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> []
   | Tag_use (ins, _) | Tag_def (ins, _) -> filter_map_call_blocks ins ~f
   | Conditional_branch { then_; else_; _ } ->
     let mapped_then = f then_ |> Option.to_list in
@@ -474,12 +575,20 @@ let rec map_defs t ~f =
   | Restore_clobbers -> Restore_clobbers
   | Nop -> Nop
   | Label s -> Label s
+  | Dmb -> Dmb
   | Alloca (op, sz) -> Alloca (map_def_operand op ~f, sz)
   | Tag_def (ins, op) -> Tag_def (map_defs ins ~f, map_def_operand op ~f)
   | Tag_use (ins, op) -> Tag_use (map_defs ins ~f, op)
   | Move { dst; src } -> Move { dst = map_def_reg dst ~f; src }
   | Load { dst; addr } -> Load { dst = map_def_reg dst ~f; addr }
+  | Ldar { dst; addr } -> Ldar { dst = map_def_reg dst ~f; addr }
+  | Ldaxr { dst; addr } -> Ldaxr { dst = map_def_reg dst ~f; addr }
+  | Casal { dst; expected; desired; addr } ->
+    Casal { dst = map_def_reg dst ~f; expected; desired; addr }
+  | Stlxr { status; src; addr } ->
+    Stlxr { status = map_def_reg status ~f; src; addr }
   | Store st -> Store st
+  | Stlr st -> Stlr st
   | Int_binary { op; dst; lhs; rhs } ->
     Int_binary { op; dst = map_def_reg dst ~f; lhs; rhs }
   | Float_binary { op; dst; lhs; rhs } ->
@@ -503,12 +612,21 @@ let rec map_uses t ~f =
   | Restore_clobbers -> Restore_clobbers
   | Nop -> Nop
   | Label s -> Label s
+  | Dmb -> Dmb
   | Alloca (op, sz) -> Alloca (op, sz)
   | Tag_def (ins, op) -> Tag_def (map_uses ins ~f, op)
   | Tag_use (ins, op) -> Tag_use (map_uses ins ~f, map_op op)
   | Move { dst; src } -> Move { dst; src = map_op src }
   | Load { dst; addr } -> Load { dst; addr = map_op addr }
+  | Ldar { dst; addr } -> Ldar { dst; addr = map_op addr }
+  | Ldaxr { dst; addr } -> Ldaxr { dst; addr = map_op addr }
   | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
+  | Stlr { src; addr } -> Stlr { src = map_op src; addr = map_op addr }
+  | Stlxr { status; src; addr } ->
+    Stlxr { status; src = map_op src; addr = map_op addr }
+  | Casal { dst; expected; desired; addr } ->
+    Casal
+      { dst; expected = map_op expected; desired = map_op desired; addr = map_op addr }
   | Int_binary { op; dst; lhs; rhs } ->
     Int_binary { op; dst; lhs = map_op lhs; rhs = map_op rhs }
   | Float_binary { op; dst; lhs; rhs } ->
@@ -539,12 +657,25 @@ let rec map_operands t ~f =
   | Restore_clobbers -> Restore_clobbers
   | Nop -> Nop
   | Label s -> Label s
+  | Dmb -> Dmb
   | Alloca (op, sz) -> Alloca (map_op op, sz)
   | Tag_def (ins, op) -> Tag_def (map_operands ins ~f, map_op op)
   | Tag_use (ins, op) -> Tag_use (map_operands ins ~f, map_op op)
   | Move { dst; src } -> Move { dst = map_reg_operand dst; src = map_op src }
   | Load { dst; addr } -> Load { dst = map_reg_operand dst; addr = map_op addr }
+  | Ldar { dst; addr } -> Ldar { dst = map_reg_operand dst; addr = map_op addr }
+  | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg_operand dst; addr = map_op addr }
   | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
+  | Stlr { src; addr } -> Stlr { src = map_op src; addr = map_op addr }
+  | Stlxr { status; src; addr } ->
+    Stlxr { status = map_reg_operand status; src = map_op src; addr = map_op addr }
+  | Casal { dst; expected; desired; addr } ->
+    Casal
+      { dst = map_reg_operand dst
+      ; expected = map_op expected
+      ; desired = map_op desired
+      ; addr = map_op addr
+      }
   | Int_binary { op; dst; lhs; rhs } ->
     Int_binary
       { op; dst = map_reg_operand dst; lhs = map_op lhs; rhs = map_op rhs }
@@ -585,6 +716,7 @@ let rec map_call_blocks t ~f =
   | Restore_clobbers -> Restore_clobbers
   | Nop -> Nop
   | Label s -> Label s
+  | Dmb -> Dmb
   | Alloca (op, sz) -> Alloca (op, sz)
   | Tag_def (ins, op) -> Tag_def (map_call_blocks ins ~f, op)
   | Tag_use (ins, op) -> Tag_use (map_call_blocks ins ~f, op)
@@ -594,7 +726,12 @@ let rec map_call_blocks t ~f =
   | Jump cb -> Jump (f cb)
   | Move mv -> Move mv
   | Load ld -> Load ld
+  | Ldar ld -> Ldar ld
+  | Ldaxr ld -> Ldaxr ld
   | Store st -> Store st
+  | Stlr st -> Stlr st
+  | Stlxr st -> Stlxr st
+  | Casal cas -> Casal cas
   | Int_binary bin -> Int_binary bin
   | Float_binary bin -> Float_binary bin
   | Convert conv -> Convert conv
@@ -607,7 +744,16 @@ let rec map_call_blocks t ~f =
 
 let rec iter_call_blocks t ~f =
   match t with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> ()
+  | Save_clobbers
+  | Restore_clobbers
+  | Nop
+  | Label _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> ()
   | Tag_def (ins, _) | Tag_use (ins, _) -> iter_call_blocks ins ~f
   | Conditional_branch { then_; else_; _ } ->
     f then_;
@@ -617,7 +763,16 @@ let rec iter_call_blocks t ~f =
 ;;
 
 let rec call_blocks = function
-  | Save_clobbers | Restore_clobbers | Nop | Label _ -> []
+  | Save_clobbers
+  | Restore_clobbers
+  | Nop
+  | Label _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> []
   | Tag_def (ins, _) | Tag_use (ins, _) -> call_blocks ins
   | Conditional_branch { then_; else_; _ } -> then_ :: Option.to_list else_
   | Jump cb -> [ cb ]
@@ -640,7 +795,13 @@ let rec is_terminal = function
   | Adr _
   | Comp _
   | Call _
-  | Alloca _ -> false
+  | Alloca _
+  | Dmb
+  | Ldar _
+  | Stlr _
+  | Ldaxr _
+  | Stlxr _
+  | Casal _ -> false
 ;;
 
 module For_backend = struct
@@ -681,13 +842,27 @@ module For_backend = struct
     | Restore_clobbers -> Restore_clobbers
     | Nop -> Nop
     | Label s -> Label s
+    | Dmb -> Dmb
     | Alloca (op, sz) -> Alloca (op, sz)
     | Tag_def (ins, op) -> Tag_def (map_use_operands ins ~f, op)
     | Tag_use (ins, op) -> Tag_use (map_use_operands ins ~f, map_use_operand op)
     | Move { dst; src } -> Move { dst; src = map_use_operand src }
     | Load { dst; addr } -> Load { dst; addr = map_use_operand addr }
+    | Ldar { dst; addr } -> Ldar { dst; addr = map_use_operand addr }
+    | Ldaxr { dst; addr } -> Ldaxr { dst; addr = map_use_operand addr }
     | Store { src; addr } ->
       Store { src = map_use_operand src; addr = map_use_operand addr }
+    | Stlr { src; addr } ->
+      Stlr { src = map_use_operand src; addr = map_use_operand addr }
+    | Stlxr { status; src; addr } ->
+      Stlxr { status; src = map_use_operand src; addr = map_use_operand addr }
+    | Casal { dst; expected; desired; addr } ->
+      Casal
+        { dst
+        ; expected = map_use_operand expected
+        ; desired = map_use_operand desired
+        ; addr = map_use_operand addr
+        }
     | Int_binary { op; dst; lhs; rhs } ->
       Int_binary
         { op; dst; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
@@ -740,12 +915,19 @@ module For_backend = struct
     | Restore_clobbers -> Restore_clobbers
     | Nop -> Nop
     | Label s -> Label s
+    | Dmb -> Dmb
     | Alloca (op, sz) -> Alloca (map_def_operand op, sz)
     | Tag_def (ins, op) -> Tag_def (map_def_operands ins ~f, map_def_operand op)
     | Tag_use (ins, op) -> Tag_use (map_def_operands ins ~f, op)
     | Move { dst; src } -> Move { dst = map_reg dst; src }
     | Load { dst; addr } -> Load { dst = map_reg dst; addr }
+    | Ldar { dst; addr } -> Ldar { dst = map_reg dst; addr }
+    | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg dst; addr }
+    | Casal { dst; expected; desired; addr } ->
+      Casal { dst = map_reg dst; expected; desired; addr }
+    | Stlxr { status; src; addr } -> Stlxr { status = map_reg status; src; addr }
     | Store st -> Store st
+    | Stlr st -> Stlr st
     | Int_binary { op; dst; lhs; rhs } ->
       Int_binary { op; dst = map_reg dst; lhs; rhs }
     | Float_binary { op; dst; lhs; rhs } ->

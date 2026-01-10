@@ -14,6 +14,45 @@ let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
     print_endline asm
 ;;
 
+let compile_and_lower_functions functions =
+  X86_backend.compile_to_asm ~system:`Linux functions
+;;
+
+let make_fn ~name ~args ~root =
+  List.iter args ~f:(Vec.push root.Block.args);
+  root.dfs_id <- Some 0;
+  Function.create ~name ~args ~root
+;;
+
+let print_mnemonics_with_prefixes prefixes asm =
+  asm
+  |> String.split_lines
+  |> List.filter_map ~f:(fun line ->
+    let line = String.strip line in
+    if List.exists prefixes ~f:(fun prefix -> String.is_prefix line ~prefix)
+    then String.split line ~on:' ' |> List.hd
+    else None)
+  |> List.iter ~f:print_endline
+;;
+
+let print_selected_mem_fences fn =
+  Function.iter_root fn ~f:(fun root ->
+    Block.to_list root
+    |> List.concat_map ~f:(fun block ->
+      Vec.to_list block.Block.instructions @ [ block.Block.terminal ])
+    |> List.concat_map ~f:(fun instr ->
+      match instr with
+      | Ir0.X86 x -> [ x ]
+      | Ir0.X86_terminal xs -> xs
+      | _ -> [])
+    |> List.filter_map ~f:(function
+      | X86_ir.MFENCE -> Some "mfence"
+      | X86_ir.MOV (X86_ir.Mem _, _) -> Some "store"
+      | X86_ir.MOV (_, X86_ir.Mem _) -> Some "load"
+      | _ -> None)
+    |> List.iter ~f:print_endline)
+;;
+
 let%expect_test "super triv lowers to assembly" =
   compile_and_lower Examples.Textual.super_triv;
   [%expect
@@ -41,6 +80,108 @@ let%expect_test "super triv lowers to assembly" =
       ret
     .section .note.GNU-stack,"",@progbits
     |}]
+;;
+
+let%expect_test "atomic load/store seq_cst lower to mfence" =
+  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
+  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let root =
+    Block.create
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
+  in
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.atomic_store
+       { addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+       ; src = Ir.Lit_or_var.Lit 7L
+       ; order = Ir.Memory_order.Seq_cst
+       });
+  Vec.push
+    root.instructions
+    (Ir.atomic_load
+       { dest = loaded
+       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+       ; order = Ir.Memory_order.Seq_cst
+       });
+  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let selected_map =
+    X86_backend.For_testing.select_instructions
+      (String.Map.of_alist_exn [ "root", fn ])
+  in
+  let selected = Map.find_exn selected_map "root" in
+  print_selected_mem_fences selected;
+  [%expect
+    {|
+    store
+    mfence
+    mfence
+    load
+    |}]
+;;
+
+let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
+  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let ok = Var.create ~name:"ok" ~type_:Type.I64 in
+  let root =
+    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
+  in
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.atomic_cmpxchg
+       { dest = old
+       ; success = ok
+       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+       ; expected = Ir.Lit_or_var.Lit 1L
+       ; desired = Ir.Lit_or_var.Lit 2L
+       ; success_order = Ir.Memory_order.Acq_rel
+       ; failure_order = Ir.Memory_order.Acquire
+       });
+  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
+  print_mnemonics_with_prefixes [ "lock cmpxchg"; "sete"; "and" ] asm;
+  [%expect
+    {|
+    lock
+    sete
+    and
+    |}]
+;;
+
+let%expect_test "atomic rmw lowers to cmpxchg loop" =
+  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let root =
+    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
+  in
+  Vec.push
+    root.instructions
+    (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  Vec.push
+    root.instructions
+    (Ir.atomic_rmw
+       { dest = old
+       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+       ; src = Ir.Lit_or_var.Lit 1L
+       ; op = Ir.Rmw_op.Add
+       ; order = Ir.Memory_order.Relaxed
+       });
+  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
+  print_mnemonics_with_prefixes [ "lock cmpxchg" ] asm;
+  [%expect
+    {| lock |}]
 ;;
 
 let%expect_test "branches lower with labels" =

@@ -129,6 +129,25 @@ let string_of_instr = function
     sprintf "ldr %s, %s" (string_of_reg dst) (string_of_operand addr)
   | Str { src; addr } ->
     sprintf "str %s, %s" (string_of_operand src) (string_of_operand addr)
+  | Dmb -> "dmb ish"
+  | Ldar { dst; addr } ->
+    sprintf "ldar %s, %s" (string_of_reg dst) (string_of_operand addr)
+  | Stlr { src; addr } ->
+    sprintf "stlr %s, %s" (string_of_operand src) (string_of_operand addr)
+  | Ldaxr { dst; addr } ->
+    sprintf "ldaxr %s, %s" (string_of_reg dst) (string_of_operand addr)
+  | Stlxr { status; src; addr } ->
+    sprintf
+      "stlxr %s, %s, %s"
+      (string_of_reg status)
+      (string_of_operand src)
+      (string_of_operand addr)
+  | Casal { expected; desired; addr } ->
+    sprintf
+      "casal %s, %s, %s"
+      (string_of_reg expected)
+      (string_of_reg desired)
+      (string_of_operand addr)
   | Add { dst; lhs; rhs } ->
     sprintf
       "add %s, %s, %s"

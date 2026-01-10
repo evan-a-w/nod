@@ -25,6 +25,10 @@ let add_block_args =
     | Load_field _
     | Store_field _
     | Memcpy _
+    | Atomic_load _
+    | Atomic_store _
+    | Atomic_rmw _
+    | Atomic_cmpxchg _
     | Mod _
     | Sub _
     | Move _
@@ -70,6 +74,10 @@ let remove_block_args =
     | Load_field _
     | Store_field _
     | Memcpy _
+    | Atomic_load _
+    | Atomic_store _
+    | Atomic_rmw _
+    | Atomic_cmpxchg _
     | Mod _
     | Sub _
     | Move _
@@ -755,6 +763,98 @@ module Type_check = struct
       ())
   ;;
 
+  let check_atomic_load ({ dest; addr; order = _ } : atomic_load) =
+    let%bind () = ensure_pointer_mem addr ~op:"atomic_load" in
+    let dest_type = Var.type_ dest in
+    if Type.is_integer dest_type || Type.is_ptr dest_type
+    then Ok ()
+    else
+      type_error
+        "atomic_load destination %s:%s must be integer or pointer"
+        (Var.name dest)
+        (Type.to_string dest_type)
+  ;;
+
+  let check_atomic_store ({ addr; src; order = _ } : atomic_store) =
+    let%bind () = ensure_pointer_mem addr ~op:"atomic_store" in
+    match src with
+    | Lit_or_var.Lit _ -> Ok ()
+    | Var v ->
+      let src_type = Var.type_ v in
+      if Type.is_integer src_type || Type.is_ptr src_type
+      then Ok ()
+      else
+        type_error
+          "atomic_store source %s:%s must be integer or pointer"
+          (Var.name v)
+          (Type.to_string src_type)
+    | Global _ -> Ok ()
+  ;;
+
+  let check_atomic_rmw ({ dest; addr; src; op = _; order = _ } : atomic_rmw) =
+    let%bind () = ensure_pointer_mem addr ~op:"atomic_rmw" in
+    let dest_type = Var.type_ dest in
+    let%bind () =
+      if Type.is_integer dest_type || Type.is_ptr dest_type
+      then Ok ()
+      else
+        type_error
+          "atomic_rmw destination %s:%s must be integer or pointer"
+          (Var.name dest)
+          (Type.to_string dest_type)
+    in
+    ensure_operand_matches
+      src
+      ~expected_type:dest_type
+      ~op:"atomic_rmw"
+      ~position:"source"
+  ;;
+
+  let check_atomic_cmpxchg
+    ({ dest
+     ; success
+     ; addr
+     ; expected
+     ; desired
+     ; success_order = _
+     ; failure_order = _
+     }
+    : atomic_cmpxchg)
+    =
+    let%bind () = ensure_pointer_mem addr ~op:"atomic_cmpxchg" in
+    let dest_type = Var.type_ dest in
+    let%bind () =
+      if Type.is_integer dest_type || Type.is_ptr dest_type
+      then Ok ()
+      else
+        type_error
+          "atomic_cmpxchg destination %s:%s must be integer or pointer"
+          (Var.name dest)
+          (Type.to_string dest_type)
+    in
+    let%bind () =
+      if Type.equal (Var.type_ success) Type.I64
+      then Ok ()
+      else
+        type_error
+          "atomic_cmpxchg success flag %s:%s must be i64"
+          (Var.name success)
+          (Type.to_string (Var.type_ success))
+    in
+    let%bind () =
+      ensure_operand_matches
+        expected
+        ~expected_type:dest_type
+        ~op:"atomic_cmpxchg"
+        ~position:"expected"
+    in
+    ensure_operand_matches
+      desired
+      ~expected_type:dest_type
+      ~op:"atomic_cmpxchg"
+      ~position:"desired"
+  ;;
+
   let check_call_block_args (call_block : Block.t Call_block.t) =
     let formal_args = Vec.to_list call_block.block.Block.args in
     let actual_args = call_block.args in
@@ -806,6 +906,10 @@ module Type_check = struct
     | Load_field instr -> check_load_field instr
     | Store_field instr -> check_store_field instr
     | Memcpy instr -> check_memcpy instr
+    | Atomic_load instr -> check_atomic_load instr
+    | Atomic_store instr -> check_atomic_store instr
+    | Atomic_rmw instr -> check_atomic_rmw instr
+    | Atomic_cmpxchg instr -> check_atomic_cmpxchg instr
     | Return _ -> Ok ()
     | Call _ -> Ok ()
     | Branch (Branch.Cond { cond; if_true; if_false }) ->

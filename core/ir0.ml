@@ -40,6 +40,45 @@ module Lit_or_var = struct
   ;;
 end
 
+module Memory_order = struct
+  type t =
+    | Relaxed
+    | Acquire
+    | Release
+    | Acq_rel
+    | Seq_cst
+  [@@deriving sexp, compare, equal, hash]
+
+  (* For x86_64 TSO: many orderings collapse to simpler operations *)
+  let x86_needs_fence = function
+    | Relaxed | Acquire -> false
+    | Release | Acq_rel | Seq_cst -> true
+  ;;
+
+  (* Check if a load ordering requires special handling on x86 *)
+  let x86_load_needs_fence = function
+    | Relaxed | Acquire -> false
+    | Release | Acq_rel | Seq_cst -> true
+  ;;
+
+  (* Check if a store ordering requires special handling on x86 *)
+  let x86_store_needs_fence = function
+    | Relaxed -> false
+    | Acquire | Release | Acq_rel | Seq_cst -> true
+  ;;
+end
+
+module Rmw_op = struct
+  type t =
+    | Xchg
+    | Add
+    | Sub
+    | And
+    | Or
+    | Xor
+  [@@deriving sexp, compare, equal, hash]
+end
+
 module Mem = struct
   type address =
     { base : Lit_or_var.t
@@ -160,6 +199,40 @@ type memcpy =
   }
 [@@deriving sexp, compare, equal, hash]
 
+type atomic_load =
+  { dest : Var.t
+  ; addr : Mem.t
+  ; order : Memory_order.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
+type atomic_store =
+  { addr : Mem.t
+  ; src : Lit_or_var.t
+  ; order : Memory_order.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
+type atomic_rmw =
+  { dest : Var.t
+  ; addr : Mem.t
+  ; src : Lit_or_var.t
+  ; op : Rmw_op.t
+  ; order : Memory_order.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
+type atomic_cmpxchg =
+  { dest : Var.t (* returns old value *)
+  ; success : Var.t (* 1 if succeeded, 0 if failed *)
+  ; addr : Mem.t
+  ; expected : Lit_or_var.t
+  ; desired : Lit_or_var.t
+  ; success_order : Memory_order.t
+  ; failure_order : Memory_order.t
+  }
+[@@deriving sexp, compare, equal, hash]
+
 let map_load_field_defs (t : load_field) ~f = { t with dest = f t.dest }
 
 let map_load_field_uses (t : load_field) ~f =
@@ -188,6 +261,53 @@ let map_memcpy_uses (t : memcpy) ~f =
 
 let map_memcpy_lit_or_vars (t : memcpy) ~f =
   { t with dest = f t.dest; src = f t.src }
+;;
+
+let map_atomic_load_defs (t : atomic_load) ~f = { t with dest = f t.dest }
+let map_atomic_load_uses (t : atomic_load) ~f = { t with addr = Mem.map_vars t.addr ~f }
+
+let map_atomic_store_uses (t : atomic_store) ~f =
+  { t with
+    addr = Mem.map_vars t.addr ~f
+  ; src = Lit_or_var.map_vars t.src ~f
+  }
+;;
+
+let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
+  { t with src = f t.src; addr = Mem.map_lit_or_vars t.addr ~f }
+;;
+
+let map_atomic_rmw_defs (t : atomic_rmw) ~f = { t with dest = f t.dest }
+
+let map_atomic_rmw_uses (t : atomic_rmw) ~f =
+  { t with
+    addr = Mem.map_vars t.addr ~f
+  ; src = Lit_or_var.map_vars t.src ~f
+  }
+;;
+
+let map_atomic_rmw_lit_or_vars (t : atomic_rmw) ~f =
+  { t with src = f t.src; addr = Mem.map_lit_or_vars t.addr ~f }
+;;
+
+let map_atomic_cmpxchg_defs (t : atomic_cmpxchg) ~f =
+  { t with dest = f t.dest; success = f t.success }
+;;
+
+let map_atomic_cmpxchg_uses (t : atomic_cmpxchg) ~f =
+  { t with
+    addr = Mem.map_vars t.addr ~f
+  ; expected = Lit_or_var.map_vars t.expected ~f
+  ; desired = Lit_or_var.map_vars t.desired ~f
+  }
+;;
+
+let map_atomic_cmpxchg_lit_or_vars (t : atomic_cmpxchg) ~f =
+  { t with
+    expected = f t.expected
+  ; desired = f t.desired
+  ; addr = Mem.map_lit_or_vars t.addr ~f
+  }
 ;;
 
 module Branch = struct
@@ -303,6 +423,10 @@ type 'block t =
   | Load_field of load_field
   | Store_field of store_field
   | Memcpy of memcpy
+  | Atomic_load of atomic_load
+  | Atomic_store of atomic_store
+  | Atomic_rmw of atomic_rmw
+  | Atomic_cmpxchg of atomic_cmpxchg
   | Move of Var.t * Lit_or_var.t
   | Cast of Var.t * Lit_or_var.t
   (* Cast performs type conversion between different types:
@@ -349,6 +473,10 @@ let filter_map_call_blocks t ~f =
   | Load_field _
   | Store_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Unreachable
   | Call _ -> []
   | Branch b -> Branch.filter_map_call_blocks b ~f
@@ -419,6 +547,9 @@ let defs = function
   | Fdiv a -> [ a.dest ]
   | Load (a, _) -> [ a ]
   | Load_field a -> [ a.dest ]
+  | Atomic_load a -> [ a.dest ]
+  | Atomic_rmw a -> [ a.dest ]
+  | Atomic_cmpxchg a -> [ a.dest; a.success ]
   | Move (var, _) | Cast (var, _) -> [ var ]
   | Call { results; _ } -> results
   | Branch _
@@ -427,7 +558,8 @@ let defs = function
   | Return _
   | Store _
   | Store_field _
-  | Memcpy _ -> []
+  | Memcpy _
+  | Atomic_store _ -> []
 ;;
 
 let blocks = function
@@ -451,6 +583,10 @@ let blocks = function
   | Store_field _
   | Load_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | And _
   | Or _
   | Move (_, _)
@@ -486,6 +622,11 @@ let uses = function
   | Load_field a -> Lit_or_var.vars a.base
   | Store_field a -> Lit_or_var.vars a.base @ Lit_or_var.vars a.src
   | Memcpy a -> Lit_or_var.vars a.dest @ Lit_or_var.vars a.src
+  | Atomic_load a -> Mem.vars a.addr
+  | Atomic_store a -> Lit_or_var.vars a.src @ Mem.vars a.addr
+  | Atomic_rmw a -> Lit_or_var.vars a.src @ Mem.vars a.addr
+  | Atomic_cmpxchg a ->
+    Lit_or_var.vars a.expected @ Lit_or_var.vars a.desired @ Mem.vars a.addr
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
   | Call { args; _ } ->
     List.concat_map args ~f:Lit_or_var.vars |> Var.Set.of_list |> Set.to_list
@@ -552,6 +693,9 @@ let map_defs t ~f =
   | Alloca a -> Alloca (map_alloca_defs a ~f)
   | Load (a, b) -> Load (f a, b)
   | Load_field a -> Load_field (map_load_field_defs a ~f)
+  | Atomic_load a -> Atomic_load (map_atomic_load_defs a ~f)
+  | Atomic_rmw a -> Atomic_rmw (map_atomic_rmw_defs a ~f)
+  | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg_defs a ~f)
   | Move (var, b) -> Move (f var, b)
   | Cast (var, b) -> Cast (f var, b)
   | Call { fn; results; args } ->
@@ -568,7 +712,8 @@ let map_defs t ~f =
   | Return _
   | Store _
   | Store_field _
-  | Memcpy _ -> t
+  | Memcpy _
+  | Atomic_store _ -> t
 ;;
 
 let map_uses t ~f =
@@ -590,6 +735,10 @@ let map_uses t ~f =
   | Load_field a -> Load_field (map_load_field_uses a ~f)
   | Store_field a -> Store_field (map_store_field_uses a ~f)
   | Memcpy a -> Memcpy (map_memcpy_uses a ~f)
+  | Atomic_load a -> Atomic_load (map_atomic_load_uses a ~f)
+  | Atomic_store a -> Atomic_store (map_atomic_store_uses a ~f)
+  | Atomic_rmw a -> Atomic_rmw (map_atomic_rmw_uses a ~f)
+  | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg_uses a ~f)
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Cast (var, b) -> Cast (var, Lit_or_var.map_vars b ~f)
@@ -629,6 +778,10 @@ let is_terminal = function
   | Load_field _
   | Store_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | And _
   | Or _
   | Call _ -> false
@@ -662,6 +815,10 @@ let map_call_blocks t ~f =
   | Load_field _
   | Store_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Return _
   | And _
   | Or _
@@ -695,6 +852,10 @@ let iter_call_blocks t ~f =
   | Load_field _
   | Store_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Return _
   | And _
   | Or _
@@ -719,6 +880,10 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Load_field a -> Load_field a
   | Store_field a -> Store_field a
   | Memcpy a -> Memcpy a
+  | Atomic_load a -> Atomic_load a
+  | Atomic_store a -> Atomic_store a
+  | Atomic_rmw a -> Atomic_rmw a
+  | Atomic_cmpxchg a -> Atomic_cmpxchg a
   | Sub a -> Sub a
   | Move (var, b) -> Move (var, b)
   | Cast (var, b) -> Cast (var, b)
@@ -754,6 +919,10 @@ let map_lit_or_vars t ~f =
   | Load_field a -> Load_field (map_load_field_lit_or_vars a ~f)
   | Store_field a -> Store_field (map_store_field_lit_or_vars a ~f)
   | Memcpy a -> Memcpy (map_memcpy_lit_or_vars a ~f)
+  | Atomic_load a -> Atomic_load a
+  | Atomic_store a -> Atomic_store (map_atomic_store_lit_or_vars a ~f)
+  | Atomic_rmw a -> Atomic_rmw (map_atomic_rmw_lit_or_vars a ~f)
+  | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg_lit_or_vars a ~f)
   | Move (var, b) -> Move (var, f b)
   | Cast (var, b) -> Cast (var, f b)
   | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
@@ -784,6 +953,10 @@ let call_blocks = function
   | Load_field _
   | Store_field _
   | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Mod _
   | Sub _
   | Fadd _
