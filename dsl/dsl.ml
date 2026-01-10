@@ -1,12 +1,5 @@
 open! Core
 open! Nod_core
-
-(* Common DSL helpers for writing Nod IR using the PPX
-
-   This module provides helper functions that make writing Nod IR
-   with the [%nod ...] PPX more ergonomic and readable.
-*)
-
 module L = Ir.Lit_or_var
 
 (* Literals and variables *)
