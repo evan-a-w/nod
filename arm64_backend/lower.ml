@@ -228,12 +228,44 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
           Emit [ Asm.Mov { dst; src } ]
         | Move { dst; src = (Spill_slot _ | Mem _) as addr }
         | Load { dst; addr } -> Emit [ Asm.Ldr { dst; addr } ]
+        | Dmb -> Emit [ Asm.Dmb ]
+        | Ldar { dst; addr } -> Emit [ Asm.Ldar { dst; addr } ]
+        | Ldaxr { dst; addr } -> Emit [ Asm.Ldaxr { dst; addr } ]
         | Store { src; addr } ->
           (match src with
            | Reg reg -> Emit [ Asm.Str { src = Reg reg; addr } ]
            | _ ->
              let setup, src_reg, _ = ensure_gpr src ~dst:Reg.sp ~avoid:[] in
              Emit (setup @ [ Asm.Str { src = Reg src_reg; addr } ]))
+        | Stlr { src; addr } ->
+          (match src with
+           | Reg reg -> Emit [ Asm.Stlr { src = Reg reg; addr } ]
+           | _ ->
+             let setup, src_reg, _ = ensure_gpr src ~dst:Reg.sp ~avoid:[] in
+             Emit (setup @ [ Asm.Stlr { src = Reg src_reg; addr } ]))
+        | Stlxr { status; src; addr } ->
+          (match src with
+           | Reg reg -> Emit [ Asm.Stlxr { status; src = Reg reg; addr } ]
+           | _ ->
+             let setup, src_reg, _ = ensure_gpr src ~dst:status ~avoid:[] in
+             Emit (setup @ [ Asm.Stlxr { status; src = Reg src_reg; addr } ]))
+        | Casal { dst; expected; desired; addr } ->
+          let expected_setup, expected_reg, used =
+            ensure_gpr expected ~dst ~avoid:[]
+          in
+          let desired_setup, desired_reg, _ =
+            ensure_gpr desired ~dst ~avoid:(expected_reg :: used)
+          in
+          let move_dst =
+            if Reg.equal expected_reg dst
+            then []
+            else [ Asm.Mov { dst; src = Reg expected_reg } ]
+          in
+          Emit
+            (expected_setup
+             @ desired_setup
+             @ [ Asm.Casal { expected = expected_reg; desired = desired_reg; addr } ]
+             @ move_dst)
         | Int_binary { op; dst; lhs; rhs } ->
           Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
         | Float_binary { op; dst; lhs; rhs } ->

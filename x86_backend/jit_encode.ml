@@ -448,6 +448,16 @@ let size_of_instr instr ~add_literal =
   | Jmp _ -> 5, None
   | Je _ | Jne _ -> 6, None
   | Ret -> 1, None
+  | Sete _ -> failwith "JIT encoding for SETE not yet implemented"
+  (* Atomic operations - JIT not yet implemented *)
+  | Mfence -> failwith "JIT encoding for MFENCE not yet implemented"
+  | Xchg _ -> failwith "JIT encoding for XCHG not yet implemented"
+  | Lock_add _ -> failwith "JIT encoding for LOCK_ADD not yet implemented"
+  | Lock_sub _ -> failwith "JIT encoding for LOCK_SUB not yet implemented"
+  | Lock_and _ -> failwith "JIT encoding for LOCK_AND not yet implemented"
+  | Lock_or _ -> failwith "JIT encoding for LOCK_OR not yet implemented"
+  | Lock_xor _ -> failwith "JIT encoding for LOCK_XOR not yet implemented"
+  | Lock_cmpxchg _ -> failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
 ;;
 
 let layout_fn (fn : Asm.fn) =
@@ -896,6 +906,16 @@ let encode_instr
     Writer.emit_u8 writer 0x85;
     Writer.emit_int32_le writer (int32_of_int_exn disp ~context:"jne")
   | Ret -> Writer.emit_u8 writer 0xC3
+  | Sete _ -> failwith "JIT encoding for SETE not yet implemented"
+  (* Atomic operations - JIT not yet implemented *)
+  | Mfence -> failwith "JIT encoding for MFENCE not yet implemented"
+  | Xchg _ -> failwith "JIT encoding for XCHG not yet implemented"
+  | Lock_add _ -> failwith "JIT encoding for LOCK_ADD not yet implemented"
+  | Lock_sub _ -> failwith "JIT encoding for LOCK_SUB not yet implemented"
+  | Lock_and _ -> failwith "JIT encoding for LOCK_AND not yet implemented"
+  | Lock_or _ -> failwith "JIT encoding for LOCK_OR not yet implemented"
+  | Lock_xor _ -> failwith "JIT encoding for LOCK_XOR not yet implemented"
+  | Lock_cmpxchg _ -> failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
 ;;
 
 let encode (program : Asm.program) =
