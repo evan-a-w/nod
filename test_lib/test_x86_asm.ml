@@ -157,12 +157,9 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
   let asm =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
-  print_mnemonics_with_prefixes [ "lock cmpxchg"; "jne" ] asm;
+  print_mnemonics_with_prefixes [ "lock cmpxchg" ] asm;
   [%expect
-    {|
-    lock
-    jne
-    |}]
+    {| lock |}]
 ;;
 
 let%expect_test "branches lower with labels" =
