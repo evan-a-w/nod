@@ -324,3 +324,220 @@ int main(void) {
     print_endline output);
   [%expect {| 2 1 15 |}]
 ;;
+
+(* Test the full hash map with assembly execution *)
+let%expect_test "hash map basic operations" =
+  only_on_arch `X86_64 (fun () ->
+    let hash_map_funcs = make_hashmap () in
+    (* Create a test function that uses the hash map *)
+    let test_fn =
+      [%nod
+        fun (_dummy : i64) ->
+          (* Create a new hash map with capacity 8 *)
+          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 8L) in
+          (* Insert some values: key -> value *)
+          let (r1 : i64) =
+            Dsl.call3
+              "hash_map_insert"
+              (Dsl.var map)
+              (Dsl.lit 5L)
+              (Dsl.lit 100L)
+          in
+          let (r2 : i64) =
+            Dsl.call3
+              "hash_map_insert"
+              (Dsl.var map)
+              (Dsl.lit 13L)
+              (Dsl.lit 200L)
+          in
+          let (r3 : i64) =
+            Dsl.call3
+              "hash_map_insert"
+              (Dsl.var map)
+              (Dsl.lit 3L)
+              (Dsl.lit 300L)
+          in
+          (* Get the values back *)
+          let (val1 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 0L)
+          in
+          let (val2 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 13L) (Dsl.lit 0L)
+          in
+          let (val3 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 0L)
+          in
+          (* Get a non-existent value (should return default) *)
+          let (val_missing : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 999L) (Dsl.lit 42L)
+          in
+          (* Get size *)
+          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          (* Compute result: val1 + val2 + val3 + val_missing + size *)
+          (* Expected: 100 + 200 + 300 + 42 + 3 = 645 *)
+          let (sum1 : i64) = Dsl.add (Dsl.var val1) (Dsl.var val2) in
+          let (sum2 : i64) = Dsl.add (Dsl.var sum1) (Dsl.var val3) in
+          let (sum3 : i64) = Dsl.add (Dsl.var sum2) (Dsl.var val_missing) in
+          let (result : i64) = Dsl.add (Dsl.var sum3) (Dsl.var size) in
+          return (Dsl.var result)]
+    in
+    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_hashmap" ] in
+    (* Process all functions *)
+    List.iter all_funcs ~f:(fun fn ->
+      Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
+    let functions =
+      all_funcs
+      |> List.map ~f:(fun fn -> fn.Function.name, fn)
+      |> String.Map.of_alist_exn
+    in
+    let asm =
+      X86_backend.compile_to_asm ~system:host_system ~globals:[] functions
+    in
+    let harness =
+      make_harness_source
+        ~fn_name:"test_hashmap"
+        ~fn_arg_type:"int64_t"
+        ~fn_arg:"0"
+        ()
+    in
+    let output = execute_asm ~arch:`X86_64 ~system:host_system ~harness asm in
+    print_endline output);
+  [%expect {| 645 |}]
+;;
+
+(* Test that overwriting values works *)
+let%expect_test "hash map overwrite values" =
+  only_on_arch `X86_64 (fun () ->
+    let hash_map_funcs = make_hashmap () in
+    let test_fn =
+      [%nod
+        fun (_dummy : i64) ->
+          (* Create map with capacity 8 *)
+          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 8L) in
+          (* Insert initial value *)
+          let (r1 : i64) =
+            Dsl.call3
+              "hash_map_insert"
+              (Dsl.var map)
+              (Dsl.lit 7L)
+              (Dsl.lit 100L)
+          in
+          (* Get the value *)
+          let (val1 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 7L) (Dsl.lit 0L)
+          in
+          (* Overwrite with new value *)
+          let (r2 : i64) =
+            Dsl.call3
+              "hash_map_insert"
+              (Dsl.var map)
+              (Dsl.lit 7L)
+              (Dsl.lit 200L)
+          in
+          (* Get the new value *)
+          let (val2 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 7L) (Dsl.lit 0L)
+          in
+          (* Size should still be 1 (not 2) *)
+          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          (* Return: old_value + new_value + size = 100 + 200 + 1 = 301 *)
+          let (sum1 : i64) = Dsl.add (Dsl.var val1) (Dsl.var val2) in
+          let (result : i64) = Dsl.add (Dsl.var sum1) (Dsl.var size) in
+          return (Dsl.var result)]
+    in
+    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_overwrite" ] in
+    List.iter all_funcs ~f:(fun fn ->
+      Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
+    let functions =
+      all_funcs
+      |> List.map ~f:(fun fn -> fn.Function.name, fn)
+      |> String.Map.of_alist_exn
+    in
+    let asm =
+      X86_backend.compile_to_asm ~system:host_system ~globals:[] functions
+    in
+    let harness =
+      make_harness_source
+        ~fn_name:"test_overwrite"
+        ~fn_arg_type:"int64_t"
+        ~fn_arg:"0"
+        ()
+    in
+    let output = execute_asm ~arch:`X86_64 ~system:host_system ~harness asm in
+    print_endline output);
+  [%expect {| 301 |}]
+;;
+
+(* Test multiple insertions *)
+let%expect_test "hash map multiple operations" =
+  only_on_arch `X86_64 (fun () ->
+    let hash_map_funcs = make_hashmap () in
+    let test_fn =
+      [%nod
+        fun (_dummy : i64) ->
+          (* Create map with capacity 16 *)
+          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 16L) in
+          (* Insert 5 different values *)
+          let (r1 : i64) =
+            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 1L) (Dsl.lit 10L)
+          in
+          let (r2 : i64) =
+            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 2L) (Dsl.lit 20L)
+          in
+          let (r3 : i64) =
+            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 30L)
+          in
+          let (r4 : i64) =
+            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 4L) (Dsl.lit 40L)
+          in
+          let (r5 : i64) =
+            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 50L)
+          in
+          (* Verify size is 5 *)
+          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          (* Get all values and sum them *)
+          let (v1 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 1L) (Dsl.lit 0L)
+          in
+          let (v2 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 2L) (Dsl.lit 0L)
+          in
+          let (v3 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 0L)
+          in
+          let (v4 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 4L) (Dsl.lit 0L)
+          in
+          let (v5 : i64) =
+            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 0L)
+          in
+          (* Sum: 10 + 20 + 30 + 40 + 50 + 5 (size) = 155 *)
+          let (s1 : i64) = Dsl.add (Dsl.var v1) (Dsl.var v2) in
+          let (s2 : i64) = Dsl.add (Dsl.var s1) (Dsl.var v3) in
+          let (s3 : i64) = Dsl.add (Dsl.var s2) (Dsl.var v4) in
+          let (s4 : i64) = Dsl.add (Dsl.var s3) (Dsl.var v5) in
+          let (result : i64) = Dsl.add (Dsl.var s4) (Dsl.var size) in
+          return (Dsl.var result)]
+    in
+    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_multi" ] in
+    List.iter all_funcs ~f:(fun fn ->
+      Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
+    let functions =
+      all_funcs
+      |> List.map ~f:(fun fn -> fn.Function.name, fn)
+      |> String.Map.of_alist_exn
+    in
+    let asm =
+      X86_backend.compile_to_asm ~system:host_system ~globals:[] functions
+    in
+    let harness =
+      make_harness_source
+        ~fn_name:"test_multi"
+        ~fn_arg_type:"int64_t"
+        ~fn_arg:"0"
+        ()
+    in
+    let output = execute_asm ~arch:`X86_64 ~system:host_system ~harness asm in
+    print_endline output);
+  [%expect {| 155 |}]
+;;

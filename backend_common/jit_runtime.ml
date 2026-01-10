@@ -11,6 +11,8 @@ external call0_i64 : nativeint -> int64 = "nod_jit_call0_i64"
 external call1_i64 : nativeint -> int64 -> int64 = "nod_jit_call1_i64"
 external call2_i64 : nativeint -> int64 -> int64 -> int64 = "nod_jit_call2_i64"
 external add3_ptr : unit -> nativeint = "nod_jit_add3_ptr"
+external malloc_ptr : unit -> nativeint = "nod_jit_malloc_ptr"
+external memset_ptr : unit -> nativeint = "nod_jit_memset_ptr"
 
 type t =
   { region : region

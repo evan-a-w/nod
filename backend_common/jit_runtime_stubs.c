@@ -157,3 +157,15 @@ CAMLprim value nod_jit_add3_ptr(value v_unit)
   CAMLparam1(v_unit);
   CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&nod_jit_add3));
 }
+
+CAMLprim value nod_jit_malloc_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&malloc));
+}
+
+CAMLprim value nod_jit_memset_ptr(value v_unit)
+{
+  CAMLparam1(v_unit);
+  CAMLreturn(caml_copy_nativeint((intnat)(intptr_t)&memset));
+}
