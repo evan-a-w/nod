@@ -219,6 +219,11 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
             (match a, b with
              | Mem _, Mem _ -> lower_mem_mem_cmp ~lhs:a ~rhs:b
              | _ -> [ Asm.Cmp (a, b) ])
+        | SETE dst ->
+          (match dst with
+           | Reg _ | Mem _ -> Emit [ Asm.Sete dst ]
+           | Imm _ | Spill_slot _ | Symbol _ ->
+             failwith "sete expects register or memory operand")
         | CALL { fn = callee; _ } ->
           let symbol = symbol_of_fn callee in
           Emit [ Asm.Call symbol ]

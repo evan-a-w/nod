@@ -26,6 +26,7 @@ type instr =
   | Idiv of operand
   | Mod of operand
   | Cmp of operand * operand
+  | Sete of operand
   | Call of symbol
   | Push of operand
   | Pop of Reg.t
