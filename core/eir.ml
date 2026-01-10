@@ -53,11 +53,10 @@ module Tags = struct
   let empty = { constant = None }
 end
 
-type input =
-  ( (instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t)
-      Program.t
-    , Nod_error.t )
-    Result.t
+type raw_block =
+  instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t
+
+type input = (raw_block Program.t, Nod_error.t) Result.t
 
 module Loc = struct
   type where =
@@ -517,9 +516,11 @@ end
 let map_program_roots ~f program = Program.map_function_roots program ~f
 
 let set_entry_block_args program =
-  Map.iter program.Program.functions ~f:(fun { Function.root = root_data; args; _ } ->
-    let ~root:block, ~blocks:_, ~in_order:_ = root_data in
-    List.iter args ~f:(Vec.push block.Block.args));
+  Map.iter
+    program.Program.functions
+    ~f:(fun { Function.root = root_data; args; _ } ->
+      let ~root:block, ~blocks:_, ~in_order:_ = root_data in
+      List.iter args ~f:(Vec.push block.Block.args));
   program
 ;;
 
@@ -550,18 +551,24 @@ let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
 ;;
 
 let type_check_program program =
-  Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
-    let open Result.Let_syntax in
-    let%bind () = acc in
-    type_check_cfg fn.Function.root)
+  Map.fold
+    program.Program.functions
+    ~init:(Ok ())
+    ~f:(fun ~key:_ ~data:fn acc ->
+      let open Result.Let_syntax in
+      let%bind () = acc in
+      type_check_cfg fn.Function.root)
 ;;
 
 let lower_aggregate_program program =
-  Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data:fn acc ->
-    let open Result.Let_syntax in
-    let%bind () = acc in
-    let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
-    Ir.lower_aggregates ~root:block)
+  Map.fold
+    program.Program.functions
+    ~init:(Ok ())
+    ~f:(fun ~key:_ ~data:fn acc ->
+      let open Result.Let_syntax in
+      let%bind () = acc in
+      let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
+      Ir.lower_aggregates ~root:block)
   |> Result.map ~f:(fun () -> program)
 ;;
 
