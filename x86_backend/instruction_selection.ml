@@ -446,7 +446,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre, mem_op = mem_operand addr in
     let load_instr = [ mov (reg dest) mem_op ] in
     (match order with
-     | Seq_cst -> pre @ load_instr @ [ mfence ]
+     | Seq_cst -> pre @ [ mfence ] @ load_instr
      | Relaxed | Acquire | Release | Acq_rel -> pre @ load_instr)
   | Atomic_store { addr; src; order } ->
     (* On x86 TSO: regular stores have release semantics, seq_cst needs fence *)
@@ -481,7 +481,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre_desired, desired_op =
       operand_of_lit_or_var t ~class_:Class.I64 desired
     in
-    let success_reg = reg_of_var t success in
+    let success_reg = Reg.allocated ~class_:Class.I64 success None in
     (* RAX must hold the expected value *)
     let rax_reg =
       Reg.allocated ~class_:Class.I64 (fresh_var t "cmpxchg_rax") (Some Reg.rax)

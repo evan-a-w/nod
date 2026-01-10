@@ -35,6 +35,24 @@ let print_mnemonics_with_prefixes prefixes asm =
   |> List.iter ~f:print_endline
 ;;
 
+let print_selected_mem_fences fn =
+  Function.iter_root fn ~f:(fun root ->
+    Block.to_list root
+    |> List.concat_map ~f:(fun block ->
+      Vec.to_list block.Block.instructions @ [ block.Block.terminal ])
+    |> List.concat_map ~f:(fun instr ->
+      match instr with
+      | Ir0.X86 x -> [ x ]
+      | Ir0.X86_terminal xs -> xs
+      | _ -> [])
+    |> List.filter_map ~f:(function
+      | X86_ir.MFENCE -> Some "mfence"
+      | X86_ir.MOV (X86_ir.Mem _, _) -> Some "store"
+      | X86_ir.MOV (_, X86_ir.Mem _) -> Some "load"
+      | _ -> None)
+    |> List.iter ~f:print_endline)
+;;
+
 let%expect_test "super triv lowers to assembly" =
   compile_and_lower Examples.Textual.super_triv;
   [%expect
@@ -90,14 +108,18 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
        ; order = Ir.Memory_order.Seq_cst
        });
   let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm =
-    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  let selected_map =
+    X86_backend.For_testing.select_instructions
+      (String.Map.of_alist_exn [ "root", fn ])
   in
-  print_mnemonics_with_prefixes [ "mfence" ] asm;
+  let selected = Map.find_exn selected_map "root" in
+  print_selected_mem_fences selected;
   [%expect
     {|
+    store
     mfence
     mfence
+    load
     |}]
 ;;
 
