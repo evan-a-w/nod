@@ -84,23 +84,23 @@ let expand_atomic_rmw t =
     let dest_var = Ir.Lit_or_var.Var dest in
     let compute =
       match op with
-      | Ir.Rmw_op.Xchg -> [ Ir.Move (new_val, src) ]
-      | Add -> [ Ir.Add { dest = new_val; src1 = dest_var; src2 = src } ]
-      | Sub -> [ Ir.Sub { dest = new_val; src1 = dest_var; src2 = src } ]
-      | And -> [ Ir.And { dest = new_val; src1 = dest_var; src2 = src } ]
-      | Or -> [ Ir.Or { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Ir.Rmw_op.Xchg -> [ Ir.move new_val src ]
+      | Add -> [ Ir.add { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Sub -> [ Ir.sub { dest = new_val; src1 = dest_var; src2 = src } ]
+      | And -> [ Ir.and_ { dest = new_val; src1 = dest_var; src2 = src } ]
+      | Or -> [ Ir.or_ { dest = new_val; src1 = dest_var; src2 = src } ]
       | Xor ->
         let tmp_and = fresh_var t "rmw_and" in
         let tmp_sum = fresh_var t "rmw_sum" in
         let tmp_double = fresh_var t "rmw_double" in
-        [ Ir.And { dest = tmp_and; src1 = dest_var; src2 = src }
-        ; Ir.Add { dest = tmp_sum; src1 = dest_var; src2 = src }
-        ; Ir.Add
+        [ Ir.and_ { dest = tmp_and; src1 = dest_var; src2 = src }
+        ; Ir.add { dest = tmp_sum; src1 = dest_var; src2 = src }
+        ; Ir.add
             { dest = tmp_double
             ; src1 = Ir.Lit_or_var.Var tmp_and
             ; src2 = Ir.Lit_or_var.Var tmp_and
             }
-        ; Ir.Sub
+        ; Ir.sub
             { dest = new_val
             ; src1 = Ir.Lit_or_var.Var tmp_sum
             ; src2 = Ir.Lit_or_var.Var tmp_double
@@ -108,7 +108,7 @@ let expand_atomic_rmw t =
         ]
     in
     ( compute
-      @ [ Ir.Atomic_cmpxchg
+      @ [ Ir.atomic_cmpxchg
             { dest
             ; success
             ; addr
@@ -158,7 +158,7 @@ let expand_atomic_rmw t =
               ; if_false = loop_cb
               });
       let init_load =
-        Ir.Atomic_load
+        Ir.atomic_load
           { dest = atomic.dest
           ; addr = atomic.addr
           ; order = Ir.Memory_order.Relaxed
@@ -456,7 +456,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     (match order with
      | Seq_cst -> pre_mem @ pre_val @ store_instr @ [ mfence ]
      | Relaxed | Acquire | Release | Acq_rel -> pre_mem @ pre_val @ store_instr)
-  | Atomic_rmw { dest; addr; src; op; order = _ } ->
+  | Atomic_rmw _ ->
     failwith "atomic_rmw should be lowered before x86 instruction selection"
   | Atomic_cmpxchg
       { dest
