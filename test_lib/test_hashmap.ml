@@ -23,188 +23,217 @@ open! Import
 (* Use the common DSL from the dsl/ library *)
 let entry_size = 24
 
+type i64_atom = Dsl.int64 Dsl.Atom.t
+type ptr_atom = Dsl.ptr Dsl.Atom.t
+
+let malloc : (i64_atom, ptr_atom) Dsl.Fn.t =
+  Dsl.Fn.external_ ~name:"malloc" ~args:[ Type.I64 ] ~returns:[ Type.Ptr ]
+;;
+
+let memset : (ptr_atom * i64_atom * i64_atom, ptr_atom) Dsl.Fn.t =
+  Dsl.Fn.external_
+    ~name:"memset"
+    ~args:[ Type.Ptr; Type.I64; Type.I64 ]
+    ~returns:[ Type.Ptr ]
+;;
+
 (* hash_map_new: Creates a new hash map with given capacity
    Args: capacity (i64)
    Returns: ptr to hash map structure *)
-let mk_new =
+let mk_new (name : string) : (i64_atom, ptr_atom) Dsl.Fn.t =
   [%nod
-    fun (capacity : i64) ->
+    fun name (capacity : int64) ->
       (* Allocate hash map structure (24 bytes) *)
-      let (map_ptr : ptr) = Dsl.call1 "malloc" (Dsl.lit 24L) in
+      let%named map_ptr = call malloc (lit 24L) in
       (* Calculate entries array size: capacity * 24 *)
-      let (entry_size_lit : i64) =
-        Dsl.mov (Dsl.lit (Int64.of_int entry_size))
-      in
-      let (entries_bytes : i64) =
-        Dsl.mul (Dsl.var capacity) (Dsl.var entry_size_lit)
-      in
+      let%named entry_size_lit = mov (lit (Int64.of_int entry_size)) in
+      let%named entries_bytes = mul capacity entry_size_lit in
       (* Allocate entries array *)
-      let (entries_ptr : ptr) = Dsl.call1 "malloc" (Dsl.var entries_bytes) in
+      let%named entries_ptr = call malloc entries_bytes in
       (* Initialize entries to all zeros (occupied = 0) *)
-      let (zero : i64) = Dsl.mov (Dsl.lit 0L) in
+      let%named zero = mov (lit 0L) in
       seq
-        [ Dsl.call0
-            "memset"
-            [ Dsl.var entries_ptr; Dsl.var zero; Dsl.var entries_bytes ]
-        ];
+        [ Instr.call0 memset [ entries_ptr; zero; entries_bytes ] ];
       (* Store capacity at offset 0 *)
-      seq [ Dsl.store_addr (Dsl.var capacity) map_ptr 0 ];
+      store_addr capacity map_ptr 0;
       (* Store size (0) at offset 8 *)
-      seq [ Dsl.store_addr (Dsl.var zero) map_ptr 8 ];
+      store_addr zero map_ptr 8;
       (* Store entries pointer at offset 16 *)
-      seq [ Dsl.store_addr (Dsl.var entries_ptr) map_ptr 16 ];
-      return (Dsl.var map_ptr)]
+      store_addr entries_ptr map_ptr 16;
+      return map_ptr]
 ;;
 
 (* hash: Simple hash function using bitwise AND to keep in range
    Args: key (i64), capacity (i64)
    Returns: hash value (i64) *)
-let mk_hash =
+let mk_hash (name : string) : (i64_atom * i64_atom, i64_atom) Dsl.Fn.t =
   [%nod
-    fun (key : i64) (capacity : i64) ->
+    fun name (key : int64) (capacity : int64) ->
       (* Use capacity - 1 as mask (assumes capacity is power of 2) *)
-      let (mask : i64) = Dsl.sub (Dsl.var capacity) (Dsl.lit 1L) in
-      let (hash : i64) = Dsl.and_ (Dsl.var key) (Dsl.var mask) in
-      return (Dsl.var hash)]
+      let%named mask = sub capacity (lit 1L) in
+      let%named hash = and_ key mask in
+      return hash]
 ;;
 
 (* Helper: compute entry address
    Args: entries_ptr (ptr), index (i64)
    Returns: entry_ptr (ptr) *)
-let mk_entry_addr =
+let mk_entry_addr (name : string) : (ptr_atom * i64_atom, ptr_atom) Dsl.Fn.t =
   [%nod
-    fun (entries_ptr : ptr) (index : i64) ->
-      let (entry_size_lit : i64) =
-        Dsl.mov (Dsl.lit (Int64.of_int entry_size))
-      in
-      let (entry_offset : i64) =
-        Dsl.mul (Dsl.var index) (Dsl.var entry_size_lit)
-      in
-      let (entry_ptr : ptr) =
-        Dsl.add (Dsl.var entries_ptr) (Dsl.var entry_offset)
-      in
-      return (Dsl.var entry_ptr)]
+    fun name (entries_ptr : ptr) (index : int64) ->
+      let%named entry_size_lit = mov (lit (Int64.of_int entry_size)) in
+      let%named entry_offset = mul index entry_size_lit in
+      let%named entry_ptr = ptr_add entries_ptr entry_offset in
+      return entry_ptr]
 ;;
 
 (* insert_at: Insert a key-value pair at a specific index
    Args: map (ptr), index (i64), key (i64), value (i64)
    Returns: 1 on success, 0 if slot occupied *)
-let mk_insert_at =
+let mk_insert_at
+  (name : string)
+  (entry_addr : (ptr_atom * i64_atom, ptr_atom) Dsl.Fn.t)
+  : (ptr_atom * i64_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  =
   [%nod
-    fun (map : ptr) (index : i64) (key : i64) (value : i64) ->
+    fun name (map : ptr) (index : int64) (key : int64) (value : int64) ->
       (* Get entries pointer *)
-      let (entries_ptr : ptr) = Dsl.load_addr map 16 in
+      let%named entries_ptr = load_addr_ptr map 16 in
       (* Get entry address *)
-      let (entry_ptr : ptr) =
-        Dsl.call2 "hash_map_entry_addr" (Dsl.var entries_ptr) (Dsl.var index)
-      in
+      let%named entry_ptr = call2 entry_addr entries_ptr index in
       (* Check if slot is occupied *)
-      let (occupied : i64) = Dsl.load_addr entry_ptr 0 in
+      let%named occupied = load_addr entry_ptr 0 in
       (* Store occupied = 1 *)
-      let (one : i64) = Dsl.mov (Dsl.lit 1L) in
-      seq [ Dsl.store_addr (Dsl.var one) entry_ptr 0 ];
+      let%named one = mov (lit 1L) in
+      store_addr one entry_ptr 0;
       (* Store key *)
-      seq [ Dsl.store_addr (Dsl.var key) entry_ptr 8 ];
+      store_addr key entry_ptr 8;
       (* Store value *)
-      seq [ Dsl.store_addr (Dsl.var value) entry_ptr 16 ];
+      store_addr value entry_ptr 16;
       (* Increment size if this was a new entry *)
-      let (was_new : i64) = Dsl.sub (Dsl.lit 1L) (Dsl.var occupied) in
-      let (size : i64) = Dsl.load_addr map 8 in
-      let (new_size : i64) = Dsl.add (Dsl.var size) (Dsl.var was_new) in
-      seq [ Dsl.store_addr (Dsl.var new_size) map 8 ];
-      return (Dsl.var one)]
+      let%named was_new = sub (lit 1L) occupied in
+      let%named size = load_addr map 8 in
+      let%named new_size = add size was_new in
+      store_addr new_size map 8;
+      return one]
 ;;
 
 (* insert: Insert a key-value pair
    Args: map (ptr), key (i64), value (i64)
    Returns: 1 on success *)
-let mk_insert =
+let mk_insert
+  (name : string)
+  (hash_fn : (i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
+  (insert_at_fn :
+     (ptr_atom * i64_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
+  : (ptr_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  =
   [%nod
-    fun (map : ptr) (key : i64) (value : i64) ->
+    fun name (map : ptr) (key : int64) (value : int64) ->
       (* Load capacity *)
-      let (capacity : i64) = Dsl.load_addr map 0 in
+      let%named capacity = load_addr map 0 in
       (* Compute hash *)
-      let (index : i64) =
-        Dsl.call2 "hash_map_hash" (Dsl.var key) (Dsl.var capacity)
-      in
+      let%named index = call2 hash_fn key capacity in
       (* Insert at the hashed index (simple, no collision handling for now) *)
-      let (result : i64) =
-        Dsl.call4
-          "hash_map_insert_at"
-          (Dsl.var map)
-          (Dsl.var index)
-          (Dsl.var key)
-          (Dsl.var value)
-      in
-      return (Dsl.var result)]
+      let%named result = call4 insert_at_fn map index key value in
+      return result]
 ;;
 
 (* get: Retrieve a value by key
    Args: map (ptr), key (i64), default_value (i64)
    Returns: value (i64), or default if not found *)
-let mk_get =
+let mk_get
+  (name : string)
+  (hash_fn : (i64_atom * i64_atom, i64_atom) Dsl.Fn.t)
+  (entry_addr : (ptr_atom * i64_atom, ptr_atom) Dsl.Fn.t)
+  : (ptr_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  =
   [%nod
-    fun (map : ptr) (key : i64) (default_val : i64) ->
+    fun name (map : ptr) (key : int64) (default_val : int64) ->
       (* Load capacity *)
-      let (capacity : i64) = Dsl.load_addr map 0 in
+      let%named capacity = load_addr map 0 in
       (* Compute hash *)
-      let (index : i64) =
-        Dsl.call2 "hash_map_hash" (Dsl.var key) (Dsl.var capacity)
-      in
+      let%named index = call2 hash_fn key capacity in
       (* Get entries pointer *)
-      let (entries_ptr : ptr) = Dsl.load_addr map 16 in
+      let%named entries_ptr = load_addr_ptr map 16 in
       (* Get entry address *)
-      let (entry_ptr : ptr) =
-        Dsl.call2 "hash_map_entry_addr" (Dsl.var entries_ptr) (Dsl.var index)
-      in
+      let%named entry_ptr = call2 entry_addr entries_ptr index in
       (* Check if occupied *)
-      let (occupied : i64) = Dsl.load_addr entry_ptr 0 in
+      let%named occupied = load_addr entry_ptr 0 in
       (* Load the value *)
-      let (value : i64) = Dsl.load_addr entry_ptr 16 in
+      let%named value = load_addr entry_ptr 16 in
       (* Return value if occupied, default otherwise *)
       (* result = (occupied * value) + ((1 - occupied) * default_val) *)
-      let (occupied_value : i64) = Dsl.mul (Dsl.var occupied) (Dsl.var value) in
-      let (one : i64) = Dsl.mov (Dsl.lit 1L) in
-      let (not_occupied : i64) = Dsl.sub (Dsl.var one) (Dsl.var occupied) in
-      let (not_occupied_default : i64) =
-        Dsl.mul (Dsl.var not_occupied) (Dsl.var default_val)
-      in
-      let (result : i64) =
-        Dsl.add (Dsl.var occupied_value) (Dsl.var not_occupied_default)
-      in
-      return (Dsl.var result)]
+      let%named occupied_value = mul occupied value in
+      let%named one = mov (lit 1L) in
+      let%named not_occupied = sub one occupied in
+      let%named not_occupied_default = mul not_occupied default_val in
+      let%named result = add occupied_value not_occupied_default in
+      return result]
 ;;
 
 (* size: Get the number of entries in the map *)
-let mk_size =
+let mk_size (name : string) : (ptr_atom, i64_atom) Dsl.Fn.t =
   [%nod
-    fun (map : ptr) ->
-      let (size : i64) = Dsl.load_addr map 8 in
-      return (Dsl.var size)]
+    fun name (map : ptr) ->
+      let%named size = load_addr map 8 in
+      return size]
 ;;
 
 (* capacity: Get the capacity of the map *)
-let mk_capacity =
+let mk_capacity (name : string) : (ptr_atom, i64_atom) Dsl.Fn.t =
   [%nod
-    fun (map : ptr) ->
-      let (capacity : i64) = Dsl.load_addr map 0 in
-      return (Dsl.var capacity)]
+    fun name (map : ptr) ->
+      let%named capacity = load_addr map 0 in
+      return capacity]
 ;;
 
-let make_hashmap () =
-  [ mk_new ~name:"hash_map_new"
-  ; mk_hash ~name:"hash_map_hash"
-  ; mk_entry_addr ~name:"hash_map_entry_addr"
-  ; mk_insert_at ~name:"hash_map_insert_at"
-  ; mk_insert ~name:"hash_map_insert"
-  ; mk_get ~name:"hash_map_get"
-  ; mk_size ~name:"hash_map_size"
-  ; mk_capacity ~name:"hash_map_capacity"
+type hashmap_fns =
+  { new_fn : (i64_atom, ptr_atom) Dsl.Fn.t
+  ; hash_fn : (i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  ; entry_addr_fn : (ptr_atom * i64_atom, ptr_atom) Dsl.Fn.t
+  ; insert_at_fn :
+      (ptr_atom * i64_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  ; insert_fn : (ptr_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  ; get_fn : (ptr_atom * i64_atom * i64_atom, i64_atom) Dsl.Fn.t
+  ; size_fn : (ptr_atom, i64_atom) Dsl.Fn.t
+  ; capacity_fn : (ptr_atom, i64_atom) Dsl.Fn.t
+  }
+
+let hashmap_functions (fns : hashmap_fns) =
+  [ Dsl.Fn.function_exn fns.new_fn
+  ; Dsl.Fn.function_exn fns.hash_fn
+  ; Dsl.Fn.function_exn fns.entry_addr_fn
+  ; Dsl.Fn.function_exn fns.insert_at_fn
+  ; Dsl.Fn.function_exn fns.insert_fn
+  ; Dsl.Fn.function_exn fns.get_fn
+  ; Dsl.Fn.function_exn fns.size_fn
+  ; Dsl.Fn.function_exn fns.capacity_fn
   ]
 ;;
 
+let make_hashmap () : hashmap_fns =
+  let hash_fn = mk_hash "hash_map_hash" in
+  let entry_addr_fn = mk_entry_addr "hash_map_entry_addr" in
+  let insert_at_fn = mk_insert_at "hash_map_insert_at" entry_addr_fn in
+  let insert_fn = mk_insert "hash_map_insert" hash_fn insert_at_fn in
+  let get_fn = mk_get "hash_map_get" hash_fn entry_addr_fn in
+  let new_fn = mk_new "hash_map_new" in
+  let size_fn = mk_size "hash_map_size" in
+  let capacity_fn = mk_capacity "hash_map_capacity" in
+  { new_fn
+  ; hash_fn
+  ; entry_addr_fn
+  ; insert_at_fn
+  ; insert_fn
+  ; get_fn
+  ; size_fn
+  ; capacity_fn
+  }
+;;
+
 let%expect_test "hash map functions compile" =
-  let funcs = make_hashmap () in
+  let funcs = make_hashmap () |> hashmap_functions in
   List.iter funcs ~f:(fun fn ->
     Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
   (* Print function names *)
@@ -223,7 +252,7 @@ let%expect_test "hash map functions compile" =
 ;;
 
 let%expect_test "hash map new function structure" =
-  let funcs = make_hashmap () in
+  let funcs = make_hashmap () |> hashmap_functions in
   List.iter funcs ~f:(fun fn ->
     Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
   let new_fn = List.hd_exn funcs in
@@ -263,7 +292,7 @@ let%expect_test "hash map new function structure" =
 ;;
 
 let%expect_test "hash function" =
-  let funcs = make_hashmap () in
+  let funcs = make_hashmap () |> hashmap_functions in
   List.iter funcs ~f:(fun fn ->
     Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
   let hash_fn = List.nth_exn funcs 1 in
@@ -290,7 +319,7 @@ let%expect_test "hash function" =
 
 (* Test just the hash function - simpler test without memory allocation *)
 let%expect_test "hash function standalone" =
-  let hash_fn = mk_hash ~name:"test_hash" in
+  let hash_fn = mk_hash "test_hash" |> Dsl.Fn.function_exn in
   Block.iter_and_update_bookkeeping (Function.root hash_fn) ~f:(fun _ -> ());
   (* Compile and execute on x86_64 if available *)
   only_on_arch `X86_64 (fun () ->
@@ -328,60 +357,47 @@ int main(void) {
 (* Test the full hash map with assembly execution *)
 let%expect_test "hash map basic operations" =
   only_on_arch `X86_64 (fun () ->
-    let hash_map_funcs = make_hashmap () in
+    let hash_map_fns = make_hashmap () in
+    let { new_fn = hash_map_new
+        ; insert_fn = hash_map_insert
+        ; get_fn = hash_map_get
+        ; size_fn = hash_map_size
+        ; _
+        }
+      =
+      hash_map_fns
+    in
     (* Create a test function that uses the hash map *)
     let test_fn =
       [%nod
-        fun (_dummy : i64) ->
+        fun "test_hashmap" (_dummy : int64) ->
           (* Create a new hash map with capacity 8 *)
-          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 8L) in
+          let%named map = call hash_map_new (lit 8L) in
           (* Insert some values: key -> value *)
-          let (r1 : i64) =
-            Dsl.call3
-              "hash_map_insert"
-              (Dsl.var map)
-              (Dsl.lit 5L)
-              (Dsl.lit 100L)
-          in
-          let (r2 : i64) =
-            Dsl.call3
-              "hash_map_insert"
-              (Dsl.var map)
-              (Dsl.lit 13L)
-              (Dsl.lit 200L)
-          in
-          let (r3 : i64) =
-            Dsl.call3
-              "hash_map_insert"
-              (Dsl.var map)
-              (Dsl.lit 3L)
-              (Dsl.lit 300L)
-          in
+          let%named r1 = call3 hash_map_insert map (lit 5L) (lit 100L) in
+          let%named r2 = call3 hash_map_insert map (lit 13L) (lit 200L) in
+          let%named r3 = call3 hash_map_insert map (lit 3L) (lit 300L) in
           (* Get the values back *)
-          let (val1 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 0L)
-          in
-          let (val2 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 13L) (Dsl.lit 0L)
-          in
-          let (val3 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 0L)
-          in
+          let%named val1 = call3 hash_map_get map (lit 5L) (lit 0L) in
+          let%named val2 = call3 hash_map_get map (lit 13L) (lit 0L) in
+          let%named val3 = call3 hash_map_get map (lit 3L) (lit 0L) in
           (* Get a non-existent value (should return default) *)
-          let (val_missing : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 999L) (Dsl.lit 42L)
+          let%named val_missing =
+            call3 hash_map_get map (lit 999L) (lit 42L)
           in
           (* Get size *)
-          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          let%named size = call hash_map_size map in
           (* Compute result: val1 + val2 + val3 + val_missing + size *)
           (* Expected: 100 + 200 + 300 + 42 + 3 = 645 *)
-          let (sum1 : i64) = Dsl.add (Dsl.var val1) (Dsl.var val2) in
-          let (sum2 : i64) = Dsl.add (Dsl.var sum1) (Dsl.var val3) in
-          let (sum3 : i64) = Dsl.add (Dsl.var sum2) (Dsl.var val_missing) in
-          let (result : i64) = Dsl.add (Dsl.var sum3) (Dsl.var size) in
-          return (Dsl.var result)]
+          let%named sum1 = add val1 val2 in
+          let%named sum2 = add sum1 val3 in
+          let%named sum3 = add sum2 val_missing in
+          let%named result = add sum3 size in
+          return result]
     in
-    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_hashmap" ] in
+    let all_funcs =
+      hashmap_functions hash_map_fns @ [ Dsl.Fn.function_exn test_fn ]
+    in
     (* Process all functions *)
     List.iter all_funcs ~f:(fun fn ->
       Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
@@ -408,44 +424,39 @@ let%expect_test "hash map basic operations" =
 (* Test that overwriting values works *)
 let%expect_test "hash map overwrite values" =
   only_on_arch `X86_64 (fun () ->
-    let hash_map_funcs = make_hashmap () in
+    let hash_map_fns = make_hashmap () in
+    let { new_fn = hash_map_new
+        ; insert_fn = hash_map_insert
+        ; get_fn = hash_map_get
+        ; size_fn = hash_map_size
+        ; _
+        }
+      =
+      hash_map_fns
+    in
     let test_fn =
       [%nod
-        fun (_dummy : i64) ->
+        fun "test_overwrite" (_dummy : int64) ->
           (* Create map with capacity 8 *)
-          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 8L) in
+          let%named map = call hash_map_new (lit 8L) in
           (* Insert initial value *)
-          let (r1 : i64) =
-            Dsl.call3
-              "hash_map_insert"
-              (Dsl.var map)
-              (Dsl.lit 7L)
-              (Dsl.lit 100L)
-          in
+          let%named r1 = call3 hash_map_insert map (lit 7L) (lit 100L) in
           (* Get the value *)
-          let (val1 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 7L) (Dsl.lit 0L)
-          in
+          let%named val1 = call3 hash_map_get map (lit 7L) (lit 0L) in
           (* Overwrite with new value *)
-          let (r2 : i64) =
-            Dsl.call3
-              "hash_map_insert"
-              (Dsl.var map)
-              (Dsl.lit 7L)
-              (Dsl.lit 200L)
-          in
+          let%named r2 = call3 hash_map_insert map (lit 7L) (lit 200L) in
           (* Get the new value *)
-          let (val2 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 7L) (Dsl.lit 0L)
-          in
+          let%named val2 = call3 hash_map_get map (lit 7L) (lit 0L) in
           (* Size should still be 1 (not 2) *)
-          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          let%named size = call hash_map_size map in
           (* Return: old_value + new_value + size = 100 + 200 + 1 = 301 *)
-          let (sum1 : i64) = Dsl.add (Dsl.var val1) (Dsl.var val2) in
-          let (result : i64) = Dsl.add (Dsl.var sum1) (Dsl.var size) in
-          return (Dsl.var result)]
+          let%named sum1 = add val1 val2 in
+          let%named result = add sum1 size in
+          return result]
     in
-    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_overwrite" ] in
+    let all_funcs =
+      hashmap_functions hash_map_fns @ [ Dsl.Fn.function_exn test_fn ]
+    in
     List.iter all_funcs ~f:(fun fn ->
       Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
     let functions =
@@ -471,55 +482,46 @@ let%expect_test "hash map overwrite values" =
 (* Test multiple insertions *)
 let%expect_test "hash map multiple operations" =
   only_on_arch `X86_64 (fun () ->
-    let hash_map_funcs = make_hashmap () in
+    let hash_map_fns = make_hashmap () in
+    let { new_fn = hash_map_new
+        ; insert_fn = hash_map_insert
+        ; get_fn = hash_map_get
+        ; size_fn = hash_map_size
+        ; _
+        }
+      =
+      hash_map_fns
+    in
     let test_fn =
       [%nod
-        fun (_dummy : i64) ->
+        fun "test_multi" (_dummy : int64) ->
           (* Create map with capacity 16 *)
-          let (map : ptr) = Dsl.call1 "hash_map_new" (Dsl.lit 16L) in
+          let%named map = call hash_map_new (lit 16L) in
           (* Insert 5 different values *)
-          let (r1 : i64) =
-            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 1L) (Dsl.lit 10L)
-          in
-          let (r2 : i64) =
-            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 2L) (Dsl.lit 20L)
-          in
-          let (r3 : i64) =
-            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 30L)
-          in
-          let (r4 : i64) =
-            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 4L) (Dsl.lit 40L)
-          in
-          let (r5 : i64) =
-            Dsl.call3 "hash_map_insert" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 50L)
-          in
+          let%named r1 = call3 hash_map_insert map (lit 1L) (lit 10L) in
+          let%named r2 = call3 hash_map_insert map (lit 2L) (lit 20L) in
+          let%named r3 = call3 hash_map_insert map (lit 3L) (lit 30L) in
+          let%named r4 = call3 hash_map_insert map (lit 4L) (lit 40L) in
+          let%named r5 = call3 hash_map_insert map (lit 5L) (lit 50L) in
           (* Verify size is 5 *)
-          let (size : i64) = Dsl.call1 "hash_map_size" (Dsl.var map) in
+          let%named size = call hash_map_size map in
           (* Get all values and sum them *)
-          let (v1 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 1L) (Dsl.lit 0L)
-          in
-          let (v2 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 2L) (Dsl.lit 0L)
-          in
-          let (v3 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 3L) (Dsl.lit 0L)
-          in
-          let (v4 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 4L) (Dsl.lit 0L)
-          in
-          let (v5 : i64) =
-            Dsl.call3 "hash_map_get" (Dsl.var map) (Dsl.lit 5L) (Dsl.lit 0L)
-          in
+          let%named v1 = call3 hash_map_get map (lit 1L) (lit 0L) in
+          let%named v2 = call3 hash_map_get map (lit 2L) (lit 0L) in
+          let%named v3 = call3 hash_map_get map (lit 3L) (lit 0L) in
+          let%named v4 = call3 hash_map_get map (lit 4L) (lit 0L) in
+          let%named v5 = call3 hash_map_get map (lit 5L) (lit 0L) in
           (* Sum: 10 + 20 + 30 + 40 + 50 + 5 (size) = 155 *)
-          let (s1 : i64) = Dsl.add (Dsl.var v1) (Dsl.var v2) in
-          let (s2 : i64) = Dsl.add (Dsl.var s1) (Dsl.var v3) in
-          let (s3 : i64) = Dsl.add (Dsl.var s2) (Dsl.var v4) in
-          let (s4 : i64) = Dsl.add (Dsl.var s3) (Dsl.var v5) in
-          let (result : i64) = Dsl.add (Dsl.var s4) (Dsl.var size) in
-          return (Dsl.var result)]
+          let%named s1 = add v1 v2 in
+          let%named s2 = add s1 v3 in
+          let%named s3 = add s2 v4 in
+          let%named s4 = add s3 v5 in
+          let%named result = add s4 size in
+          return result]
     in
-    let all_funcs = hash_map_funcs @ [ test_fn ~name:"test_multi" ] in
+    let all_funcs =
+      hashmap_functions hash_map_fns @ [ Dsl.Fn.function_exn test_fn ]
+    in
     List.iter all_funcs ~f:(fun fn ->
       Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ()));
     let functions =

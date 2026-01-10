@@ -7,17 +7,17 @@ module Dsl = struct
 
   let accumulate sum consts =
     List.map consts ~f:(fun lit_const ->
-      Ir.add { dest = sum; src1 = var sum; src2 = lit lit_const })
+      Instr.add ~dest:sum sum (lit lit_const))
   ;;
 
-  let bump v = [ Ir.add { dest = v; src1 = var v; src2 = lit 1L } ]
+  let bump v = [ Instr.add ~dest:v v (lit 1L) ]
 end
 
 let%expect_test "block builder" =
   let block =
     [%nod
-      let (tmp : i64) = Dsl.mov (Dsl.lit 1L) in
-      return (Dsl.var tmp)]
+      let%named tmp = mov (lit 1L) in
+      return tmp]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -36,8 +36,8 @@ let%expect_test "no_nod escape and implicit dsl" =
   let block =
     [%nod
       [%no_nod mark_called ()];
-      let (tmp : i64) = mov (lit 1L) in
-      return (var tmp)]
+      let%named tmp = mov (lit 1L) in
+      return tmp]
   in
   print_s [%sexp (!called : bool)];
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
@@ -53,13 +53,13 @@ let%expect_test "no_nod escape and implicit dsl" =
 ;;
 
 let%expect_test "function builder" =
-  let mk =
+  let fn =
     [%nod
-      fun (a : i64) (b : i64) ->
-        let (sum : i64) = Dsl.add (Dsl.var a) (Dsl.var b) in
-        return (Dsl.var sum)]
+      fun "add" (a : int64) (b : int64) ->
+        let%named sum = add a b in
+        return sum]
   in
-  let fn = mk ~name:"add" in
+  let fn = Dsl.Fn.function_exn fn in
   Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ());
   Function.print_verbose fn;
   [%expect
@@ -82,7 +82,7 @@ let%expect_test "loop label" =
   let block =
     [%nod
       label loop;
-      let (tmp : i64) = Dsl.mov (Dsl.lit 1L) in
+      let%named tmp = mov (lit 1L) in
       b loop]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
@@ -97,9 +97,9 @@ let%expect_test "loop label" =
 let%expect_test "embedded sequences" =
   let block =
     [%nod
-      let (sum : i64) = Dsl.mov (Dsl.lit 0L) in
+      let%named sum = mov (lit 0L) in
       seq (Dsl.accumulate sum [ 4L; 5L; 6L ]);
-      return (Dsl.var sum)]
+      return sum]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -124,10 +124,10 @@ let%expect_test "embedded sequences" =
 let%expect_test "sequence depends on prior bindings" =
   let block =
     [%nod
-      let (a : i64) = Dsl.mov (Dsl.lit 10L) in
+      let%named a = mov (lit 10L) in
       seq (Dsl.bump a);
-      let (b : i64) = Dsl.add (Dsl.var a) (Dsl.lit 5L) in
-      return (Dsl.var b)]
+      let%named b = add a (lit 5L) in
+      return b]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -147,35 +147,35 @@ let%expect_test "sequence depends on prior bindings" =
 ;;
 
 let%expect_test "compose nod functions" =
-  let mk_double =
+  let double =
     [%nod
-      fun (x : i64) ->
-        let (twice : i64) = Dsl.add (Dsl.var x) (Dsl.var x) in
-        return (Dsl.var twice)]
+      fun "double" (x : int64) ->
+        let%named twice = add x x in
+        return twice]
   in
   let mk_offset delta =
     [%nod
-      fun (x : i64) ->
-        let (twice : i64) = Dsl.call1 "double" (Dsl.var x) in
-        let (shifted : i64) = Dsl.add (Dsl.var twice) (Dsl.lit delta) in
-        return (Dsl.var shifted)]
+      fun "offset" (x : int64) ->
+        let%named twice = call double x in
+        let%named shifted = add twice (lit delta) in
+        return shifted]
   in
-  let mk_entry start =
+  let mk_entry start offset =
     [%nod
-      fun (input : i64) ->
-        let (seed : i64) = Dsl.add (Dsl.var input) (Dsl.lit start) in
-        let (out : i64) = Dsl.call1 "offset" (Dsl.var seed) in
-        return (Dsl.var out)]
+      fun "entry" (input : int64) ->
+        let%named seed = add input (lit start) in
+        let%named out = call offset seed in
+        return out]
   in
+  let offset = mk_offset 5L in
+  let entry = mk_entry 3L offset in
   let funcs =
-    [ mk_double ~name:"double"
-    ; mk_offset 5L ~name:"offset"
-    ; mk_entry 3L ~name:"entry"
-    ]
+    [ double; offset; entry ]
   in
   List.iter funcs ~f:(fun fn ->
-    Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ());
-    Function.print_verbose fn);
+    let func = Dsl.Fn.function_exn fn in
+    Block.iter_and_update_bookkeeping (Function.root func) ~f:(fun _ -> ());
+    Function.print_verbose func);
   [%expect
     {|
     ((call_conv Default)
