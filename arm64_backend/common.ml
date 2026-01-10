@@ -55,10 +55,16 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Load_field _
   | Store_field _
   | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move _
   | Cast _
-  | Branch _ | Return _ | Unreachable | Call _ -> None
+  | Branch _
+  | Return _
+  | Unreachable
+  | Call _ -> None
 ;;
 
 let replace_true_terminal (block : Block.t) new_true_terminal =
@@ -88,10 +94,16 @@ let replace_true_terminal (block : Block.t) new_true_terminal =
   | Load_field _
   | Store_field _
   | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move _
   | Cast _
-  | Branch _ | Return _ | Unreachable | Call _ -> ()
+  | Branch _
+  | Return _
+  | Unreachable
+  | Call _ -> ()
 ;;
 
 let ( >> ) f g = Fn.compose g f

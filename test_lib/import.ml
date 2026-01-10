@@ -2,6 +2,9 @@ include Nod_core
 include Nod_common
 include Nod
 
+(* Re-export DSL for convenient access in tests *)
+module Dsl = Nod_dsl.Dsl
+
 let host_system = Lazy.force Nod.host_system
 
 let test_architectures : [ `X86_64 | `Arm64 | `Other ] list =

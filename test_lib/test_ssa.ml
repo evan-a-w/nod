@@ -12,12 +12,16 @@ let test ?don't_opt s =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     let go program =
-      Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
-        Vec.iter ssa.in_order ~f:(fun block ->
-          let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
-          print_s
-            [%message
-              block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
+      Map.iter
+        program.Program.functions
+        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+          Vec.iter ssa.in_order ~f:(fun block ->
+            let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+            print_s
+              [%message
+                block.id_hum
+                  ~args:(block.args : Var.t Vec.t)
+                  (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with

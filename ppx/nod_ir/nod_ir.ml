@@ -2,13 +2,9 @@ open Ppxlib
 open Ast_builder.Default
 
 let ir_builder_mod = "Nod_core.Ir_builder"
-
 let lid ?(loc = Location.none) s = Located.mk ~loc (Longident.parse s)
-
 let evar_lid ~loc name = pexp_ident ~loc (lid ~loc name)
-
 let type_ast_mod = ir_builder_mod ^ ".Type_ast"
-
 let type_ast_ctor ~loc name arg = pexp_construct ~loc (lid ~loc name) arg
 
 let rec translate_type (ct : core_type) =
@@ -29,19 +25,14 @@ let rec translate_type (ct : core_type) =
   | Ptyp_constr ({ txt = Lident "ptr"; _ }, []) ->
     type_ast_ctor ~loc (type_ast_mod ^ ".Atom") (Some (estring ~loc "ptr"))
   | Ptyp_constr ({ txt = Lident "ptr"; _ }, [ inner ]) ->
-    type_ast_ctor
-      ~loc
-      (type_ast_mod ^ ".Ptr")
-      (Some (translate_type inner))
+    type_ast_ctor ~loc (type_ast_mod ^ ".Ptr") (Some (translate_type inner))
   | Ptyp_tuple elements ->
     let items =
       ListLabels.map elements ~f:(fun (_label, ty) -> translate_type ty)
     in
-    type_ast_ctor
-      ~loc
-      (type_ast_mod ^ ".Tuple")
-      (Some (elist ~loc items))
+    type_ast_ctor ~loc (type_ast_mod ^ ".Tuple") (Some (elist ~loc items))
   | _ -> Location.raise_errorf ~loc "unsupported type annotation for nod"
+;;
 
 let parse_typed_pattern pat =
   match pat.ppat_desc with
@@ -51,12 +42,15 @@ let parse_typed_pattern pat =
      | _ -> Location.raise_errorf ~loc:pat.ppat_loc "expected variable binding")
   | Ppat_constraint (_, None, _) ->
     Location.raise_errorf ~loc:pat.ppat_loc "type annotation missing"
-  | _ -> Location.raise_errorf ~loc:pat.ppat_loc "expected (name : type) pattern"
+  | _ ->
+    Location.raise_errorf ~loc:pat.ppat_loc "expected (name : type) pattern"
+;;
 
 let is_ident expr name =
   match expr.pexp_desc with
   | Pexp_ident { txt = Lident ident; _ } -> String.equal ident name
   | _ -> false
+;;
 
 let classify_label expr =
   match expr.pexp_desc with
@@ -65,8 +59,11 @@ let classify_label expr =
      | Pexp_ident { txt = Lident name; loc } -> Some (name, loc)
      | _ -> Location.raise_errorf ~loc:arg.pexp_loc "label expects identifier")
   | _ -> None
+;;
 
-let builder_fun ~loc fn = evar_lid ~loc (Printf.sprintf "%s.%s" ir_builder_mod fn)
+let builder_fun ~loc fn =
+  evar_lid ~loc (Printf.sprintf "%s.%s" ir_builder_mod fn)
+;;
 
 let rec translate builder expr =
   match expr.pexp_desc with
@@ -75,7 +72,9 @@ let rec translate builder expr =
     (match parse_typed_pattern vb.pvb_pat with
      | exception Location.Error _ ->
        let body' = translate builder body in
-       { expr with pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body') }
+       { expr with
+         pexp_desc = Pexp_let (Immutable, Nonrecursive, [ vb ], body')
+       }
      | name, loc, type_ast -> translate_let builder ~name ~loc ~type_ast vb body)
   | Pexp_let (mut_flag, rec_flag, bindings, body) ->
     let body' = translate builder body in
@@ -134,9 +133,12 @@ and translate_statement builder expr =
     (match args with
      | [ (_, value) ] ->
        [%expr [%e builder_fun ~loc "return"] [%e builder] [%e value]]
-     | _ -> Location.raise_errorf ~loc:expr.pexp_loc "return expects one argument")
-  | Pexp_apply (fn, args) when is_ident fn "b" -> translate_goto builder expr args
-  | Pexp_apply (fn, args) when is_ident fn "br" -> translate_branch builder expr args
+     | _ ->
+       Location.raise_errorf ~loc:expr.pexp_loc "return expects one argument")
+  | Pexp_apply (fn, args) when is_ident fn "b" ->
+    translate_goto builder expr args
+  | Pexp_apply (fn, args) when is_ident fn "br" ->
+    translate_branch builder expr args
   | Pexp_apply (fn, [ (_, seq_expr) ]) when is_ident fn "seq" ->
     [%expr [%e builder_fun ~loc "emit_many"] [%e builder] [%e seq_expr]]
   | Pexp_ident { txt = Lident "unreachable"; _ } ->
@@ -150,14 +152,15 @@ and translate_goto builder expr args =
   match args with
   | [ (_, label) ] ->
     [%expr [%e builder_fun ~loc "goto"] [%e builder] [%e label] ~args:[]]
-  | [ (_, label ); (_, params) ] ->
-    [%expr [%e builder_fun ~loc "goto"] [%e builder] [%e label] ~args:[%e params]]
+  | [ (_, label); (_, params) ] ->
+    [%expr
+      [%e builder_fun ~loc "goto"] [%e builder] [%e label] ~args:[%e params]]
   | _ -> Location.raise_errorf ~loc "b expects label and optional args"
 
 and translate_branch builder expr args =
   let loc = expr.pexp_loc in
   match args with
-  | [ (_, cond ); (_, t_label ); (_, f_label ) ] ->
+  | [ (_, cond); (_, t_label); (_, f_label) ] ->
     [%expr
       [%e builder_fun ~loc "branch"]
         [%e builder]
@@ -167,6 +170,7 @@ and translate_branch builder expr args =
         ~args_true:[]
         ~args_false:[]]
   | _ -> Location.raise_errorf ~loc "br expects cond, true label, false label"
+;;
 
 let rec collect_fun_args expr acc_rev =
   match expr.pexp_desc with
@@ -177,7 +181,9 @@ let rec collect_fun_args expr acc_rev =
           match param.pparam_desc with
           | Pparam_val (Nolabel, None, pat) -> parse_typed_pattern pat
           | _ ->
-            Location.raise_errorf ~loc:param.pparam_loc "unsupported parameter kind")
+            Location.raise_errorf
+              ~loc:param.pparam_loc
+              "unsupported parameter kind")
         params
     in
     let acc_rev = List.rev_append new_args acc_rev in
@@ -185,6 +191,7 @@ let rec collect_fun_args expr acc_rev =
   | Pexp_function (_, _, Pfunction_cases _) ->
     Location.raise_errorf ~loc:expr.pexp_loc "function cases are not supported"
   | _ -> List.rev acc_rev, expr
+;;
 
 let expand_fun expr =
   let args, body = collect_fun_args expr [] in
@@ -204,17 +211,20 @@ let expand_fun expr =
       let arg_expr =
         [%expr
           [%e builder_fun ~loc "add_arg"]
-          [%e builder_expr]
-          ~name:[%e estring ~loc name]
-          ~type_:[%e type_expr]]
+            [%e builder_expr]
+            ~name:[%e estring ~loc name]
+            ~type_:[%e type_expr]]
       in
-      [%expr let [%p pat] = [%e arg_expr] in [%e acc]])
+      [%expr
+        let [%p pat] = [%e arg_expr] in
+        [%e acc]])
   in
   [%expr
     fun ~name ->
       let [%p builder_pat] = [%e builder_fun ~loc "create_function"] () in
       [%e body_with_args];
       [%e builder_fun ~loc "finish_function"] [%e builder_expr] ~name]
+;;
 
 let expand_block expr =
   let loc = expr.pexp_loc in
@@ -226,11 +236,13 @@ let expand_block expr =
     let [%p builder_pat] = [%e builder_fun ~loc "create_block"] () in
     [%e body_expr];
     [%e builder_fun ~loc "finish_block"] [%e builder_expr]]
+;;
 
 let expand expr =
   match expr.pexp_desc with
   | Pexp_function _ -> expand_fun expr
   | _ -> expand_block expr
+;;
 
 let extension =
   Extension.declare
@@ -238,5 +250,6 @@ let extension =
     Expression
     Ast_pattern.(single_expr_payload __)
     (fun ~loc:_ ~path:_ expr -> expand expr)
+;;
 
 let () = Driver.register_transformation ~extensions:[ extension ] "ppx_nod_ir"

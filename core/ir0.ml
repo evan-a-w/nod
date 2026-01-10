@@ -264,13 +264,13 @@ let map_memcpy_lit_or_vars (t : memcpy) ~f =
 ;;
 
 let map_atomic_load_defs (t : atomic_load) ~f = { t with dest = f t.dest }
-let map_atomic_load_uses (t : atomic_load) ~f = { t with addr = Mem.map_vars t.addr ~f }
+
+let map_atomic_load_uses (t : atomic_load) ~f =
+  { t with addr = Mem.map_vars t.addr ~f }
+;;
 
 let map_atomic_store_uses (t : atomic_store) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
+  { t with addr = Mem.map_vars t.addr ~f; src = Lit_or_var.map_vars t.src ~f }
 ;;
 
 let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
@@ -280,10 +280,7 @@ let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
 let map_atomic_rmw_defs (t : atomic_rmw) ~f = { t with dest = f t.dest }
 
 let map_atomic_rmw_uses (t : atomic_rmw) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
+  { t with addr = Mem.map_vars t.addr ~f; src = Lit_or_var.map_vars t.src ~f }
 ;;
 
 let map_atomic_rmw_lit_or_vars (t : atomic_rmw) ~f =

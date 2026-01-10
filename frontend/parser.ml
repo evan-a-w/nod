@@ -36,7 +36,10 @@ let fail_type_mismatch fmt =
 
 let ensure_value_type type_ =
   if Type.is_aggregate type_
-  then fail_type_mismatch "aggregate values are not supported: %s" (Type.to_string type_)
+  then
+    fail_type_mismatch
+      "aggregate values are not supported: %s"
+      (Type.to_string type_)
   else return type_
 ;;
 
@@ -45,10 +48,7 @@ let sizeof_literal type_ =
 ;;
 
 let mem_address base ~offset = Ir.Mem.address ~offset base
-;;
-
 let mem_of_lit_or_var base = mem_address base ~offset:0
-;;
 
 let ident () =
   match%bind next () with
@@ -211,7 +211,7 @@ let rec parse_global_init () =
   | Some (Token.Minus, _) ->
     let%bind (_ : Pos.t) = expect Token.Minus in
     (match%bind next () with
-     | Token.Int i, _ -> return (Global.Int (Int64.(neg (of_int i))))
+     | Token.Int i, _ -> return (Global.Int Int64.(neg (of_int i)))
      | Token.Float f, _ -> return (Global.Float (-.f))
      | tok, pos -> fail (`Unexpected_token (tok, pos)))
   | Some (Token.Float _, _) ->
@@ -517,7 +517,8 @@ let instructions_parser () =
     | Some _ ->
       let%bind instrs = instr () in
       let%bind state = get_state () in
-      List.iter instrs ~f:(fun instr -> Vec.push state.State.current_instrs instr);
+      List.iter instrs ~f:(fun instr ->
+        Vec.push state.State.current_instrs instr);
       go ()
   in
   let%bind () = go () in
@@ -587,8 +588,7 @@ let program_parser () =
   let%bind globals =
     let rec gather acc =
       match%bind peek () with
-      | Some (Token.Ident "global", _)
-      | Some (Token.Ident "GLOBAL", _) ->
+      | Some (Token.Ident "global", _) | Some (Token.Ident "GLOBAL", _) ->
         let%bind global = parse_global_decl () in
         gather (global :: acc)
       | _ -> return (List.rev acc)
@@ -603,7 +603,8 @@ let program_parser () =
 ;;
 
 let parser () : (output, Pos.t, State.t, _) Parser_comb.parser =
-  (assume_root () >>| fun functions -> { Program.globals = []; functions })
+  assume_root ()
+  >>| (fun functions -> { Program.globals = []; functions })
   <|> program_parser ()
 ;;
 

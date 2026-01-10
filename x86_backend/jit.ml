@@ -1,6 +1,5 @@
 open! Core
 open! Import
-
 module Encoder = Jit_encode
 module Runtime = Nod_backend_common.Jit_runtime
 
@@ -36,13 +35,11 @@ let resolve_symbol entry_offsets externals (symbol : X86_asm.symbol) =
   | Some offset -> `Internal offset
   | None ->
     (match externals with
-     | None ->
-       failwithf "unresolved external symbol: %s" symbol.name ()
+     | None -> failwithf "unresolved external symbol: %s" symbol.name ()
      | Some resolve ->
        (match resolve symbol.name with
         | Some addr -> `External addr
-        | None ->
-          failwithf "unresolved external symbol: %s" symbol.name ()))
+        | None -> failwithf "unresolved external symbol: %s" symbol.name ()))
 ;;
 
 let compile_items ?externals (program : X86_asm.program) =
@@ -72,7 +69,6 @@ let compile ?dump_crap ?externals ?(system = `Linux) functions =
 ;;
 
 let entry = Module.entry
-
 let call0_i64 fn_ptr = Runtime.call0_i64 fn_ptr
 let call1_i64 fn_ptr arg0 = Runtime.call1_i64 fn_ptr arg0
 let call2_i64 fn_ptr arg0 arg1 = Runtime.call2_i64 fn_ptr arg0 arg1

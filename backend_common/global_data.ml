@@ -61,8 +61,7 @@ let bytes_of_init type_ init =
       failwith "aggregate globals must use aggregate or zero initializer"
     | _ ->
       let data = bytes_of_scalar type_ init in
-      List.iteri data ~f:(fun idx byte ->
-        bytes.(offset + idx) <- byte)
+      List.iteri data ~f:(fun idx byte -> bytes.(offset + idx) <- byte)
   in
   fill ~offset:0 type_ init;
   Array.to_list bytes
@@ -103,9 +102,7 @@ let render_directive = function
   | Align n -> Printf.sprintf ".balign %d" n
   | Label name -> name ^ ":"
   | Bytes bytes ->
-    let body =
-      List.map bytes ~f:Int.to_string |> String.concat ~sep:", "
-    in
+    let body = List.map bytes ~f:Int.to_string |> String.concat ~sep:", " in
     ".byte " ^ body
   | Zero count -> Printf.sprintf ".zero %d" count
 ;;

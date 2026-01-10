@@ -1,9 +1,7 @@
 open! Core
 open! Import
 
-let map_function_roots ~f program =
-  Program.map_function_roots program ~f
-;;
+let map_function_roots ~f program = Program.map_function_roots program ~f
 
 let test s =
   s

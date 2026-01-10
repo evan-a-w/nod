@@ -150,26 +150,31 @@ type 'block t =
   | Ldar of
       { dst : Reg.t
       ; addr : operand
-      } (* Load-Acquire Register *)
+      }
+    (* Load-Acquire Register *)
   | Stlr of
       { src : operand
       ; addr : operand
-      } (* Store-Release Register *)
+      }
+    (* Store-Release Register *)
   | Ldaxr of
       { dst : Reg.t
       ; addr : operand
-      } (* Load-Acquire Exclusive Register *)
+      }
+    (* Load-Acquire Exclusive Register *)
   | Stlxr of
       { status : Reg.t (* 0 on success, 1 on failure *)
       ; src : operand
       ; addr : operand
-      } (* Store-Release Exclusive Register *)
+      }
+    (* Store-Release Exclusive Register *)
   | Casal of
       { dst : Reg.t (* receives old value *)
       ; expected : operand (* compared value *)
       ; desired : operand
       ; addr : operand
-      } (* Compare and Swap Acquire-Release *)
+      }
+    (* Compare and Swap Acquire-Release *)
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
@@ -379,7 +384,10 @@ let rec map_var_operands ins ~f =
     Ldaxr { dst = map_reg_definition dst; addr = map_op addr }
   | Stlxr { status; src; addr } ->
     Stlxr
-      { status = map_reg_definition status; src = map_op src; addr = map_op addr }
+      { status = map_reg_definition status
+      ; src = map_op src
+      ; addr = map_op addr
+      }
   | Casal { dst; expected; desired; addr } ->
     Casal
       { dst = map_reg_definition dst
@@ -417,7 +425,8 @@ let regs_of_operand = function
 
 let regs_of_jump_target = function
   | Jump_target.Reg r -> Reg.Set.singleton r
-  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> Reg.Set.empty
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ ->
+    Reg.Set.empty
 ;;
 
 let rec reg_defs ins : Reg.Set.t =
@@ -457,7 +466,10 @@ let rec reg_uses ins : Reg.Set.t =
     Set.union (regs_of_operand src) (regs_of_operand addr)
   | Casal { expected; desired; addr; _ } ->
     Reg.Set.union_list
-      [ regs_of_operand expected; regs_of_operand desired; regs_of_operand addr ]
+      [ regs_of_operand expected
+      ; regs_of_operand desired
+      ; regs_of_operand addr
+      ]
   | Int_binary { lhs; rhs; _ } | Float_binary { lhs; rhs; _ } ->
     Set.union (regs_of_operand lhs) (regs_of_operand rhs)
   | Convert { src; _ } | Bitcast { src; _ } -> regs_of_operand src
@@ -626,7 +638,11 @@ let rec map_uses t ~f =
     Stlxr { status; src = map_op src; addr = map_op addr }
   | Casal { dst; expected; desired; addr } ->
     Casal
-      { dst; expected = map_op expected; desired = map_op desired; addr = map_op addr }
+      { dst
+      ; expected = map_op expected
+      ; desired = map_op desired
+      ; addr = map_op addr
+      }
   | Int_binary { op; dst; lhs; rhs } ->
     Int_binary { op; dst; lhs = map_op lhs; rhs = map_op rhs }
   | Float_binary { op; dst; lhs; rhs } ->
@@ -664,11 +680,13 @@ let rec map_operands t ~f =
   | Move { dst; src } -> Move { dst = map_reg_operand dst; src = map_op src }
   | Load { dst; addr } -> Load { dst = map_reg_operand dst; addr = map_op addr }
   | Ldar { dst; addr } -> Ldar { dst = map_reg_operand dst; addr = map_op addr }
-  | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg_operand dst; addr = map_op addr }
+  | Ldaxr { dst; addr } ->
+    Ldaxr { dst = map_reg_operand dst; addr = map_op addr }
   | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
   | Stlr { src; addr } -> Stlr { src = map_op src; addr = map_op addr }
   | Stlxr { status; src; addr } ->
-    Stlxr { status = map_reg_operand status; src = map_op src; addr = map_op addr }
+    Stlxr
+      { status = map_reg_operand status; src = map_op src; addr = map_op addr }
   | Casal { dst; expected; desired; addr } ->
     Casal
       { dst = map_reg_operand dst
@@ -925,7 +943,8 @@ module For_backend = struct
     | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg dst; addr }
     | Casal { dst; expected; desired; addr } ->
       Casal { dst = map_reg dst; expected; desired; addr }
-    | Stlxr { status; src; addr } -> Stlxr { status = map_reg status; src; addr }
+    | Stlxr { status; src; addr } ->
+      Stlxr { status = map_reg status; src; addr }
     | Store st -> Store st
     | Stlr st -> Stlr st
     | Int_binary { op; dst; lhs; rhs } ->

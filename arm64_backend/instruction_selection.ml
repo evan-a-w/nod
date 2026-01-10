@@ -132,19 +132,24 @@ let expand_atomic_rmw t =
       match op with
       | Ir.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
       | Add ->
-        [ Int_binary { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Sub ->
-        [ Int_binary { op = Int_op.Sub; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Sub; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | And ->
-        [ Int_binary { op = Int_op.And; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.And; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Or ->
-        [ Int_binary { op = Int_op.Orr; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Orr; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Xor ->
-        [ Int_binary { op = Int_op.Eor; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Eor; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
     in
     ( pre_addr
@@ -221,17 +226,13 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     require_class t dest Class.I64;
     let pre1, lhs = int_operand src1 in
     let pre2, rhs = int_operand src2 in
-    pre1
-    @ pre2
-    @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
+    pre1 @ pre2 @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.F64;
     let pre1, lhs = float_operand src1 in
     let pre2, rhs = float_operand src2 in
-    pre1
-    @ pre2
-    @ [ Float_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
+    pre1 @ pre2 @ [ Float_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let cmp_zero cond =
     let pre, lhs = int_operand cond in
@@ -405,14 +406,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     in
     pre_addr @ pre_src @ dmb_if_seq_cst order @ [ store ] @ dmb_if_seq_cst order
   | Atomic_cmpxchg
-      { dest
-      ; success
-      ; addr
-      ; expected
-      ; desired
-      ; success_order
-      ; failure_order
-      }
+      { dest; success; addr; expected; desired; success_order; failure_order }
     ->
     require_class t dest Class.I64;
     require_class t success Class.I64;

@@ -136,7 +136,8 @@ let () =
      with
      | Error e -> Nod_error.to_string e |> print_endline
      | Ok program ->
-       X86_backend.For_testing.print_selected_instructions program.Program.functions)
+       X86_backend.For_testing.print_selected_instructions
+         program.Program.functions)
   | _ :: "emit-asm" :: args ->
     (match
        parse_emit_asm

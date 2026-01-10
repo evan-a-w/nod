@@ -110,15 +110,11 @@ let peek_struct_def () =
 ;;
 
 let is_type_start = function
-  | Token.Ident "i64"
-  | Token.Ident "f64"
-  | Token.Keyword "struct" -> true
+  | Token.Ident "i64" | Token.Ident "f64" | Token.Keyword "struct" -> true
   | _ -> false
 ;;
 
-let rec parse_expr ()
-  : (Ast.expr, Pos.t, unit, _) Parser_comb.parser
-  =
+let rec parse_expr () : (Ast.expr, Pos.t, unit, _) Parser_comb.parser =
   parse_additive ()
 
 and parse_additive () =
@@ -185,12 +181,10 @@ and parse_postfix () =
   in
   loop base
 
-and parse_primary ()
-  : (Ast.expr, Pos.t, unit, _) Parser_comb.parser
-  =
+and parse_primary () : (Ast.expr, Pos.t, unit, _) Parser_comb.parser =
   match%bind next () with
-  | Token.Int i, _ -> return ((Ast.Int (Int64.of_int i)) : Ast.expr)
-  | Token.Float f, _ -> return ((Ast.Float f) : Ast.expr)
+  | Token.Int i, _ -> return (Ast.Int (Int64.of_int i) : Ast.expr)
+  | Token.Float f, _ -> return (Ast.Float f : Ast.expr)
   | Token.Keyword "alloca", _ ->
     let%bind () = expect_l_paren () in
     let%bind type_ = parse_type () in
@@ -208,7 +202,9 @@ and parse_primary ()
      | Some (Token.L_paren, _) ->
        let%bind args =
          let%bind () = expect_l_paren () in
-         let%bind args = delimited0 ~delimiter:(expect_comma ()) (parse_expr ()) in
+         let%bind args =
+           delimited0 ~delimiter:(expect_comma ()) (parse_expr ())
+         in
          let%map () = expect_r_paren () in
          args
        in

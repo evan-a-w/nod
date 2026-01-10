@@ -1,33 +1,23 @@
 open! Core
 open! Import
 
+(* Extend the common DSL with test-specific helpers *)
 module Dsl = struct
-  module L = Ir.Lit_or_var
-
-  let lit i = L.Lit i
-  let var v = L.Var v
-  let mov src ~dest = Ir.move dest src
-  let add src1 src2 ~dest = Ir.add { dest; src1; src2 }
-  let call1 fn arg ~dest = Ir.call ~fn ~results:[ dest ] ~args:[ arg ]
+  include Nod_dsl.Dsl
 
   let accumulate sum consts =
     List.map consts ~f:(fun lit_const ->
-      Ir.add
-        { dest = sum
-        ; src1 = var sum
-        ; src2 = lit lit_const
-        })
+      Ir.add { dest = sum; src1 = var sum; src2 = lit lit_const })
+  ;;
 
-  let bump v =
-    [ Ir.add { dest = v; src1 = var v; src2 = lit 1L } ]
+  let bump v = [ Ir.add { dest = v; src1 = var v; src2 = lit 1L } ]
 end
 
 let%expect_test "block builder" =
   let block =
     [%nod
       let (tmp : i64) = Dsl.mov (Dsl.lit 1L) in
-      return (Dsl.var tmp)
-    ]
+      return (Dsl.var tmp)]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -42,10 +32,10 @@ let%expect_test "block builder" =
 
 let%expect_test "function builder" =
   let mk =
-    [%nod fun (a : i64) (b : i64) ->
-      let (sum : i64) = Dsl.add (Dsl.var a) (Dsl.var b) in
-      return (Dsl.var sum)
-    ]
+    [%nod
+      fun (a : i64) (b : i64) ->
+        let (sum : i64) = Dsl.add (Dsl.var a) (Dsl.var b) in
+        return (Dsl.var sum)]
   in
   let fn = mk ~name:"add" in
   Block.iter_and_update_bookkeeping (Function.root fn) ~f:(fun _ -> ());
@@ -71,8 +61,7 @@ let%expect_test "loop label" =
     [%nod
       label loop;
       let (tmp : i64) = Dsl.mov (Dsl.lit 1L) in
-      b loop
-    ]
+      b loop]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -88,8 +77,7 @@ let%expect_test "embedded sequences" =
     [%nod
       let (sum : i64) = Dsl.mov (Dsl.lit 0L) in
       seq (Dsl.accumulate sum [ 4L; 5L; 6L ]);
-      return (Dsl.var sum)
-    ]
+      return (Dsl.var sum)]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -117,8 +105,7 @@ let%expect_test "sequence depends on prior bindings" =
       let (a : i64) = Dsl.mov (Dsl.lit 10L) in
       seq (Dsl.bump a);
       let (b : i64) = Dsl.add (Dsl.var a) (Dsl.lit 5L) in
-      return (Dsl.var b)
-    ]
+      return (Dsl.var b)]
   in
   Block.iter_and_update_bookkeeping block ~f:(fun _ -> ());
   print_s (Block.to_sexp_verbose block);
@@ -139,24 +126,24 @@ let%expect_test "sequence depends on prior bindings" =
 
 let%expect_test "compose nod functions" =
   let mk_double =
-    [%nod fun (x : i64) ->
-      let (twice : i64) = Dsl.add (Dsl.var x) (Dsl.var x) in
-      return (Dsl.var twice)
-    ]
+    [%nod
+      fun (x : i64) ->
+        let (twice : i64) = Dsl.add (Dsl.var x) (Dsl.var x) in
+        return (Dsl.var twice)]
   in
   let mk_offset delta =
-    [%nod fun (x : i64) ->
-      let (twice : i64) = Dsl.call1 "double" (Dsl.var x) in
-      let (shifted : i64) = Dsl.add (Dsl.var twice) (Dsl.lit delta) in
-      return (Dsl.var shifted)
-    ]
+    [%nod
+      fun (x : i64) ->
+        let (twice : i64) = Dsl.call1 "double" (Dsl.var x) in
+        let (shifted : i64) = Dsl.add (Dsl.var twice) (Dsl.lit delta) in
+        return (Dsl.var shifted)]
   in
   let mk_entry start =
-    [%nod fun (input : i64) ->
-      let (seed : i64) = Dsl.add (Dsl.var input) (Dsl.lit start) in
-      let (out : i64) = Dsl.call1 "offset" (Dsl.var seed) in
-      return (Dsl.var out)
-    ]
+    [%nod
+      fun (input : i64) ->
+        let (seed : i64) = Dsl.add (Dsl.var input) (Dsl.lit start) in
+        let (out : i64) = Dsl.call1 "offset" (Dsl.var seed) in
+        return (Dsl.var out)]
   in
   let funcs =
     [ mk_double ~name:"double"

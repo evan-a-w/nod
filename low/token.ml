@@ -32,13 +32,4 @@ let is_comment = function
   | _ -> false
 ;;
 
-let keywords =
-  [ "struct"
-  ; "return"
-  ; "if"
-  ; "else"
-  ; "while"
-  ; "alloca"
-  ; "cast"
-  ]
-;;
+let keywords = [ "struct"; "return"; "if"; "else"; "while"; "alloca"; "cast" ]

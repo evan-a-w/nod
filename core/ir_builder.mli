@@ -24,6 +24,7 @@ val enter_label : t -> name:string -> Label.t
 val emit : t -> Block.t Ir0.t -> unit
 val emit_many : t -> Block.t Ir0.t list -> unit
 val goto : t -> Label.t -> args:Var.t list -> unit
+
 val branch
   :  t
   -> cond:Ir.Lit_or_var.t
@@ -32,6 +33,7 @@ val branch
   -> args_true:Var.t list
   -> args_false:Var.t list
   -> unit
+
 val return : t -> Ir.Lit_or_var.t -> unit
 val unreachable : t -> unit
 val new_var : t -> name:string -> type_:Type.t -> Var.t

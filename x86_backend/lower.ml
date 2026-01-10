@@ -101,7 +101,8 @@ type lower_action =
   | No_emit
   | Set_pending of (Int64.t * Int64.t) option
   | Emit_label of string
-  | Branch of [ `Je | `Jne ] * Block.t Call_block.t * Block.t Call_block.t option
+  | Branch of
+      [ `Je | `Jne ] * Block.t Call_block.t * Block.t Call_block.t option
   | Emit of Asm.instr list
 
 let lower_to_items ~system (functions : Function.t String.Map.t) =
@@ -151,12 +152,12 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
             sanitize_identifier
               (sprintf "%s__%s" sanitized_name block.Block.id_hum)
         in
-        let base_label = if idx = 0 then base_label else ensure_unique base_label in
+        let base_label =
+          if idx = 0 then base_label else ensure_unique base_label
+        in
         Hashtbl.add_exn label_by_block ~key:block ~data:base_label);
       let items_rev = ref [] in
-      let emit_instruction instr =
-        items_rev := Asm.Instr instr :: !items_rev
-      in
+      let emit_instruction instr = items_rev := Asm.Instr instr :: !items_rev in
       let emit_label label = items_rev := Asm.Label label :: !items_rev in
       let label_of_block block = Hashtbl.find_exn label_by_block block in
       let label_of_call_block call_block =
@@ -175,7 +176,8 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       in
       let lower_sub' ~dst ~src =
         match dst, src with
-        | Mem _, Mem _ -> lower_mem_mem_binop ~op:(fun a b -> Asm.Sub (a, b)) ~dst ~src
+        | Mem _, Mem _ ->
+          lower_mem_mem_binop ~op:(fun a b -> Asm.Sub (a, b)) ~dst ~src
         | _ -> [ Asm.Sub (dst, src) ]
       in
       let lower_instruction ~current_idx instr =
@@ -193,7 +195,8 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         | ADD (dst, src) ->
           Emit
             (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:(fun a b -> Asm.Add (a, b)) ~dst ~src
+             | Mem _, Mem _ ->
+               lower_mem_mem_binop ~op:(fun a b -> Asm.Add (a, b)) ~dst ~src
              | _ -> [ Asm.Add (dst, src) ])
         | SUB (dst, src) -> Emit (lower_sub' ~dst ~src)
         | ADDSD (dst, src) -> Emit [ Asm.Addsd (dst, src) ]
@@ -203,12 +206,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         | AND (dst, src) ->
           Emit
             (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:(fun a b -> Asm.And (a, b)) ~dst ~src
+             | Mem _, Mem _ ->
+               lower_mem_mem_binop ~op:(fun a b -> Asm.And (a, b)) ~dst ~src
              | _ -> [ Asm.And (dst, src) ])
         | OR (dst, src) ->
           Emit
             (match dst, src with
-             | Mem _, Mem _ -> lower_mem_mem_binop ~op:(fun a b -> Asm.Or (a, b)) ~dst ~src
+             | Mem _, Mem _ ->
+               lower_mem_mem_binop ~op:(fun a b -> Asm.Or (a, b)) ~dst ~src
              | _ -> [ Asm.Or (dst, src) ])
         | IMUL op -> Emit [ Asm.Imul op ]
         | IDIV op -> Emit [ Asm.Idiv op ]

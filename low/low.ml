@@ -1,6 +1,5 @@
 open! Core
 module Eir = Nod_core.Eir
-
 module Ast = Ast
 module Error = Error
 module Lexer = Lexer
