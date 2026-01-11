@@ -7,12 +7,11 @@ let block_of_instrs instrs =
   instrs
   |> Dsl.Instr.process
   |> (function
-   | Ok raw -> raw
-   | Error err -> Nod_error.to_string err |> failwith)
+        | Ok raw -> raw
+        | Error err -> Nod_error.to_string err |> failwith)
   |> Cfg.process
   |> fun (~root, ~blocks:_, ~in_order) ->
-  Vec.iteri in_order ~f:(fun i block ->
-    Block.set_dfs_id block (Some i));
+  Vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
   root
 ;;
 
@@ -56,9 +55,10 @@ let%expect_test "nod seq embeds instruction list" =
 
 let%expect_test "nod fun builds args and return type" =
   let fn =
-    [%nod fun (a : int64) (b : int64) ->
-      let%named sum = add a b in
-      return sum]
+    [%nod
+      fun (a : int64) (b : int64) ->
+        let%named sum = add a b in
+        return sum]
   in
   let unnamed = Dsl.Fn.unnamed fn in
   print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Var.t list)];
@@ -122,12 +122,8 @@ let%expect_test "nod calculator with labels" =
 ;;
 
 let%expect_test "nod calls externals with mixed types" =
-  let ext_add :
-    (Dsl.int64 -> Dsl.int64 -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
-    Dsl.Fn.external_
-      ~name:"ext_add"
-      ~args:[ Type.I64; Type.I64 ]
-      ~ret:Type.I64
+  let ext_add : (Dsl.int64 -> Dsl.int64 -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
+    Dsl.Fn.external_ ~name:"ext_add" ~args:[ Type.I64; Type.I64 ] ~ret:Type.I64
   in
   let ext_peek : (Dsl.ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
     Dsl.Fn.external_ ~name:"ext_peek" ~args:[ Type.Ptr ] ~ret:Type.I64
@@ -161,7 +157,7 @@ let%expect_test "nod calls externals with mixed types" =
 let%expect_test "nod no_nod preserves ocaml call" =
   let instrs =
     [%nod
-      let%named tmp = [%no_nod (helper (lit 9L))] in
+      let%named tmp = [%no_nod helper (lit 9L)] in
       return tmp]
   in
   let root = block_of_instrs instrs in

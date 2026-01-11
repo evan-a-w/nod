@@ -47,7 +47,7 @@ module Fn : sig
 
     val const : 'ret Type_repr.t -> 'ret Instr.t list -> ('ret, 'ret) t
     val const_with_return : 'ret Atom.t -> 'ret Instr.t list -> ('ret, 'ret) t
-    val with_arg : ('fn, 'ret) t -> Var.t -> ('a -> 'fn, 'ret) t
+    val with_arg : ('fn, 'ret) t -> 'a Type_repr.t -> Var.t -> ('a -> 'fn, 'ret) t
     val args : ('fn, 'ret) t -> Var.t list
     val ret : ('fn, 'ret) t -> Type.t
     val instrs : ('fn, 'ret) t -> 'ret Instr.t list
