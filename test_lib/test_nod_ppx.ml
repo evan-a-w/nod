@@ -174,3 +174,20 @@ let%expect_test "nod no_nod preserves ocaml call" =
         (Return (Var ((name tmp) (type_ I64))))))))
     |}]
 ;;
+
+let%expect_test "nod bang preserves ocaml call" =
+  let instrs =
+    [%nod
+      let%named tmp = !(helper (lit 11L)) in
+      return tmp]
+  in
+  let root = block_of_instrs instrs in
+  print_s (Block.to_sexp_verbose root);
+  [%expect
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Move ((name tmp) (type_ I64)) (Lit 11))
+        (Return (Var ((name tmp) (type_ I64))))))))
+    |}]
+;;

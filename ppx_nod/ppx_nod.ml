@@ -25,6 +25,9 @@ let is_ident_name expr name =
 
 let rec unwrap_no_nod expr =
   match expr.pexp_desc with
+  | Pexp_apply (fn, [ (Nolabel, inner) ]) when is_ident_name fn "!" ->
+    let inner, _ = unwrap_no_nod inner in
+    inner, true
   | Pexp_extension ({ txt = "no_nod"; _ }, PStr [ item ]) ->
     (match item.pstr_desc with
      | Pstr_eval (inner, _) ->
