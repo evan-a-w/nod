@@ -1,11 +1,18 @@
 open Ppxlib
-
 module Builder = Ast_builder.Default
 
 let errorf ~loc fmt = Location.raise_errorf ~loc fmt
+let with_loc _ f = f ()
+
+let rec longident_to_list lid =
+  match lid with
+  | Lident name -> [ name ]
+  | Ldot (prefix, name) -> longident_to_list prefix @ [ name ]
+  | Lapply (_, arg) -> longident_to_list arg
+;;
 
 let longident_last lid =
-  match List.rev (Longident.flatten lid) with
+  match List.rev (longident_to_list lid) with
   | last :: _ -> last
   | [] -> ""
 ;;
@@ -18,14 +25,14 @@ let is_ident_name expr name =
 
 let return_arg expr =
   match expr.pexp_desc with
-  | Pexp_apply (fn, [ Nolabel, arg ]) when is_ident_name fn "return" ->
+  | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "return" ->
     Some arg
   | _ -> None
 ;;
 
 let seq_arg expr =
   match expr.pexp_desc with
-  | Pexp_apply (fn, [ Nolabel, arg ]) when is_ident_name fn "seq" -> Some arg
+  | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "seq" -> Some arg
   | _ -> None
 ;;
 
@@ -35,8 +42,11 @@ let extract_named_let expr =
     (match item.pstr_desc with
      | Pstr_eval (inner, _) ->
        (match inner.pexp_desc with
-        | Pexp_let (Nonrecursive, [ binding ], body) -> Some (binding, body)
-        | Pexp_let (Recursive, _, _) ->
+        | Pexp_let (Immutable, Nonrecursive, [ binding ], body) ->
+          Some (binding, body)
+        | Pexp_let (Mutable, _, _, _) ->
+          errorf ~loc:expr.pexp_loc "nod: let%%named does not support mutable"
+        | Pexp_let (_, Recursive, _, _) ->
           errorf ~loc:expr.pexp_loc "nod: let%%named does not support rec"
         | _ ->
           errorf
@@ -47,14 +57,16 @@ let extract_named_let expr =
          ~loc:expr.pexp_loc
          "nod: let%%named must be followed by a let binding")
   | Pexp_extension ({ txt = "named"; _ }, _) ->
-    errorf ~loc:expr.pexp_loc "nod: let%%named must be followed by a let binding"
+    errorf
+      ~loc:expr.pexp_loc
+      "nod: let%%named must be followed by a let binding"
   | _ -> None
 ;;
 
 let rec pat_var_name pat =
   match pat.ppat_desc with
   | Ppat_var { txt = name; _ } -> Some name
-  | Ppat_constraint (pat', _) -> pat_var_name pat'
+  | Ppat_constraint (pat', _, _) -> pat_var_name pat'
   | _ -> None
 ;;
 
@@ -64,7 +76,7 @@ type arg_type =
   | Ptr
 
 let is_atom_type lid =
-  match List.rev (Longident.flatten lid) with
+  match List.rev (longident_to_list lid) with
   | "t" :: "Atom" :: _ -> true
   | _ -> false
 ;;
@@ -84,15 +96,11 @@ let rec arg_type_of_core_type ct =
      | "float64" -> F64
      | "ptr" -> Ptr
      | other ->
-       errorf
-         ~loc:ct.ptyp_loc
-         "nod: unsupported argument type %s"
-         other)
+       errorf ~loc:ct.ptyp_loc "nod: unsupported argument type %s" other)
   | _ -> errorf ~loc:ct.ptyp_loc "nod: unsupported argument type"
 ;;
 
 let type_expr ~loc =
-  let open Builder in
   function
   | I64 -> [%expr Nod_core.Type.I64]
   | F64 -> [%expr Nod_core.Type.F64]
@@ -108,17 +116,19 @@ type arg =
 let arg_of_pat pat =
   let type_ =
     match pat.ppat_desc with
-    | Ppat_constraint (_, ct) -> arg_type_of_core_type ct
+    | Ppat_constraint (_, ct_opt, _) ->
+      (match ct_opt with
+       | Some ct -> arg_type_of_core_type ct
+       | None -> I64)
     | _ -> I64
   in
   match pat_var_name pat with
   | Some name ->
     { name
     ; type_
-    ; var_name = Builder.gen_symbol ~prefix:("__nod_arg_" ^ name) ()
+    ; var_name = gen_symbol ~prefix:("__nod_arg_" ^ name) ()
     }
-  | None ->
-    errorf ~loc:pat.ppat_loc "nod: function arguments must be variables"
+  | None -> errorf ~loc:pat.ppat_loc "nod: function arguments must be variables"
 ;;
 
 let add_name_argument ~loc name expr =
@@ -127,9 +137,7 @@ let add_name_argument ~loc name expr =
     let name_expr = Builder.estring ~loc name in
     { expr with pexp_desc = Pexp_apply (fn, (Nolabel, name_expr) :: args) }
   | _ ->
-    errorf
-      ~loc:expr.pexp_loc
-      "nod: let%%named expects a function application"
+    errorf ~loc:expr.pexp_loc "nod: let%%named expects a function application"
 ;;
 
 let let_in ~loc pat expr body =
@@ -147,19 +155,21 @@ let rec translate ~add_instr expr =
       match pat_var_name pat with
       | Some name -> name
       | None ->
-        errorf
-          ~loc:pat.ppat_loc
-          "nod: let%%named expects a variable pattern"
+        errorf ~loc:pat.ppat_loc "nod: let%%named expects a variable pattern"
     in
     let instr_name = gen_symbol ~prefix:"__nod_instr" () in
     let rhs = add_name_argument ~loc name binding.pvb_expr in
-    let bound_pat = ptuple ~loc [ pat; pvar ~loc instr_name ] in
+    let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
     let add_expr = [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]] in
     let body_expr = translate ~add_instr body in
-    with_loc loc (fun () -> [%expr let [%p bound_pat] = [%e rhs] in [%e add_expr]; [%e body_expr]])
+    with_loc loc (fun () ->
+      [%expr
+        let [%p bound_pat] = [%e rhs] in
+        [%e add_expr];
+        [%e body_expr]])
   | None ->
     (match expr.pexp_desc with
-     | Pexp_let (Nonrecursive, [ binding ], body) ->
+     | Pexp_let (Immutable, Nonrecursive, [ binding ], body) ->
        let pat = binding.pvb_pat in
        (match pat_var_name pat with
         | Some _ -> ()
@@ -169,29 +179,44 @@ let rec translate ~add_instr expr =
             "nod: let bindings must use a variable pattern");
        let instr_name = gen_symbol ~prefix:"__nod_instr" () in
        let rhs = binding.pvb_expr in
-       let bound_pat = ptuple ~loc [ pat; pvar ~loc instr_name ] in
+       let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
        let add_expr =
          [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]]
        in
        let body_expr = translate ~add_instr body in
-       with_loc loc (fun () -> [%expr let [%p bound_pat] = [%e rhs] in [%e add_expr]; [%e body_expr]])
-     | Pexp_let (Nonrecursive, _, _) ->
+       with_loc loc (fun () ->
+         [%expr
+           let [%p bound_pat] = [%e rhs] in
+           [%e add_expr];
+           [%e body_expr]])
+     | Pexp_let (Mutable, _, _, _) ->
+       errorf ~loc "nod: mutable let bindings are not supported"
+     | Pexp_let (Immutable, Nonrecursive, _, _) ->
        errorf ~loc "nod: let bindings must be single bindings"
-     | Pexp_let (Recursive, _, _) ->
+     | Pexp_let (_, Recursive, _, _) ->
        errorf ~loc "nod: recursive let bindings are not supported"
      | Pexp_sequence (e1, e2) ->
        let emit_expr = emit ~add_instr e1 in
        let body_expr = translate ~add_instr e2 in
-       with_loc loc (fun () -> [%expr [%e emit_expr]; [%e body_expr]])
+       with_loc loc (fun () ->
+         [%expr
+           [%e emit_expr];
+           [%e body_expr]])
      | _ ->
        (match return_arg expr with
         | Some arg ->
           let ret_name = gen_symbol ~prefix:"__nod_ret" () in
           let ret_pat = pvar ~loc ret_name in
           let ret_expr = evar ~loc ret_name in
-          let add_expr = [%expr [%e evar ~loc add_instr] (return [%e ret_expr])] in
-          with_loc loc (fun () -> [%expr let [%p ret_pat] = [%e arg] in [%e add_expr]; [%e ret_expr]])
-        | None -> errorf ~loc "nod: block must end with return")
+          let add_expr =
+            [%expr [%e evar ~loc add_instr] (return [%e ret_expr])]
+          in
+          with_loc loc (fun () ->
+            [%expr
+              let [%p ret_pat] = [%e arg] in
+              [%e add_expr];
+              [%e ret_expr]])
+        | None -> errorf ~loc "nod: block must end with return"))
 
 and emit ~add_instr expr =
   let loc = expr.pexp_loc in
@@ -211,18 +236,42 @@ and emit ~add_instr expr =
              with_loc loc (fun () ->
                [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
            | None ->
-             with_loc loc (fun () ->
-               [%expr [%e evar ~loc add_instr] [%e expr]]))))
+             with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]]))))
 ;;
 
 let collect_fun expr =
+  let param_pat param =
+    match param.pparam_desc with
+    | Pparam_val (Nolabel, None, pat) -> pat
+    | Pparam_val (Nolabel, Some _, _) ->
+      errorf
+        ~loc:param.pparam_loc
+        "nod: optional default arguments are not supported"
+    | Pparam_val (Labelled _, _, _) ->
+      errorf ~loc:param.pparam_loc "nod: labelled arguments are not supported"
+    | Pparam_val (Optional _, _, _) ->
+      errorf ~loc:param.pparam_loc "nod: optional arguments are not supported"
+    | Pparam_newtype _ ->
+      errorf ~loc:param.pparam_loc "nod: newtype arguments are not supported"
+  in
+  let body_expr_of_function ~loc = function
+    | Pfunction_body expr -> expr
+    | Pfunction_cases _ ->
+      errorf ~loc "nod: function cases are not supported"
+  in
   let rec go acc expr =
     match expr.pexp_desc with
-    | Pexp_fun (Nolabel, None, pat, body) -> go (pat :: acc) body
-    | Pexp_fun _ ->
-      errorf
-        ~loc:expr.pexp_loc
-        "nod: function arguments must be unlabelled and non-optional"
+    | Pexp_function (params, fn_constraint, body) ->
+      (match fn_constraint.ret_type_constraint with
+       | None -> ()
+       | Some _ ->
+         errorf
+           ~loc:expr.pexp_loc
+           "nod: function return type constraints are not supported");
+      let params = List.map param_pat params in
+      let acc = List.rev_append params acc in
+      let body_expr = body_expr_of_function ~loc:expr.pexp_loc body in
+      go acc body_expr
     | _ -> List.rev acc, expr
   in
   go [] expr
@@ -242,10 +291,11 @@ let expand_block expr =
   let add_instr = gen_symbol ~prefix:"__nod_add" () in
   let instrs = gen_symbol ~prefix:"__nod_instrs_list" () in
   let raw = gen_symbol ~prefix:"__nod_raw" () in
-  let cfg = gen_symbol ~prefix:"__nod_cfg" () in
   let body_expr = translate ~add_instr expr in
   let add_binding =
-    [%expr fun instr -> [%e evar ~loc instrs_ref] := instr :: ![%e evar ~loc instrs_ref]]
+    [%expr
+      fun instr ->
+        [%e evar ~loc instrs_ref] := instr :: ![%e evar ~loc instrs_ref]]
   in
   let body =
     let_in
@@ -267,14 +317,22 @@ let expand_block expr =
                (let_in
                   ~loc
                   (pvar ~loc raw)
-                  [%expr Core.Result.ok_exn (Instr.process [%e evar ~loc instrs])]
-                  (let_in
-                     ~loc
-                     (pvar ~loc cfg)
-                     [%expr Nod_core.Cfg.process [%e evar ~loc raw]]
-                     [%expr [%e evar ~loc cfg].root]))))))
+                  [%expr
+                    match Instr.process [%e evar ~loc instrs] with
+                    | Ok raw -> raw
+                    | Error err ->
+                      failwith (Nod_common.Nod_error.to_string err)]
+                  [%expr
+                    let (~root, ~blocks:_, ~in_order) =
+                      Nod_core.Cfg.process [%e evar ~loc raw]
+                    in
+                    Vec.iteri in_order ~f:(fun i block ->
+                      Nod_core.Block.set_dfs_id block (Some i));
+                    root]))))
   in
-  [%expr let open Dsl in [%e body]]
+  [%expr
+    let open Dsl in
+    [%e body]]
 ;;
 
 let expand_fn expr =
@@ -289,10 +347,13 @@ let expand_fn expr =
   let unnamed = gen_symbol ~prefix:"__nod_unnamed" () in
   let body_expr = translate ~add_instr body_expr in
   let add_binding =
-    [%expr fun instr -> [%e evar ~loc instrs_ref] := instr :: ![%e evar ~loc instrs_ref]]
+    [%expr
+      fun instr ->
+        [%e evar ~loc instrs_ref] := instr :: ![%e evar ~loc instrs_ref]]
   in
   let const_expr =
-    [%expr Fn.Unnamed.const_with_return [%e evar ~loc ret] [%e evar ~loc instrs]]
+    [%expr
+      Fn.Unnamed.const_with_return [%e evar ~loc ret] [%e evar ~loc instrs]]
   in
   let unnamed_expr =
     List.fold_left
@@ -303,7 +364,8 @@ let expand_fn expr =
   in
   let fn_expr =
     let fn_name = fn_name_of_loc loc in
-    [%expr Fn.create ~name:[%e estring ~loc fn_name] ~unnamed:[%e evar ~loc unnamed]]
+    [%expr
+      Fn.create ~name:[%e estring ~loc fn_name] ~unnamed:[%e evar ~loc unnamed]]
   in
   let builder_body =
     let_in
@@ -339,7 +401,9 @@ let expand_fn expr =
       args
       builder_body
   in
-  [%expr let open Dsl in [%e with_args]]
+  [%expr
+    let open Dsl in
+    [%e with_args]]
 ;;
 
 let expand_nod ~loc:_ ~path:_ expr =

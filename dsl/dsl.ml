@@ -39,9 +39,9 @@ module Atom = struct
 end
 
 module Instr = struct
-  type t =
-    | Ir : string Ir0.t -> t
-    | Label : string -> t
+  type 'a t =
+    | Ir : string Ir0.t -> 'a t
+    | Label : string -> 'a t
   [@@deriving variants]
 
   let ir ir0 = Ir ir0
@@ -87,10 +87,10 @@ end
 
 module Fn = struct
   module Unnamed = struct
-    type 'a t =
+    type ('fn, 'ret) t =
       { args : Var.t list
       ; ret : Type.t
-      ; instrs : Instr.t list
+      ; instrs : 'ret Instr.t list
       }
 
     let args t = t.args
@@ -105,14 +105,16 @@ module Fn = struct
       { args = []; ret = Atom.type_ ret; instrs }
     ;;
 
-    let with_arg { args; ret; instrs } var =
+    let with_arg (type fn ret arg) ({ args; ret; instrs } : (fn, ret) t) var
+      : (arg -> fn, ret) t
+      =
       { args = args @ [ var ]; ret; instrs }
     ;;
   end
 
-  type 'a t =
+  type ('fn, 'ret) t =
     { name : string
-    ; unnamed : 'a Unnamed.t
+    ; unnamed : ('fn, 'ret) Unnamed.t
     }
 
   let name t = t.name
@@ -126,8 +128,8 @@ module Fn = struct
   ;;
 
   module Packed = struct
-    type 'a outer = 'a t
-    type t = T : _ outer -> t
+    type nonrec ('fn, 'ret) outer = ('fn, 'ret) t
+    type t = T : (_, _) outer -> t
   end
 
   let pack t : Packed.t = T t
@@ -149,10 +151,9 @@ let program ~functions ~globals =
     Error (`Type_mismatch (sprintf "duplicate function %s" dup))
 ;;
 
-let return value =
+let return (type a) (value : a Atom.t) : a Instr.t =
   Instr.ir (Ir0.Return (Atom.lit_or_var value))
 ;;
-
 let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
 let var v : 'a Atom.t = Ir.Lit_or_var.Var v
 let global g : ptr Atom.t = Ir.Lit_or_var.Global g
@@ -240,15 +241,15 @@ let call_common name fn args =
   atom_of_var dest, instr
 ;;
 
-let call0 name (fn : 'ret Fn.t) = call_common name fn []
+let call0 name (fn : ('ret, 'ret) Fn.t) = call_common name fn []
 
-let call1 name (fn : ('a -> 'ret) Fn.t) (arg : 'a Atom.t) =
+let call1 name (fn : ('a -> 'ret, 'ret) Fn.t) (arg : 'a Atom.t) =
   call_common name fn [ arg ]
 ;;
 
 let call2
   name
-  (fn : ('a -> 'b -> 'ret) Fn.t)
+  (fn : ('a -> 'b -> 'ret, 'ret) Fn.t)
   (arg1 : 'a Atom.t)
   (arg2 : 'b Atom.t)
   =

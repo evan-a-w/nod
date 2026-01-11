@@ -1,5 +1,6 @@
 (library
  (name nod_dsl)
+ (wrapped false)
  (preprocess
   (pps ppx_jane))
  (inline_tests)

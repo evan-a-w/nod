@@ -4,9 +4,14 @@ open! Import
 let block_of_instrs instrs =
   instrs
   |> Dsl.Instr.process
-  |> Result.ok_exn
+  |> (function
+   | Ok raw -> raw
+   | Error err -> Nod_error.to_string err |> failwith)
   |> Cfg.process
-  |> fun { root; _ } -> root
+  |> fun (~root, ~blocks:_, ~in_order) ->
+  Vec.iteri in_order ~f:(fun i block ->
+    Block.set_dfs_id block (Some i));
+  root
 ;;
 
 let%expect_test "nod block from let%named" =
@@ -17,10 +22,12 @@ let%expect_test "nod block from let%named" =
   in
   print_s (Block.to_sexp_verbose root);
   [%expect
-    {| ((%entry (args ())
-  (instrs
-   ((Move ((name tmp) (type_ I64)) (Lit 1))
-    (Return (Var ((name tmp) (type_ I64)))))))) |}]
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Move ((name tmp) (type_ I64)) (Lit 1))
+        (Return (Var ((name tmp) (type_ I64))))))))
+    |}]
 ;;
 
 let%expect_test "nod seq embeds instruction list" =
@@ -55,12 +62,14 @@ let%expect_test "nod fun builds args and return type" =
   let root = block_of_instrs (Dsl.Fn.Unnamed.instrs unnamed) in
   print_s (Block.to_sexp_verbose root);
   [%expect
-    {| (((name a) (type_ I64)) ((name b) (type_ I64)))
-I64
-((%entry (args ())
-  (instrs
-   ((Add
-     ((dest ((name sum) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
-      (src2 (Var ((name b) (type_ I64))))))
-    (Return (Var ((name sum) (type_ I64)))))))) |}]
+    {|
+    (((name a) (type_ I64)) ((name b) (type_ I64)))
+    I64
+    ((%entry (args ())
+      (instrs
+       ((Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+          (src2 (Var ((name b) (type_ I64))))))
+        (Return (Var ((name sum) (type_ I64))))))))
+    |}]
 ;;
