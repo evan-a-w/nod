@@ -23,6 +23,24 @@ let is_ident_name expr name =
   | _ -> false
 ;;
 
+let rec unwrap_no_nod expr =
+  match expr.pexp_desc with
+  | Pexp_extension ({ txt = "no_nod"; _ }, PStr [ item ]) ->
+    (match item.pstr_desc with
+     | Pstr_eval (inner, _) ->
+       let inner, _ = unwrap_no_nod inner in
+       inner, true
+     | _ ->
+       errorf
+         ~loc:expr.pexp_loc
+         "nod: %%no_nod must contain an expression payload")
+  | Pexp_extension ({ txt = "no_nod"; _ }, _) ->
+    errorf
+      ~loc:expr.pexp_loc
+      "nod: %%no_nod must contain an expression payload"
+  | _ -> expr, false
+;;
+
 let return_arg expr =
   match expr.pexp_desc with
   | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "return" ->
@@ -51,6 +69,71 @@ let seq_arg expr =
   match expr.pexp_desc with
   | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "seq" -> Some arg
   | _ -> None
+;;
+
+let is_nod_builtin_name =
+  let builtins =
+    [ "mov"
+    ; "add"
+    ; "sub"
+    ; "mul"
+    ; "div"
+    ; "mod_"
+    ; "and_"
+    ; "or_"
+    ; "ptr_add"
+    ; "ptr_sub"
+    ; "ptr_diff"
+    ; "fadd"
+    ; "fsub"
+    ; "fmul"
+    ; "fdiv"
+    ; "load"
+    ; "load_ptr"
+    ; "load_f64"
+    ; "store"
+    ; "load_addr"
+    ; "load_addr_ptr"
+    ; "load_addr_f64"
+    ; "store_addr"
+    ; "alloca"
+    ; "cast"
+    ; "call0"
+    ; "call1"
+    ; "call2"
+    ; "label"
+    ; "return"
+    ; "seq"
+    ]
+  in
+  fun name -> List.exists (fun builtin -> String.equal name builtin) builtins
+;;
+
+let rewritable_callee expr =
+  match expr.pexp_desc with
+  | Pexp_ident { txt = lid; _ } ->
+    let name = longident_last lid in
+    not (is_nod_builtin_name name)
+  | _ -> false
+;;
+
+let rewrite_call_expr expr =
+  let loc = expr.pexp_loc in
+  match expr.pexp_desc with
+  | Pexp_apply (fn, args) when rewritable_callee fn ->
+    (match args with
+     | _ when not (List.for_all (fun (label, _) -> label = Nolabel) args) ->
+       expr
+     | [ (Nolabel, arg) ] -> [%expr call1 [%e fn] [%e arg]]
+     | [ (Nolabel, arg1); (Nolabel, arg2) ] ->
+       [%expr call2 [%e fn] [%e arg1] [%e arg2]]
+     | _ -> expr)
+  | _ -> expr
+;;
+
+let normalize_call_expr expr =
+  let expr, no_nod = unwrap_no_nod expr in
+  if no_nod then expr else rewrite_call_expr expr
 ;;
 
 let extract_named_let expr =
@@ -175,7 +258,9 @@ let rec translate ~add_instr expr =
         errorf ~loc:pat.ppat_loc "nod: let%%named expects a variable pattern"
     in
     let instr_name = gen_symbol ~prefix:"__nod_instr" () in
-    let rhs = add_name_argument ~loc name binding.pvb_expr in
+    let rhs =
+      binding.pvb_expr |> normalize_call_expr |> add_name_argument ~loc name
+    in
     let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
     let add_expr = [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]] in
     let body_expr = translate ~add_instr body in
@@ -195,7 +280,7 @@ let rec translate ~add_instr expr =
             ~loc:pat.ppat_loc
             "nod: let bindings must use a variable pattern");
        let instr_name = gen_symbol ~prefix:"__nod_instr" () in
-       let rhs = binding.pvb_expr in
+       let rhs = normalize_call_expr binding.pvb_expr in
        let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
        let add_expr =
          [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]]
@@ -241,7 +326,11 @@ and emit ~add_instr expr =
   match extract_named_let expr with
   | Some _ -> errorf ~loc "nod: let%%named must be in tail position"
   | None ->
-    (match return_arg expr with
+    let expr, no_nod = unwrap_no_nod expr in
+    if no_nod
+    then with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]])
+    else (
+      match return_arg expr with
      | Some _ -> errorf ~loc "nod: return must be in tail position"
      | None ->
        (match expr.pexp_desc with
