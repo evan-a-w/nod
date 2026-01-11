@@ -1,0 +1,8 @@
+(library
+ (name ppx_nod)
+ (kind ppx_rewriter)
+ (libraries ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot))
+ (flags
+  (:standard -extension-universe beta)))
