@@ -132,6 +132,7 @@ module Fn = struct
   let name t = t.name
   let unnamed t = t.unnamed
   let create ~unnamed ~name = { name; unnamed }
+  let named ~name unnamed = { name; unnamed }
 
   let external_ ~name ~args ~ret =
     let ret_type = ret in
