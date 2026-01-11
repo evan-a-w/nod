@@ -154,6 +154,7 @@ let program ~functions ~globals =
 let return (type a) (value : a Atom.t) : a Instr.t =
   Instr.ir (Ir0.Return (Atom.lit_or_var value))
 ;;
+let label name = Instr.Label name
 let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
 let var v : 'a Atom.t = Ir.Lit_or_var.Var v
 let global g : ptr Atom.t = Ir.Lit_or_var.Global g

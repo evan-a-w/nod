@@ -75,3 +75,46 @@ let%expect_test "nod fun builds args and return type" =
         (Return (Var ((name sum) (type_ I64))))))))
     |}]
 ;;
+
+let%expect_test "nod calculator with labels" =
+  let instrs =
+    [%nod
+      label entry;
+      let%named x = mov (lit 10L) in
+      let%named y = mov (lit 4L) in
+      let%named sum = add x y in
+      let%named diff = sub x y in
+      let%named prod = mul sum diff in
+      seq [ Instr.ir (Ir0.jump_to "final") ];
+      label skipped;
+      seq [ return (lit 0L) ];
+      label final;
+      let%named result = add prod (lit 3L) in
+      return result]
+  in
+  let root = block_of_instrs instrs in
+  print_s (Block.to_sexp_verbose root);
+  [%expect
+    {|
+    ((entry (args ())
+      (instrs
+       ((Move ((name x) (type_ I64)) (Lit 10))
+        (Move ((name y) (type_ I64)) (Lit 4))
+        (Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+          (src2 (Var ((name y) (type_ I64))))))
+        (Sub
+         ((dest ((name diff) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+          (src2 (Var ((name y) (type_ I64))))))
+        (Mul
+         ((dest ((name prod) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+          (src2 (Var ((name diff) (type_ I64))))))
+        (Branch (Uncond ((block ((id_hum final) (args ()))) (args ())))))))
+     (final (args ())
+      (instrs
+       ((Add
+         ((dest ((name result) (type_ I64)))
+          (src1 (Var ((name prod) (type_ I64)))) (src2 (Lit 3))))
+        (Return (Var ((name result) (type_ I64))))))))
+    |}]
+;;

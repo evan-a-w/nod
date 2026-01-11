@@ -70,6 +70,7 @@ val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
 (** builder functions *)
 
 val return : 'a Atom.t -> 'a Instr.t
+val label : string -> 'ret Instr.t
 val lit : Int64.t -> int64 Atom.t
 val var : Var.t -> 'a Atom.t
 val global : Global.t -> ptr Atom.t
