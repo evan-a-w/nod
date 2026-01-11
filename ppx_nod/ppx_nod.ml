@@ -30,6 +30,23 @@ let return_arg expr =
   | _ -> None
 ;;
 
+let label_application expr =
+  match expr.pexp_desc with
+  | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "label" ->
+    let arg_expr =
+      match arg.pexp_desc with
+      | Pexp_ident { txt = Lident name; _ } ->
+        Builder.estring ~loc:arg.pexp_loc name
+      | Pexp_constant (Pconst_string _) -> arg
+      | _ ->
+        errorf
+          ~loc:arg.pexp_loc
+          "nod: label expects an identifier or string literal"
+    in
+    Some { expr with pexp_desc = Pexp_apply (fn, [ (Nolabel, arg_expr) ]) }
+  | _ -> None
+;;
+
 let seq_arg expr =
   match expr.pexp_desc with
   | Pexp_apply (fn, [ (Nolabel, arg) ]) when is_ident_name fn "seq" -> Some arg
@@ -236,7 +253,13 @@ and emit ~add_instr expr =
              with_loc loc (fun () ->
                [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
            | None ->
-             with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]]))))
+             let expr =
+               match label_application expr with
+               | Some label_expr -> label_expr
+               | None -> expr
+             in
+             with_loc loc (fun () ->
+               [%expr [%e evar ~loc add_instr] [%e expr]]))))
 ;;
 
 let collect_fun expr =
