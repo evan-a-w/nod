@@ -105,9 +105,21 @@ module Fn = struct
       { args = []; ret = Atom.type_ ret; instrs }
     ;;
 
-    let with_arg (type fn ret arg) ({ args; ret; instrs } : (fn, ret) t) var
+    let with_arg
+      (type fn ret arg)
+      ({ args; ret; instrs } : (fn, ret) t)
+      type_repr
+      var
       : (arg -> fn, ret) t
       =
+      let expected = Type_repr.type_ type_repr in
+      if not (Type.equal expected (Var.type_ var))
+      then
+        failwithf
+          "Fn.Unnamed.with_arg expected %s but got %s"
+          (Type.to_string expected)
+          (Type.to_string (Var.type_ var))
+          ();
       { args = var :: args; ret; instrs }
     ;;
   end

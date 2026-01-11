@@ -207,6 +207,12 @@ let type_expr ~loc = function
   | Ptr -> [%expr Nod_core.Type.Ptr]
 ;;
 
+let type_repr_expr ~loc = function
+  | I64 -> [%expr Type_repr.Int64]
+  | F64 -> [%expr Type_repr.Float64]
+  | Ptr -> [%expr Type_repr.Ptr]
+;;
+
 type arg =
   { name : string
   ; type_ : arg_type
@@ -451,7 +457,11 @@ let expand_fn expr =
   let unnamed_expr =
     List.fold_right
       (fun arg acc ->
-        [%expr Fn.Unnamed.with_arg [%e acc] [%e evar ~loc arg.var_name]])
+        [%expr
+          Fn.Unnamed.with_arg
+            [%e acc]
+            [%e type_repr_expr ~loc arg.type_]
+            [%e evar ~loc arg.var_name]])
       args
       const_expr
   in
