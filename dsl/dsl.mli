@@ -43,6 +43,7 @@ module Fn : sig
     type 'a t
 
     val const : 'a Type_repr.t -> Instr.t list -> 'a t
+    val const_with_return : 'a Atom.t -> Instr.t list -> 'a t
     val with_arg : 'ret t -> Var.t -> ('a -> 'ret) t
     val args : 'a t -> Var.t list
     val ret : 'a t -> Type.t
@@ -65,6 +66,7 @@ val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
 
 (** builder functions *)
 
+val return : 'a Atom.t -> Instr.t
 val lit : Int64.t -> int64 Atom.t
 val var : Var.t -> 'a Atom.t
 val global : Global.t -> ptr Atom.t

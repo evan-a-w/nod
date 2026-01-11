@@ -101,6 +101,10 @@ module Fn = struct
       { args = []; ret = Type_repr.type_ type_repr; instrs }
     ;;
 
+    let const_with_return ret instrs =
+      { args = []; ret = Atom.type_ ret; instrs }
+    ;;
+
     let with_arg { args; ret; instrs } var =
       { args = args @ [ var ]; ret; instrs }
     ;;
@@ -143,6 +147,10 @@ let program ~functions ~globals =
   | `Ok functions -> Ok { Program.globals; functions }
   | `Duplicate_key dup ->
     Error (`Type_mismatch (sprintf "duplicate function %s" dup))
+;;
+
+let return value =
+  Instr.ir (Ir0.Return (Atom.lit_or_var value))
 ;;
 
 let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
