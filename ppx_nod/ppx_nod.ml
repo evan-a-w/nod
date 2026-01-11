@@ -290,7 +290,6 @@ let expand_block expr =
   let instrs_ref = gen_symbol ~prefix:"__nod_instrs" () in
   let add_instr = gen_symbol ~prefix:"__nod_add" () in
   let instrs = gen_symbol ~prefix:"__nod_instrs_list" () in
-  let raw = gen_symbol ~prefix:"__nod_raw" () in
   let body_expr = translate ~add_instr expr in
   let add_binding =
     [%expr
@@ -314,21 +313,7 @@ let expand_block expr =
                ~loc
                (pvar ~loc instrs)
                [%expr Core.List.rev ![%e evar ~loc instrs_ref]]
-               (let_in
-                  ~loc
-                  (pvar ~loc raw)
-                  [%expr
-                    match Instr.process [%e evar ~loc instrs] with
-                    | Ok raw -> raw
-                    | Error err ->
-                      failwith (Nod_common.Nod_error.to_string err)]
-                  [%expr
-                    let (~root, ~blocks:_, ~in_order) =
-                      Nod_core.Cfg.process [%e evar ~loc raw]
-                    in
-                    Vec.iteri in_order ~f:(fun i block ->
-                      Nod_core.Block.set_dfs_id block (Some i));
-                    root]))))
+               (evar ~loc instrs))))
   in
   [%expr
     let open Dsl in
