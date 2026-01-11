@@ -38,9 +38,7 @@ let rec unwrap_no_nod expr =
          ~loc:expr.pexp_loc
          "nod: %%no_nod must contain an expression payload")
   | Pexp_extension ({ txt = "no_nod"; _ }, _) ->
-    errorf
-      ~loc:expr.pexp_loc
-      "nod: %%no_nod must contain an expression payload"
+    errorf ~loc:expr.pexp_loc "nod: %%no_nod must contain an expression payload"
   | _ -> expr, false
 ;;
 
@@ -64,7 +62,7 @@ let label_application expr =
           ~loc:arg.pexp_loc
           "nod: label expects an identifier or string literal"
     in
-    Some { expr with pexp_desc = Pexp_apply (fn, [ (Nolabel, arg_expr) ]) }
+    Some { expr with pexp_desc = Pexp_apply (fn, [ Nolabel, arg_expr ]) }
   | _ -> None
 ;;
 
@@ -203,8 +201,7 @@ let rec arg_type_of_core_type ct =
   | _ -> errorf ~loc:ct.ptyp_loc "nod: unsupported argument type"
 ;;
 
-let type_expr ~loc =
-  function
+let type_expr ~loc = function
   | I64 -> [%expr Nod_core.Type.I64]
   | F64 -> [%expr Nod_core.Type.F64]
   | Ptr -> [%expr Nod_core.Type.Ptr]
@@ -227,10 +224,7 @@ let arg_of_pat pat =
   in
   match pat_var_name pat with
   | Some name ->
-    { name
-    ; type_
-    ; var_name = gen_symbol ~prefix:("__nod_arg_" ^ name) ()
-    }
+    { name; type_; var_name = gen_symbol ~prefix:("__nod_arg_" ^ name) () }
   | None -> errorf ~loc:pat.ppat_loc "nod: function arguments must be variables"
 ;;
 
@@ -334,24 +328,24 @@ and emit ~add_instr expr =
     then with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]])
     else (
       match return_arg expr with
-     | Some _ -> errorf ~loc "nod: return must be in tail position"
-     | None ->
-       (match expr.pexp_desc with
-        | Pexp_let _ | Pexp_sequence _ ->
-          errorf ~loc "nod: expected instruction expression"
-        | _ ->
-          (match seq_arg expr with
-           | Some instrs ->
-             with_loc loc (fun () ->
-               [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
-           | None ->
-             let expr =
-               match label_application expr with
-               | Some label_expr -> label_expr
-               | None -> expr
-             in
-             with_loc loc (fun () ->
-               [%expr [%e evar ~loc add_instr] [%e expr]]))))
+      | Some _ -> errorf ~loc "nod: return must be in tail position"
+      | None ->
+        (match expr.pexp_desc with
+         | Pexp_let _ | Pexp_sequence _ ->
+           errorf ~loc "nod: expected instruction expression"
+         | _ ->
+           (match seq_arg expr with
+            | Some instrs ->
+              with_loc loc (fun () ->
+                [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
+            | None ->
+              let expr =
+                match label_application expr with
+                | Some label_expr -> label_expr
+                | None -> expr
+              in
+              with_loc loc (fun () ->
+                [%expr [%e evar ~loc add_instr] [%e expr]]))))
 ;;
 
 let collect_fun expr =
@@ -371,8 +365,7 @@ let collect_fun expr =
   in
   let body_expr_of_function ~loc = function
     | Pfunction_body expr -> expr
-    | Pfunction_cases _ ->
-      errorf ~loc "nod: function cases are not supported"
+    | Pfunction_cases _ -> errorf ~loc "nod: function cases are not supported"
   in
   let rec go acc expr =
     match expr.pexp_desc with
@@ -456,11 +449,11 @@ let expand_fn expr =
       Fn.Unnamed.const_with_return [%e evar ~loc ret] [%e evar ~loc instrs]]
   in
   let unnamed_expr =
-    List.fold_left
-      (fun acc arg ->
+    List.fold_right
+      (fun arg acc ->
         [%expr Fn.Unnamed.with_arg [%e acc] [%e evar ~loc arg.var_name]])
-      const_expr
       args
+      const_expr
   in
   let fn_expr =
     let fn_name = fn_name_of_loc loc in

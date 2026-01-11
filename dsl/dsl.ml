@@ -108,7 +108,7 @@ module Fn = struct
     let with_arg (type fn ret arg) ({ args; ret; instrs } : (fn, ret) t) var
       : (arg -> fn, ret) t
       =
-      { args = args @ [ var ]; ret; instrs }
+      { args = var :: args; ret; instrs }
     ;;
   end
 
@@ -164,6 +164,7 @@ let program ~functions ~globals =
 let return (type a) (value : a Atom.t) : a Instr.t =
   Instr.ir (Ir0.Return (Atom.lit_or_var value))
 ;;
+
 let label name = Instr.Label name
 let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
 let var v : 'a Atom.t = Ir.Lit_or_var.Var v
