@@ -55,6 +55,7 @@ module Fn : sig
 
   val unnamed : ('fn, 'ret) t -> ('fn, 'ret) Unnamed.t
   val create : unnamed:('fn, 'ret) Unnamed.t -> name:string -> ('fn, 'ret) t
+  val external_ : name:string -> args:Type.t list -> ret:Type.t -> ('fn, 'ret) t
 
   module Packed : sig
     type t
@@ -75,48 +76,13 @@ val lit : Int64.t -> int64 Atom.t
 val var : Var.t -> 'a Atom.t
 val global : Global.t -> ptr Atom.t
 val mov : string -> 'a Atom.t -> 'a Atom.t * 'ret Instr.t
-val add
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val sub
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val mul
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val div
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val mod_
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val and_
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
-val or_
-  :  string
-  -> int64 Atom.t
-  -> int64 Atom.t
-  -> int64 Atom.t * 'ret Instr.t
-
+val add : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val sub : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val mul : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val div : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val mod_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val and_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val or_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val ptr_add : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_sub : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_diff : string -> ptr Atom.t -> ptr Atom.t -> int64 Atom.t * 'ret Instr.t
@@ -156,6 +122,7 @@ val store_addr : 'a Atom.t -> ptr Atom.t -> int -> 'ret Instr.t
 val alloca : string -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val cast : string -> Type.t -> 'a Atom.t -> 'b Atom.t * 'ret Instr.t
 val call0 : string -> ('ret, 'ret) Fn.t -> 'ret Atom.t * 'block Instr.t
+
 val call1
   :  string
   -> ('a -> 'ret, 'ret) Fn.t

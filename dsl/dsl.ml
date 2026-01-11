@@ -121,6 +121,16 @@ module Fn = struct
   let unnamed t = t.unnamed
   let create ~unnamed ~name = { name; unnamed }
 
+  let external_ ~name ~args ~ret =
+    let ret_type = ret in
+    let args_vars =
+      List.mapi args ~f:(fun i type_ ->
+        Var.create ~name:(sprintf "arg%d" i) ~type_)
+    in
+    let unnamed = Unnamed.{ args = args_vars; ret = ret_type; instrs = [] } in
+    { name; unnamed }
+  ;;
+
   let function_ t =
     let open Result.Let_syntax in
     let%map root = Instr.process t.unnamed.instrs in

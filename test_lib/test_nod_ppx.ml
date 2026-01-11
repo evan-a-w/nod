@@ -118,3 +118,40 @@ let%expect_test "nod calculator with labels" =
         (Return (Var ((name result) (type_ I64))))))))
     |}]
 ;;
+
+let%expect_test "nod calls externals with mixed types" =
+  let ext_add :
+    (Dsl.int64 -> Dsl.int64 -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
+    Dsl.Fn.external_
+      ~name:"ext_add"
+      ~args:[ Type.I64; Type.I64 ]
+      ~ret:Type.I64
+  in
+  let ext_peek : (Dsl.ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
+    Dsl.Fn.external_ ~name:"ext_peek" ~args:[ Type.Ptr ] ~ret:Type.I64
+  in
+  let instrs =
+    [%nod
+      let%named slot = alloca (lit 8L) in
+      let%named sum = call2 ext_add (lit 5L) (lit 7L) in
+      let%named peeked = call1 ext_peek slot in
+      let%named total = add sum peeked in
+      return total]
+  in
+  let root = block_of_instrs instrs in
+  print_s (Block.to_sexp_verbose root);
+  [%expect
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
+        (Call (fn ext_add) (results (((name sum) (type_ I64))))
+         (args ((Lit 5) (Lit 7))))
+        (Call (fn ext_peek) (results (((name peeked) (type_ I64))))
+         (args ((Var ((name slot) (type_ Ptr))))))
+        (Add
+         ((dest ((name total) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+          (src2 (Var ((name peeked) (type_ I64))))))
+        (Return (Var ((name total) (type_ I64))))))))
+    |}]
+;;
