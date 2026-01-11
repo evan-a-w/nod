@@ -1,6 +1,8 @@
 open! Core
 open! Import
 
+let helper name arg = Dsl.mov name arg
+
 let block_of_instrs instrs =
   instrs
   |> Dsl.Instr.process
@@ -133,8 +135,8 @@ let%expect_test "nod calls externals with mixed types" =
   let instrs =
     [%nod
       let%named slot = alloca (lit 8L) in
-      let%named sum = call2 ext_add (lit 5L) (lit 7L) in
-      let%named peeked = call1 ext_peek slot in
+      let%named sum = ext_add (lit 5L) (lit 7L) in
+      let%named peeked = ext_peek slot in
       let%named total = add sum peeked in
       return total]
   in
@@ -153,5 +155,22 @@ let%expect_test "nod calls externals with mixed types" =
          ((dest ((name total) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
           (src2 (Var ((name peeked) (type_ I64))))))
         (Return (Var ((name total) (type_ I64))))))))
+    |}]
+;;
+
+let%expect_test "nod no_nod preserves ocaml call" =
+  let instrs =
+    [%nod
+      let%named tmp = [%no_nod (helper (lit 9L))] in
+      return tmp]
+  in
+  let root = block_of_instrs instrs in
+  print_s (Block.to_sexp_verbose root);
+  [%expect
+    {|
+    ((%entry (args ())
+      (instrs
+       ((Move ((name tmp) (type_ I64)) (Lit 9))
+        (Return (Var ((name tmp) (type_ I64))))))))
     |}]
 ;;
