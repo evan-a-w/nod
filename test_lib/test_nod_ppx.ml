@@ -15,11 +15,12 @@ let block_of_instrs instrs =
 ;;
 
 let%expect_test "nod block from let%named" =
-  let root =
+  let instrs =
     [%nod
       let%named tmp = mov (lit 1L) in
       return tmp]
   in
+  let root = block_of_instrs instrs in
   print_s (Block.to_sexp_verbose root);
   [%expect
     {|
@@ -31,11 +32,12 @@ let%expect_test "nod block from let%named" =
 ;;
 
 let%expect_test "nod seq embeds instruction list" =
-  let root =
+  let instrs =
     [%nod
       seq [ Instr.ir Ir0.Noop; Instr.ir Ir0.Noop ];
       return (lit 0L)]
   in
+  let root = block_of_instrs instrs in
   let instrs = Vec.to_list root.instructions in
   let noop_count =
     List.count instrs ~f:(function
