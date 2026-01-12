@@ -1,0 +1,20 @@
+(library
+ (name nod_runtime)
+ (wrapped false)
+ (preprocess
+  (pps ppx_jane ppx_nod))
+ (inline_tests)
+ (libraries
+  core
+  core_unix
+  nod_frontend
+  nod_core
+  nod_low
+  vec
+  nod_dsl
+  feel
+  nod_x86_backend
+  nod_arm64_backend
+  nod_examples)
+ (flags
+  (:standard -extension-universe beta)))
