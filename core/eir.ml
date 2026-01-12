@@ -2,6 +2,8 @@ open! Ssa
 open! Core
 open! Import
 (* Planned opts/changes:
+ 
+  8 opts: inline, unroll (& vectorise), cse, dce, code motion, constant fold, peephole
 
   Memory:
 
