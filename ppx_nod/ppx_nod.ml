@@ -317,7 +317,7 @@ let arg_of_pat pat =
     match pat.ppat_desc with
     | Ppat_constraint (_, ct_opt, _) ->
       (match ct_opt with
-       | Some ct -> arg_type_of_core_type ct
+       | Some ct -> arg_type_of_core_type ~allow_expr:false ct
        | None -> I64)
     | _ -> I64
   in
@@ -609,12 +609,24 @@ let expand_nod ~loc:_ ~path:_ expr =
   | _ -> expand_fn expr
 ;;
 
+let expand_nod_type_expr ~loc ~path:_ (ty : core_type) : expression =
+  Util.type_repr_expr ~loc (arg_type_of_core_type ~allow_expr:true ty)
+;;
+
 let nod_extension =
   Extension.declare
     "nod"
     Extension.Context.Expression
     Ast_pattern.(single_expr_payload __)
     expand_nod
+;;
+
+let nod_type_expr_extension =
+  Extension.declare
+    "nod_type_expr"
+    Extension.Context.Expression
+    Ast_pattern.(ptyp __)
+    expand_nod_type_expr
 ;;
 
 let embed_structure_extension =
@@ -640,5 +652,6 @@ let () =
       [ Context_free.Rule.extension nod_extension
       ; Context_free.Rule.extension embed_structure_extension
       ; Context_free.Rule.extension embed_signature_extension
+      ; Context_free.Rule.extension nod_type_expr_extension
       ]
 ;;
