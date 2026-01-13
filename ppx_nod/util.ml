@@ -66,21 +66,16 @@ let rec type_expr ~loc =
 ;;
 
 let tuple_n_expr ~loc args =
-  match args with
-  | [ a; b ] -> [%expr Dsl.Type_repr.Tuple2 ([%e a], [%e b])]
-  | [ a; b; c ] -> [%expr Dsl.Type_repr.Tuple3 ([%e a], [%e b], [%e c])]
-  | _ -> failwith "tuple of this size not support by ppx_nod"
-;;
-
-(*
-   let n = List.length args in
-   if n < 2 || n > 25
-  then Location.raise_errorf ~loc "tuple arity %d not supported by ppx nod" n;
-  let ctor = Longident.parse ("Dsl.Type_repr.Tuple" ^ Int.to_string n) in
-  let ctor_expr = Ast_builder.Default.pexp_ident ~loc { loc; txt = ctor } in
+  let n = List.length args in
+  if n < 2 || n > 25
+  then Location.raise_errorf ~loc "tuple arity %d not supported by ppx_nod" n;
+  let ctor_lid = Longident.parse ("Dsl.Type_repr.Tuple" ^ Int.to_string n) in
   let tuple_expr = Ast_builder.Default.pexp_tuple ~loc args in
-  Ast_builder.Default.pexp_apply ~loc ctor_expr [ Nolabel, tuple_expr ]
-*)
+  Ast_builder.Default.pexp_construct
+    ~loc
+    { loc; txt = ctor_lid }
+    (Some tuple_expr)
+;;
 
 let rec type_repr_expr ~loc = function
   | I64 -> [%expr Dsl.Type_repr.Int64]
