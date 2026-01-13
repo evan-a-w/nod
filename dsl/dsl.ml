@@ -23,16 +23,10 @@ module Type_repr = struct
       in
       sprintf " | Tuple%d : %s -> (%s) t" arity args tuple
     in
-    let tuples =
+    let tuple_defs =
       List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_constructor (i + 2))
       |> String.concat ~sep:""
     in
-    sprintf
-      "type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s"
-      tuples]
-
-  [%%embed
-    let max_tuple_arity = 25 in
     let tuple_match arity =
       let var index =
         if index >= 26 then failwith "tuple arity too large";
@@ -45,21 +39,24 @@ module Type_repr = struct
         (String.concat ~sep:", " args)
         (List.map args ~f:(fun arg -> "type_ " ^ arg) |> String.concat ~sep:"; ")
     in
-    let tuples =
+    let tuple_matches =
       List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_match (i + 2))
       |> String.concat ~sep:" "
     in
     sprintf
       {|
-   let rec type_ : type a. a t -> Type.t =
+       type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s
+
+       let rec type_ : type a. a t -> Type.t =
        fun (type a) (t : a t) : Type.t ->
-    match t with
-    | Int64 -> I64
-    | Float64 -> F64
-    | Ptr -> Ptr
-    %s
-  |}
-      tuples]
+       match t with
+       | Int64 -> I64
+       | Float64 -> F64
+       | Ptr -> Ptr
+       %s
+       |}
+      tuple_defs
+      tuple_matches]
 end
 
 module Atom = struct
