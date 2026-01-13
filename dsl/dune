@@ -2,7 +2,7 @@
  (name nod_dsl)
  (wrapped false)
  (preprocess
-  (pps ppx_jane))
+  (pps ppx_jane ppx_nod))
  (inline_tests)
  (libraries
   core

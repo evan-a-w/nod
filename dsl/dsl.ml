@@ -1,22 +1,65 @@
 open! Core
-open! Import
+open! Dsl_import
 
 type int64 = Int64 [@@warning "-37"]
 type float64 = Float64 [@@warning "-37"]
 type ptr = Ptr [@@warning "-37"]
 
 module Type_repr = struct
-  type _ t =
-    | Int64 : int64 t
-    | Float64 : float64 t
-    | Ptr : ptr t
+  [%%embed
+    let max_tuple_arity = 25 in
+    let tuple_constructor arity =
+      let type_var index =
+        if index >= 26 then failwith "tuple arity too large";
+        Char.of_int_exn (Char.to_int 'a' + index)
+      in
+      let args =
+        List.init arity ~f:(fun i -> sprintf "'%c t" (type_var i))
+        |> String.concat ~sep:" * "
+      in
+      let tuple =
+        List.init arity ~f:(fun i -> sprintf "'%c" (type_var i))
+        |> String.concat ~sep:" * "
+      in
+      sprintf " | Tuple%d : %s -> (%s) t" arity args tuple
+    in
+    let tuples =
+      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_constructor (i + 2))
+      |> String.concat ~sep:""
+    in
+    sprintf
+      "type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s"
+      tuples]
 
-  let type_ (type a) (t : a t) : Type.t =
+  [%%embed
+    let max_tuple_arity = 25 in
+    let tuple_match arity =
+      let var index =
+        if index >= 26 then failwith "tuple arity too large";
+        Char.of_int_exn (Char.to_int 'a' + index) |> Char.to_string
+      in
+      let args = List.init arity ~f:(fun i -> var i) in
+      sprintf
+        " | Tuple%d (%s) -> Tuple [ %s ]"
+        arity
+        (String.concat ~sep:", " args)
+        (List.map args ~f:(fun arg -> "type_ " ^ arg) |> String.concat ~sep:"; ")
+    in
+    let tuples =
+      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_match (i + 2))
+      |> String.concat ~sep:" "
+    in
+    sprintf
+      {|
+   let rec type_ : type a. a t -> Type.t =
+       fun (type a) (t : a t) : Type.t ->
     match t with
     | Int64 -> I64
     | Float64 -> F64
     | Ptr -> Ptr
-  ;;
+    %s
+  |}
+      tuples]
 end
 
 module Atom = struct

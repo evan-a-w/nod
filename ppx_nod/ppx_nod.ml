@@ -4,6 +4,160 @@ module Builder = Ast_builder.Default
 let errorf ~loc fmt = Location.raise_errorf ~loc fmt
 let with_loc _ f = f ()
 
+module Embed = struct
+  let delete_file path =
+    if Sys.file_exists path
+    then
+      try Sys.remove path with
+      | Sys_error _ -> ()
+  ;;
+
+  let cleanup_files ml_file exe_file =
+    delete_file ml_file;
+    delete_file exe_file;
+    if Filename.check_suffix ml_file ".ml"
+    then (
+      let base = Filename.chop_suffix ml_file ".ml" in
+      delete_file (base ^ ".cmi");
+      delete_file (base ^ ".cmo"))
+  ;;
+
+  let process_status_to_string =
+    function
+    | Unix.WEXITED code -> Printf.sprintf "exit status %d" code
+    | Unix.WSIGNALED signal -> Printf.sprintf "signal %d" signal
+    | Unix.WSTOPPED signal -> Printf.sprintf "stopped %d" signal
+  ;;
+
+  let run_command ~loc prog args =
+    let argv = Array.of_list (prog :: args) in
+    try
+      let pid = Unix.create_process prog argv Unix.stdin Unix.stdout Unix.stderr in
+      match Unix.waitpid [] pid with
+      | _, Unix.WEXITED 0 -> ()
+      | _, status ->
+        errorf
+          ~loc
+          "nod: command %s failed (%s)"
+          prog
+          (process_status_to_string status)
+    with
+    | Unix.Unix_error (Unix.ENOENT, _, _) ->
+      errorf ~loc "nod: command %s not found" prog
+  ;;
+
+  let read_all_channel ic =
+    let buffer = Buffer.create 128 in
+    (try
+       while true do
+         Buffer.add_channel buffer ic 1024
+       done
+     with
+     | End_of_file -> ());
+    Buffer.contents buffer
+  ;;
+
+  let capture_output ~loc prog args =
+    let argv = Array.of_list (prog :: args) in
+    let env = Unix.environment () in
+    try
+      let stdout_ic, stdin_oc, stderr_ic =
+        Unix.open_process_args_full prog argv env
+      in
+      close_out stdin_oc;
+      let stdout = read_all_channel stdout_ic in
+      let stderr = read_all_channel stderr_ic in
+      match Unix.close_process_full (stdout_ic, stdin_oc, stderr_ic) with
+      | Unix.WEXITED 0 -> stdout
+      | status ->
+        errorf
+          ~loc
+          "nod: command %s failed (%s)%s"
+          prog
+          (process_status_to_string status)
+          (if String.length stderr = 0 then "" else Printf.sprintf "\n%s" stderr)
+    with
+    | Unix.Unix_error (Unix.ENOENT, _, _) ->
+      errorf ~loc "nod: command %s not found" prog
+  ;;
+
+  let eval_expression ~loc expr =
+    let expr_source = Format.asprintf "%a" Pprintast.expression expr in
+    let ml_file, oc = Filename.open_temp_file "ppx_embed" ".ml" in
+    let exe_file = Filename.temp_file "ppx_embed" "" in
+    Fun.protect
+      ~finally:(fun () -> cleanup_files ml_file exe_file)
+      (fun () ->
+        (try
+           output_string
+             oc
+             (Printf.sprintf
+                "open Core\n\nlet () =\n  let result = (let open Core in (%s)) in\n  Stdlib.print_string result;\n  Stdlib.flush Stdlib.stdout\n"
+                expr_source);
+           close_out oc
+         with
+         | exn ->
+           close_out_noerr oc;
+           raise exn);
+        run_command
+          ~loc
+          "ocamlfind"
+          [ "ocamlc"
+          ; "-linkpkg"
+          ; "-package"
+          ; "core"
+          ; ml_file
+          ; "-o"
+          ; exe_file
+          ];
+        capture_output ~loc exe_file [] )
+  ;;
+
+  let parse_structure ~loc contents =
+    let lexbuf = Lexing.from_string contents in
+    lexbuf.lex_curr_p <-
+      { loc.loc_start with pos_fname = loc.loc_start.pos_fname };
+    try Parse.implementation lexbuf with
+    | exn ->
+      let msg = Printexc.to_string exn in
+      errorf ~loc "nod: %%embed produced invalid structure (%s)" msg
+  ;;
+
+  let parse_signature ~loc contents =
+    let lexbuf = Lexing.from_string contents in
+    lexbuf.lex_curr_p <-
+      { loc.loc_start with pos_fname = loc.loc_start.pos_fname };
+    try Parse.interface lexbuf with
+    | exn ->
+      let msg = Printexc.to_string exn in
+      errorf ~loc "nod: %%embed produced invalid signature (%s)" msg
+  ;;
+
+  let expand_structure ~ctxt expr =
+    let loc = Expansion_context.Extension.extension_point_loc ctxt in
+    let contents = eval_expression ~loc expr in
+    let structure = parse_structure ~loc contents in
+    let include_infos =
+      Builder.include_infos
+        ~loc
+        (Builder.pmod_structure ~loc structure)
+    in
+    Builder.pstr_include ~loc include_infos
+  ;;
+
+  let expand_signature ~ctxt expr =
+    let loc = Expansion_context.Extension.extension_point_loc ctxt in
+    let contents = eval_expression ~loc expr in
+    let signature = parse_signature ~loc contents in
+    let include_infos =
+      Builder.include_infos
+        ~loc
+        (Builder.Latest.pmty_signature ~loc signature)
+    in
+    Builder.psig_include ~loc include_infos
+  ;;
+end
+
 let rec longident_to_list lid =
   match lid with
   | Lident name -> [ name ]
@@ -524,8 +678,28 @@ let nod_extension =
     expand_nod
 ;;
 
+let embed_structure_extension =
+  Extension.V3.declare
+    "embed"
+    Extension.Context.Structure_item
+    Ast_pattern.(single_expr_payload __)
+    Embed.expand_structure
+;;
+
+let embed_signature_extension =
+  Extension.V3.declare
+    "embed"
+    Extension.Context.Signature_item
+    Ast_pattern.(single_expr_payload __)
+    Embed.expand_signature
+;;
+
 let () =
   Driver.register_transformation
     "ppx_nod"
-    ~rules:[ Context_free.Rule.extension nod_extension ]
+    ~rules:
+      [ Context_free.Rule.extension nod_extension
+      ; Context_free.Rule.extension embed_structure_extension
+      ; Context_free.Rule.extension embed_signature_extension
+      ]
 ;;
