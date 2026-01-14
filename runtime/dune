@@ -1,5 +1,5 @@
 (library
- (name nod_dsl)
+ (name nod_runtime)
  (wrapped false)
  (preprocess
   (pps ppx_jane ppx_nod))
@@ -11,6 +11,7 @@
   nod_core
   nod_low
   vec
+  nod_dsl
   feel
   nod_x86_backend
   nod_arm64_backend

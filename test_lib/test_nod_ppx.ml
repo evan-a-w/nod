@@ -15,6 +15,15 @@ let block_of_instrs instrs =
   root
 ;;
 
+let%expect_test "nod type expr" =
+  let a = [%nod_type_expr: int64] in
+  print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
+  [%expect {| I64 |}];
+  let a = [%nod_type_expr: a * float64 * ptr] in
+  print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
+  [%expect {| (Tuple (I64 F64 Ptr)) |}]
+;;
+
 let%expect_test "nod block from let%named" =
   let instrs =
     [%nod
@@ -186,4 +195,22 @@ let%expect_test "nod bang preserves ocaml call" =
        ((Move ((name tmp) (type_ I64)) (Lit 11))
         (Return (Var ((name tmp) (type_ I64))))))))
     |}]
+;;
+
+module Embed_generated = struct
+  [%%embed
+    let arities = List.init 3 ~f:(fun i -> i + 2) in
+    let lines =
+      List.map arities ~f:(fun n -> sprintf "let tuple_%d = %d\n" n (n * n))
+    in
+    String.concat lines ~sep:""]
+end
+
+let%expect_test "embed generates structure items" =
+  print_s [%sexp (Embed_generated.tuple_2 : int)];
+  print_s [%sexp (Embed_generated.tuple_4 : int)];
+  [%expect {|
+    4
+    16
+  |}]
 ;;
