@@ -172,7 +172,7 @@ module Fn = struct
   let name t = t.name
   let unnamed t = t.unnamed
   let create ~unnamed ~name = { name; unnamed }
-  let named ~name unnamed = { name; unnamed }
+  let renamed ~name { name = _; unnamed } = { name; unnamed }
 
   let external_ ~name ~args ~ret =
     let ret_type = ret in
@@ -319,4 +319,22 @@ let call2
   (arg2 : 'b Atom.t)
   =
   call_common name fn [ arg1; arg2 ]
+;;
+
+let branch_to cond ~if_true ~if_false =
+  Instr.ir
+    (Ir0.Branch
+       (Ir0.Branch.Cond
+          { cond = Atom.lit_or_var cond
+          ; if_true = Call_block.{ block = if_true; args = [] }
+          ; if_false = Call_block.{ block = if_false; args = [] }
+          }))
+;;
+
+let jump_to label = Instr.ir (Ir0.jump_to label)
+
+let compile_program_exn program =
+  match Eir.compile ~opt_flags:Eir.Opt_flags.no_opt program with
+  | Ok program -> program
+  | Error err -> Nod_error.to_string err |> failwith
 ;;
