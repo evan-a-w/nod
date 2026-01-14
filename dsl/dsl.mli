@@ -1,6 +1,8 @@
 open! Core
 open! Dsl_import
 
+val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
+
 type int64
 type float64
 type ptr
@@ -81,7 +83,7 @@ module Fn : sig
 
   val unnamed : ('fn, 'ret) t -> ('fn, 'ret) Unnamed.t
   val create : unnamed:('fn, 'ret) Unnamed.t -> name:string -> ('fn, 'ret) t
-  val named : name:string -> ('fn, 'ret) Unnamed.t -> ('fn, 'ret) t
+  val renamed : name:string -> ('fn, 'ret) t -> ('fn, 'ret) t
   val external_ : name:string -> args:Type.t list -> ret:Type.t -> ('fn, 'ret) t
 
   module Packed : sig
@@ -162,3 +164,6 @@ val call2
   -> 'a Atom.t
   -> 'b Atom.t
   -> 'ret Atom.t * 'block Instr.t
+
+val branch_to : int64 Atom.t -> if_true:string -> if_false:string -> 'a Instr.t
+val jump_to : string -> 'a Instr.t

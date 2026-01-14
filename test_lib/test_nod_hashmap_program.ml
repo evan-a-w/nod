@@ -1,119 +1,6 @@
 open! Core
 open! Import
-
-let named ~name fn = Dsl.Fn.create ~name ~unnamed:(Dsl.Fn.unnamed fn)
-
-let branch_to cond ~if_true ~if_false =
-  Dsl.Instr.ir
-    (Ir0.Branch
-       (Ir0.Branch.Cond
-          { cond = Dsl.Atom.lit_or_var cond
-          ; if_true = Call_block.{ block = if_true; args = [] }
-          ; if_false = Call_block.{ block = if_false; args = [] }
-          }))
-;;
-
-let jump_to label = Dsl.Instr.ir (Ir0.jump_to label)
-
-let compile_program_exn program =
-  match Eir.compile_parsed ~opt_flags:Eir.Opt_flags.no_opt program with
-  | Ok program -> program
-  | Error err -> Nod_error.to_string err |> failwith
-;;
-
-let hash_fn =
-  [%nod
-    fun (key : int64) (capacity : int64) ->
-      let%named mul_key = mul key (lit 33L) in
-      let%named hashed = add mul_key (lit 7L) in
-      let%named idx = mod_ hashed capacity in
-      return idx]
-  |> named ~name:"hash"
-;;
-
-let hashmap_init =
-  [%nod
-    fun (state : ptr) ->
-      let%named capacity = load_addr state 0 in
-      let%named table = load_addr_ptr state 8 in
-      let%named idx_slot = alloca (lit 8L) in
-      seq [ store (lit 0L) idx_slot ];
-      label init_loop;
-      let%named idx = load idx_slot in
-      let%named cond = sub idx capacity in
-      seq [ branch_to cond ~if_true:"init_body" ~if_false:"init_done" ];
-      label init_body;
-      let%named offset = mul idx (lit 16L) in
-      let%named slot = ptr_add table offset in
-      seq [ store_addr (lit 0L) slot 0; store_addr (lit 0L) slot 8 ];
-      let%named idx_next = add idx (lit 1L) in
-      seq [ store idx_next idx_slot; jump_to "init_loop" ];
-      label init_done;
-      return (lit 0L)]
-  |> named ~name:"hashmap_init"
-;;
-
-let hashmap_put =
-  [%nod
-    fun (state : ptr) (entry : ptr) ->
-      let%named key = load_addr entry 0 in
-      let%named value = load_addr entry 8 in
-      let%named capacity = load_addr state 0 in
-      let%named table = load_addr_ptr state 8 in
-      let%named idx0 = hash_fn key capacity in
-      let%named idx_slot = alloca (lit 8L) in
-      seq [ store idx0 idx_slot ];
-      label probe;
-      let%named idx = load idx_slot in
-      let%named offset = mul idx (lit 16L) in
-      let%named slot = ptr_add table offset in
-      let%named slot_key = load_addr slot 0 in
-      seq [ branch_to slot_key ~if_true:"check_key" ~if_false:"insert" ];
-      label check_key;
-      let%named diff = sub slot_key key in
-      seq [ branch_to diff ~if_true:"probe_next" ~if_false:"update" ];
-      label probe_next;
-      let%named idx_inc = add idx (lit 1L) in
-      let%named idx_wrap = mod_ idx_inc capacity in
-      seq [ store idx_wrap idx_slot; jump_to "probe" ];
-      label insert;
-      seq [ store_addr key slot 0; store_addr value slot 8; return value ];
-      label update;
-      seq [ store_addr value slot 8 ];
-      return value]
-  |> named ~name:"hashmap_put"
-;;
-
-let hashmap_get =
-  [%nod
-    fun (state : ptr) (query : ptr) ->
-      let%named key = load_addr query 0 in
-      let%named default = load_addr query 8 in
-      let%named capacity = load_addr state 0 in
-      let%named table = load_addr_ptr state 8 in
-      let%named idx0 = hash_fn key capacity in
-      let%named idx_slot = alloca (lit 8L) in
-      seq [ store idx0 idx_slot ];
-      label probe;
-      let%named idx = load idx_slot in
-      let%named offset = mul idx (lit 16L) in
-      let%named slot = ptr_add table offset in
-      let%named slot_key = load_addr slot 0 in
-      seq [ branch_to slot_key ~if_true:"check_key" ~if_false:"miss" ];
-      label check_key;
-      let%named diff = sub slot_key key in
-      seq [ branch_to diff ~if_true:"probe_next" ~if_false:"hit" ];
-      label probe_next;
-      let%named idx_inc = add idx (lit 1L) in
-      let%named idx_wrap = mod_ idx_inc capacity in
-      seq [ store idx_wrap idx_slot; jump_to "probe" ];
-      label hit;
-      let%named value = load_addr slot 8 in
-      seq [ return value ];
-      label miss;
-      return default]
-  |> named ~name:"hashmap_get"
-;;
+open Nod_runtime
 
 let root =
   let instrs =
@@ -121,20 +8,20 @@ let root =
       let%named state = alloca (lit 16L) in
       let%named table = alloca (lit 64L) in
       seq [ store_addr (lit 4L) state 0; store_addr table state 8 ];
-      let%named init_done = hashmap_init state in
+      let%named init_done = Hashmap.hashmap_init state in
       let%named entry1 = alloca (lit 16L) in
       seq [ store_addr (lit 7L) entry1 0; store_addr (lit 21L) entry1 8 ];
-      let%named put1 = hashmap_put state entry1 in
+      let%named put1 = Hashmap.hashmap_put state entry1 in
       let%named entry2 = alloca (lit 16L) in
       seq [ store_addr (lit 42L) entry2 0; store_addr (lit 100L) entry2 8 ];
-      let%named put2 = hashmap_put state entry2 in
+      let%named put2 = Hashmap.hashmap_put state entry2 in
       let%named query_hit = alloca (lit 16L) in
       seq [ store_addr (lit 7L) query_hit 0; store_addr (lit 0L) query_hit 8 ];
-      let%named hit = hashmap_get state query_hit in
+      let%named hit = Hashmap.hashmap_get state query_hit in
       let%named query_miss = alloca (lit 16L) in
       seq
         [ store_addr (lit 99L) query_miss 0; store_addr (lit 5L) query_miss 8 ];
-      let%named miss = hashmap_get state query_miss in
+      let%named miss = Hashmap.hashmap_get state query_miss in
       let%named total = add hit miss in
       let%named total = add total init_done in
       let%named total = sub total init_done in
@@ -149,19 +36,11 @@ let root =
 ;;
 
 let hashmap_program =
-  Dsl.program
-    ~functions:
-      [ Dsl.Fn.pack hash_fn
-      ; Dsl.Fn.pack hashmap_init
-      ; Dsl.Fn.pack hashmap_put
-      ; Dsl.Fn.pack hashmap_get
-      ; Dsl.Fn.pack root
-      ]
-    ~globals:[]
+  Dsl.program ~functions:(Dsl.Fn.pack root :: Hashmap.functions) ~globals:[]
 ;;
 
 let%expect_test "nod hashmap program compiles" =
-  let program = compile_program_exn hashmap_program in
+  let program = Dsl.compile_program_exn hashmap_program in
   let names = Map.keys program.Program.functions in
   print_s [%sexp (names : string list)];
   let root_fn = Map.find_exn program.Program.functions "root" in
@@ -348,7 +227,7 @@ let%expect_test "nod hashmap program compiles" =
 
 let compile_and_execute_program_exn program expected =
   List.iter test_architectures ~f:(fun arch ->
-    let compiled = compile_program_exn program in
+    let compiled = Dsl.compile_program_exn program in
     let asm =
       compile_and_lower_functions
         ~arch
