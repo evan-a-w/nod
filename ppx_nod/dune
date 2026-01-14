@@ -1,7 +1,7 @@
 (library
  (name ppx_nod)
  (kind ppx_rewriter)
- (libraries ppxlib)
+(libraries ppxlib core unix)
  (preprocess
   (pps ppxlib.metaquot))
  (flags

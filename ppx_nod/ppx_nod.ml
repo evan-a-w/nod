@@ -1,21 +1,156 @@
 open Ppxlib
 module Builder = Ast_builder.Default
+open Util
 
-let errorf ~loc fmt = Location.raise_errorf ~loc fmt
 let with_loc _ f = f ()
 
-let rec longident_to_list lid =
-  match lid with
-  | Lident name -> [ name ]
-  | Ldot (prefix, name) -> longident_to_list prefix @ [ name ]
-  | Lapply (_, arg) -> longident_to_list arg
-;;
+module Embed = struct
+  let delete_file path =
+    if Sys.file_exists path
+    then (
+      try Sys.remove path with
+      | Sys_error _ -> ())
+  ;;
 
-let longident_last lid =
-  match List.rev (longident_to_list lid) with
-  | last :: _ -> last
-  | [] -> ""
-;;
+  let cleanup_files ml_file exe_file =
+    delete_file ml_file;
+    delete_file exe_file;
+    if Filename.check_suffix ml_file ".ml"
+    then (
+      let base = Filename.chop_suffix ml_file ".ml" in
+      delete_file (base ^ ".cmi");
+      delete_file (base ^ ".cmo"))
+  ;;
+
+  let process_status_to_string = function
+    | Unix.WEXITED code -> Printf.sprintf "exit status %d" code
+    | Unix.WSIGNALED signal -> Printf.sprintf "signal %d" signal
+    | Unix.WSTOPPED signal -> Printf.sprintf "stopped %d" signal
+  ;;
+
+  let run_command ~loc prog args =
+    let argv = Array.of_list (prog :: args) in
+    try
+      let pid =
+        Unix.create_process prog argv Unix.stdin Unix.stdout Unix.stderr
+      in
+      match Unix.waitpid [] pid with
+      | _, Unix.WEXITED 0 -> ()
+      | _, status ->
+        errorf
+          ~loc
+          "nod: command %s failed (%s)"
+          prog
+          (process_status_to_string status)
+    with
+    | Unix.Unix_error (Unix.ENOENT, _, _) ->
+      errorf ~loc "nod: command %s not found" prog
+  ;;
+
+  let read_all_channel ic =
+    let buffer = Buffer.create 128 in
+    (try
+       while true do
+         Buffer.add_channel buffer ic 1024
+       done
+     with
+     | End_of_file -> ());
+    Buffer.contents buffer
+  ;;
+
+  let capture_output ~loc prog args =
+    let argv = Array.of_list (prog :: args) in
+    let env = Unix.environment () in
+    try
+      let stdout_ic, stdin_oc, stderr_ic =
+        Unix.open_process_args_full prog argv env
+      in
+      close_out stdin_oc;
+      let stdout = read_all_channel stdout_ic in
+      let stderr = read_all_channel stderr_ic in
+      match Unix.close_process_full (stdout_ic, stdin_oc, stderr_ic) with
+      | Unix.WEXITED 0 -> stdout
+      | status ->
+        errorf
+          ~loc
+          "nod: command %s failed (%s)%s"
+          prog
+          (process_status_to_string status)
+          (if String.length stderr = 0 then "" else Printf.sprintf "\n%s" stderr)
+    with
+    | Unix.Unix_error (Unix.ENOENT, _, _) ->
+      errorf ~loc "nod: command %s not found" prog
+  ;;
+
+  let eval_expression ~loc expr =
+    let expr_source = Format.asprintf "%a" Pprintast.expression expr in
+    let ml_file, oc = Filename.open_temp_file "ppx_embed" ".ml" in
+    let exe_file = Filename.temp_file "ppx_embed" "" in
+    Fun.protect
+      ~finally:(fun () -> cleanup_files ml_file exe_file)
+      (fun () ->
+        (try
+           output_string
+             oc
+             (Printf.sprintf
+                "open Core\n\n\
+                 let () =\n\
+                \  let result = (let open Core in (%s)) in\n\
+                \  Stdlib.print_string result;\n\
+                \  Stdlib.flush Stdlib.stdout\n"
+                expr_source);
+           close_out oc
+         with
+         | exn ->
+           close_out_noerr oc;
+           raise exn);
+        run_command
+          ~loc
+          "ocamlfind"
+          [ "ocamlc"; "-linkpkg"; "-package"; "core"; ml_file; "-o"; exe_file ];
+        capture_output ~loc exe_file [])
+  ;;
+
+  let parse_structure ~loc contents =
+    let lexbuf = Lexing.from_string contents in
+    lexbuf.lex_curr_p
+    <- { loc.loc_start with pos_fname = loc.loc_start.pos_fname };
+    try Parse.implementation lexbuf with
+    | exn ->
+      let msg = Printexc.to_string exn in
+      errorf ~loc "nod: %%embed produced invalid structure (%s)" msg
+  ;;
+
+  let parse_signature ~loc contents =
+    let lexbuf = Lexing.from_string contents in
+    lexbuf.lex_curr_p
+    <- { loc.loc_start with pos_fname = loc.loc_start.pos_fname };
+    try Parse.interface lexbuf with
+    | exn ->
+      let msg = Printexc.to_string exn in
+      errorf ~loc "nod: %%embed produced invalid signature (%s)" msg
+  ;;
+
+  let expand_structure ~ctxt expr =
+    let loc = Expansion_context.Extension.extension_point_loc ctxt in
+    let contents = eval_expression ~loc expr in
+    let structure = parse_structure ~loc contents in
+    let include_infos =
+      Builder.include_infos ~loc (Builder.pmod_structure ~loc structure)
+    in
+    Builder.pstr_include ~loc include_infos
+  ;;
+
+  let expand_signature ~ctxt expr =
+    let loc = Expansion_context.Extension.extension_point_loc ctxt in
+    let contents = eval_expression ~loc expr in
+    let signature = parse_signature ~loc contents in
+    let include_infos =
+      Builder.include_infos ~loc (Builder.Latest.pmty_signature ~loc signature)
+    in
+    Builder.psig_include ~loc include_infos
+  ;;
+end
 
 let is_ident_name expr name =
   match expr.pexp_desc with
@@ -171,48 +306,6 @@ let rec pat_var_name pat =
   | _ -> None
 ;;
 
-type arg_type =
-  | I64
-  | F64
-  | Ptr
-
-let is_atom_type lid =
-  match List.rev (longident_to_list lid) with
-  | "t" :: "Atom" :: _ -> true
-  | _ -> false
-;;
-
-let rec arg_type_of_core_type ct =
-  match ct.ptyp_desc with
-  | Ptyp_constr ({ txt = lid; _ }, args) when is_atom_type lid ->
-    (match args with
-     | [ arg ] -> arg_type_of_core_type arg
-     | _ ->
-       errorf
-         ~loc:ct.ptyp_loc
-         "nod: Atom.t annotations must have exactly one type argument")
-  | Ptyp_constr ({ txt = lid; _ }, []) ->
-    (match longident_last lid with
-     | "int64" -> I64
-     | "float64" -> F64
-     | "ptr" -> Ptr
-     | other ->
-       errorf ~loc:ct.ptyp_loc "nod: unsupported argument type %s" other)
-  | _ -> errorf ~loc:ct.ptyp_loc "nod: unsupported argument type"
-;;
-
-let type_expr ~loc = function
-  | I64 -> [%expr Nod_core.Type.I64]
-  | F64 -> [%expr Nod_core.Type.F64]
-  | Ptr -> [%expr Nod_core.Type.Ptr]
-;;
-
-let type_repr_expr ~loc = function
-  | I64 -> [%expr Type_repr.Int64]
-  | F64 -> [%expr Type_repr.Float64]
-  | Ptr -> [%expr Type_repr.Ptr]
-;;
-
 type arg =
   { name : string
   ; type_ : arg_type
@@ -224,7 +317,7 @@ let arg_of_pat pat =
     match pat.ppat_desc with
     | Ppat_constraint (_, ct_opt, _) ->
       (match ct_opt with
-       | Some ct -> arg_type_of_core_type ct
+       | Some ct -> arg_type_of_core_type ~allow_expr:false ct
        | None -> I64)
     | _ -> I64
   in
@@ -516,6 +609,10 @@ let expand_nod ~loc:_ ~path:_ expr =
   | _ -> expand_fn expr
 ;;
 
+let expand_nod_type_expr ~loc ~path:_ (ty : core_type) : expression =
+  Util.type_repr_expr ~loc (arg_type_of_core_type ~allow_expr:true ty)
+;;
+
 let nod_extension =
   Extension.declare
     "nod"
@@ -524,8 +621,37 @@ let nod_extension =
     expand_nod
 ;;
 
+let nod_type_expr_extension =
+  Extension.declare
+    "nod_type_expr"
+    Extension.Context.Expression
+    Ast_pattern.(ptyp __)
+    expand_nod_type_expr
+;;
+
+let embed_structure_extension =
+  Extension.V3.declare
+    "embed"
+    Extension.Context.Structure_item
+    Ast_pattern.(single_expr_payload __)
+    Embed.expand_structure
+;;
+
+let embed_signature_extension =
+  Extension.V3.declare
+    "embed"
+    Extension.Context.Signature_item
+    Ast_pattern.(single_expr_payload __)
+    Embed.expand_signature
+;;
+
 let () =
   Driver.register_transformation
     "ppx_nod"
-    ~rules:[ Context_free.Rule.extension nod_extension ]
+    ~rules:
+      [ Context_free.Rule.extension nod_extension
+      ; Context_free.Rule.extension embed_structure_extension
+      ; Context_free.Rule.extension embed_signature_extension
+      ; Context_free.Rule.extension nod_type_expr_extension
+      ]
 ;;
