@@ -18,9 +18,6 @@ let parse_record_type_decl ~loc (type_decl : type_declaration) =
           let field_type =
             Util.arg_type_of_core_type ~allow_expr:true pld_type
           in
-          (match field_type with
-           | F64 -> print_endline "seen f64"
-           | _ -> ());
           { field_name; field_type; field_index = i })
         label_decls
     in
@@ -73,27 +70,27 @@ let generate_record_type ~loc type_name (fields : record_field list) =
       fields
   in
   let all_fields = repr_field :: accessor_fields in
-  (* let tuple_type_alias = *)
-  (*   pstr_type *)
-  (*     ~loc *)
-  (*     Nonrecursive *)
-  (*     [ type_declaration *)
-  (*         ~loc *)
-  (*         ~name:{ loc; txt = type_name ^ Util.record_type_suffix } *)
-  (*         ~params:[] *)
-  (*         ~cstrs:[] *)
-  (*         ~kind:Ptype_abstract *)
-  (*         ~private_:Public *)
-  (*         ~manifest:(Some type_repr_type) *)
-  (*     ] *)
-  (* in *)
+  let tuple_type_alias =
+    pstr_type
+      ~loc
+      Nonrecursive
+      [ type_declaration
+          ~loc
+          ~name:{ loc; txt = type_name ^ Util.record_type_suffix }
+          ~params:[]
+          ~cstrs:[]
+          ~kind:Ptype_abstract
+          ~private_:Public
+          ~manifest:(Some type_repr_inner)
+      ]
+  in
   let record_type_decl =
     pstr_type
       ~loc
       Nonrecursive
       [ type_declaration
           ~loc
-          ~name:{ loc; txt = type_name ^ "_t" }
+          ~name:{ loc; txt = type_name ^ Util.value_type_suffix }
           ~params:[]
           ~cstrs:[]
           ~kind:(Ptype_record all_fields)
@@ -101,18 +98,22 @@ let generate_record_type ~loc type_name (fields : record_field list) =
           ~manifest:None
       ]
   in
-  [ (* tuple_type_alias ; *) record_type_decl ]
+  [ tuple_type_alias; record_type_decl ]
 ;;
 
 let generate_record_value ~loc type_name (fields : record_field list) =
   let open Builder in
   let field_types = List.map (fun f -> f.field_type) fields in
   (* let overall_type_expr = Util.type_expr ~loc (Tuple field_types) in *)
-  let overall_type_repr = Util.type_repr_expr ~loc (Tuple field_types) in
+  let overall_type_repr =
+    Util.type_repr_expr ~in_record_context:true ~loc (Tuple field_types)
+  in
   let field_exprs =
     List.map
       (fun field ->
-        let field_type_repr = Util.type_repr_expr ~loc field.field_type in
+        let field_type_repr =
+          Util.type_repr_expr ~in_record_context:true ~loc field.field_type
+        in
         (* let field_type_expr = Util.type_expr ~loc field.field_type in *)
         (* let field_index = field.field_index in *)
         (* let load_fn = *)

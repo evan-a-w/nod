@@ -553,7 +553,7 @@ let expand_fn expr =
         [%expr
           Fn.Unnamed.with_arg
             [%e acc]
-            [%e type_repr_expr ~loc arg.type_]
+            [%e type_repr_expr ~in_record_context:false ~loc arg.type_]
             [%e evar ~loc arg.var_name]])
       args
       const_expr
@@ -610,7 +610,10 @@ let expand_nod ~loc:_ ~path:_ expr =
 ;;
 
 let expand_nod_type_expr ~loc ~path:_ (ty : core_type) : expression =
-  Util.type_repr_expr ~loc (arg_type_of_core_type ~allow_expr:true ty)
+  Util.type_repr_expr
+    ~in_record_context:false
+    ~loc
+    (arg_type_of_core_type ~allow_expr:true ty)
 ;;
 
 let nod_extension =
