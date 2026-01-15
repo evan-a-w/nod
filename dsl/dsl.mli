@@ -55,6 +55,14 @@ module Instr : sig
     -> (Eir.raw_block, Nod_error.t) Result.t
 end
 
+module Field : sig
+  type ('record, 'field) t =
+    { repr : 'field Type_repr.t
+    (* ; load_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
+    (* ; store_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
+    }
+end
+
 module Fn : sig
   type ('fn, 'ret) t
 
