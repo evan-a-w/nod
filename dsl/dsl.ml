@@ -125,6 +125,14 @@ module Instr = struct
   ;;
 end
 
+module Field = struct
+  type ('record, 'field) t =
+    { repr : 'field Type_repr.t
+    (* ; load_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
+    (* ; store_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
+    }
+end
+
 module Fn = struct
   module Unnamed = struct
     type ('fn, 'ret) t =
