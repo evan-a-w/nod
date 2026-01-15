@@ -86,18 +86,24 @@ let tuple_n_expr ~loc args =
     (Some tuple_expr)
 ;;
 
-let rec type_repr_expr ~loc = function
+let record_type_suffix = "_tuple_alias"
+let value_type_suffix = "_t"
+
+let rec type_repr_expr ~in_record_context ~loc = function
   | I64 -> [%expr Dsl.Type_repr.Int64]
   | F64 -> [%expr Dsl.Type_repr.Float64]
   | Ptr -> [%expr Dsl.Type_repr.Ptr]
+  | Lid (lid, loc) when in_record_context ->
+    Builder.pexp_field
+      ~loc
+      (ident lid loc)
+      { loc; txt = Longident.parse "repr" }
   | Lid (lid, loc) -> ident lid loc
-  | Tuple [ ty ] -> type_repr_expr ~loc ty
+  | Tuple [ ty ] -> type_repr_expr ~in_record_context ~loc ty
   | Tuple tys ->
-    let args = List.map (type_repr_expr ~loc) tys in
+    let args = List.map (type_repr_expr ~in_record_context ~loc) tys in
     tuple_n_expr ~loc args
 ;;
-
-let record_type_suffix = "_tuple_alias"
 
 let rec arg_type_to_core_type ~loc = function
   | I64 -> [%type: Dsl.int64] [@metaloc loc]
