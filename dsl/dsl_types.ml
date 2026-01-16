@@ -1,0 +1,6 @@
+(* Phantom types for GADT indices - shared between Dsl and Type_repr_gen *)
+type base = Base [@@warning "-37"]
+type record = Record [@@warning "-37"]
+type int64 = Int64 [@@warning "-37"]
+type float64 = Float64 [@@warning "-37"]
+type ptr = Ptr [@@warning "-37"]

@@ -3,40 +3,13 @@ open! Dsl_import
 
 val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
 
-type base
-type record
-type int64
-type float64
-type ptr
+type base = Dsl_types.base
+type record = Dsl_types.record
+type int64 = Dsl_types.int64
+type float64 = Dsl_types.float64
+type ptr = Dsl_types.ptr
 
-module Type_repr : sig
-  [%%embed
-    let max_tuple_arity = 25 in
-    let tuple_constructor arity =
-      let type_var index =
-        if index >= 26 then failwith "tuple arity too large";
-        Char.of_int_exn (Char.to_int 'a' + index)
-      in
-      let args =
-        List.init arity ~f:(fun i -> sprintf "'%c t" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      let tuple =
-        List.init arity ~f:(fun i -> sprintf "'%c" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      sprintf " | Tuple%d : %s -> (%s) t" arity args tuple
-    in
-    let tuples =
-      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_constructor (i + 2))
-      |> String.concat ~sep:""
-    in
-    sprintf
-      "type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s"
-      tuples]
-
-  val type_ : 'a t -> Type.t
-end
+module Type_repr : module type of Type_repr_gen
 
 module Atom : sig
   type _ t
