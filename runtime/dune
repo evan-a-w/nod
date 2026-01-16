@@ -1,6 +1,5 @@
 (library
  (name nod_runtime)
- (wrapped false)
  (preprocess
   (pps ppx_jane ppx_nod))
  (inline_tests)
