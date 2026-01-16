@@ -22,14 +22,16 @@
 (rule
  (target type_repr_gen.ml)
  (deps gen_type_repr.ml)
+ (mode promote)
  (action
   (with-stdout-to
-   %{target}
+    %{target}
    (run ocaml gen_type_repr.ml impl))))
 
 (rule
  (target type_repr_gen.mli)
  (deps gen_type_repr.ml)
+ (mode promote)
  (action
   (with-stdout-to
    %{target}
