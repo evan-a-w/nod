@@ -3,8 +3,8 @@ open! Dsl_import
 
 val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
 
-type base = [ `Base ]
-type record = [ `Record ]
+type base
+type record
 type int64
 type float64
 type ptr
