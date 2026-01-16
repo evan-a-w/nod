@@ -1,5 +1,6 @@
 open! Core
 open! Import
+open! Test_nod_ppx
 
 type point =
   { x : Dsl.int64
@@ -75,25 +76,32 @@ let%expect_test "nod load and store field" =
     [%nod
       fun (a : ptr) ->
         let%named x = load_record_field point.x a in
-        let%named y = load_record_field point'.point.x in
-        seq (store_record_field point.x a);
-        seq (store_record_field point'.point.x a);
+        let%named y = load_record_field point'.point.x a in
+        seq (store_record_field point.x a x);
+        seq (store_record_field point'.point.x a y);
         return x]
   in
   let unnamed = Dsl.Fn.unnamed fn in
-  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Var.t list)];
-  print_s [%sexp (Dsl.Fn.Unnamed.ret unnamed : Type.t)];
   let root = block_of_instrs (Dsl.Fn.Unnamed.instrs unnamed) in
   print_s (Block.to_sexp_verbose root);
   [%expect
     {|
-    (((name a) (type_ I64)) ((name b) (type_ I64)))
-    I64
     ((%entry (args ())
       (instrs
-       ((Add
-         ((dest ((name sum) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
-          (src2 (Var ((name b) (type_ I64))))))
-        (Return (Var ((name sum) (type_ I64))))))))
+       ((Load_field
+         ((dest ((name x) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
+          (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))
+        (Load_field
+         ((dest ((name y) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
+          (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
+          (indices (0 0))))
+        (Store_field
+         ((base (Var ((name a) (type_ Ptr)))) (src (Var ((name x) (type_ I64))))
+          (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))
+        (Store_field
+         ((base (Var ((name a) (type_ Ptr)))) (src (Var ((name y) (type_ I64))))
+          (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
+          (indices (0 0))))
+        (Return (Var ((name x) (type_ I64))))))))
     |}]
 ;;
