@@ -207,11 +207,10 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
       pexp_field ~loc record_ref { txt = Lident field_name; loc }
     in
     [%expr
-      [ Field.store_immediate
-          (Field.Storer.src [%e value_expr])
-          [%e field_ref]
-          [%e ptr_expr]
-      ]]
+      Field.store_immediate
+        (Field.Storer.src [%e value_expr])
+        [%e field_ref]
+        [%e ptr_expr]]
   | _ :: _ as fields ->
     let open Builder in
     let record_ref = ident base_lid loc in
@@ -258,12 +257,11 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
         { txt = Lident final_field_name; loc }
     in
     [%expr
-      [ (let [%p pvar ~loc storer_name] = [%e storer_expr] in
-         Field.store_immediate
-           [%e evar ~loc storer_name]
-           [%e final_field_ref]
-           [%e ptr_expr])
-      ]]
+      let [%p pvar ~loc storer_name] = [%e storer_expr] in
+      Field.store_immediate
+        [%e evar ~loc storer_name]
+        [%e final_field_ref]
+        [%e ptr_expr]]
 ;;
 
 let rewritable_callee expr =

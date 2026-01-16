@@ -117,40 +117,12 @@ struct
         let cmp = compare_indices t i parent in
         (* if cmp < 0, element is smaller than parent, swap *)
         (* cmp < 0 means we need to check if cmp is negative *)
-        let is_negative = sub (lit 0L) cmp in
-        (* is_negative > 0 iff cmp < 0 *)
-        let should_swap = sub is_negative (lit 1L) in
-        (* should_swap >= 0 iff is_negative >= 1 iff cmp <= -1 iff cmp < 0 *)
-        let neg_should_swap = sub (lit 0L) should_swap in
-        (* neg_should_swap <= 0 iff should_swap >= 0 *)
-        (* we want to branch if cmp < 0, i.e. if neg_should_swap <= 0 *)
-        (* branch_to branches to if_true when cond != 0 *)
-        (* so we want to branch to swap when neg_should_swap > 0, which is wrong *)
-        (* let's reconsider: cmp < 0 means child < parent, need to swap *)
-        (* we can use: if cmp is negative, its sign bit is 1 *)
-        (* simpler: let's do a comparison manually *)
-        (* cmp < 0 equivalent to (cmp - 1) being very negative or (0 - cmp) > 0 *)
-        (* Actually simpler: branch_to cmp goes to if_true if cmp != 0 *)
-        (* We want to check if cmp < 0. Since we have signed integers: *)
-        (* if cmp < 0, then cmp is a large positive number when interpreted unsigned *)
-        (* Let's just check sign: shift right by 63 bits would give sign *)
-        (* But we don't have shift. Let's use a different approach. *)
-        (* We can check if cmp >= 0 by doing: cmp + large_positive, if it overflows... *)
-        (* Actually, the simplest: use the comparison result directly *)
-        (* In most systems, negative is truthy. Let's check both cases. *)
-        (* cmp could be negative, zero, or positive *)
-        (* We want to swap only if cmp < 0 *)
-        (* Create a mask: if cmp is negative, the high bit is set *)
-        (* For simplicity, let's compute: (cmp >> 63) & 1, but we don't have shift *)
-        (* Alternative: check if cmp != 0 and then check sign separately *)
-        (* Actually, let's just use: cmp & 0x8000000000000000 to get sign bit *)
         let sign_bit = and_ cmp (lit 0x8000000000000000L) in
-        seq
-          [ branch_to sign_bit ~if_true:"sift_up_swap" ~if_false:"sift_up_done"
-          ];
+        branch_to sign_bit ~if_true:"sift_up_swap" ~if_false:"sift_up_done";
         label sift_up_swap;
         let _ = swap t i parent in
-        seq [ store parent i_slot; jump_to "sift_up_loop" ];
+        store parent i_slot;
+        jump_to "sift_up_loop";
         label sift_up_done;
         return (lit 0L)]
   ;;
@@ -160,58 +132,51 @@ struct
       fun (t : ptr) (index : int64) ->
         let len = load_record_field binary_heap.len t in
         let i_slot = alloca (lit 8L) in
-        seq [ store index i_slot ];
+        store index i_slot;
         label sift_down_loop;
         let i = load i_slot in
         let left = left_child_index i in
         (* if left >= len, no children, done *)
         let left_in_bounds = sub len left in
         (* left_in_bounds > 0 iff left < len *)
-        seq
-          [ branch_to
-              left_in_bounds
-              ~if_true:"sift_down_has_left"
-              ~if_false:"sift_down_done"
-          ];
+        branch_to
+          left_in_bounds
+          ~if_true:"sift_down_has_left"
+          ~if_false:"sift_down_done";
         label sift_down_has_left;
         let right = right_child_index i in
         let right_in_bounds = sub len right in
         (* right_in_bounds > 0 iff right < len *)
         let smallest_slot = alloca (lit 8L) in
-        seq [ store left smallest_slot ];
-        seq
-          [ branch_to
-              right_in_bounds
-              ~if_true:"sift_down_check_right"
-              ~if_false:"sift_down_compare_with_parent"
-          ];
+        store left smallest_slot;
+        branch_to
+          right_in_bounds
+          ~if_true:"sift_down_check_right"
+          ~if_false:"sift_down_compare_with_parent";
         label sift_down_check_right;
         (* compare right with current smallest (left) *)
         let smallest = load smallest_slot in
         let cmp_right_left = compare_indices t right smallest in
         let sign_bit_rl = and_ cmp_right_left (lit 0x8000000000000000L) in
-        seq
-          [ branch_to
-              sign_bit_rl
-              ~if_true:"sift_down_right_smaller"
-              ~if_false:"sift_down_compare_with_parent"
-          ];
+        branch_to
+          sign_bit_rl
+          ~if_true:"sift_down_right_smaller"
+          ~if_false:"sift_down_compare_with_parent";
         label sift_down_right_smaller;
-        seq
-          [ store right smallest_slot; jump_to "sift_down_compare_with_parent" ];
+        store right smallest_slot;
+        jump_to "sift_down_compare_with_parent";
         label sift_down_compare_with_parent;
         let smallest_final = load smallest_slot in
         let cmp_smallest_i = compare_indices t smallest_final i in
         let sign_bit_si = and_ cmp_smallest_i (lit 0x8000000000000000L) in
-        seq
-          [ branch_to
-              sign_bit_si
-              ~if_true:"sift_down_swap"
-              ~if_false:"sift_down_done"
-          ];
+        branch_to
+          sign_bit_si
+          ~if_true:"sift_down_swap"
+          ~if_false:"sift_down_done";
         label sift_down_swap;
         let _ = swap t i smallest_final in
-        seq [ store smallest_final i_slot; jump_to "sift_down_loop" ];
+        store smallest_final i_slot;
+        jump_to "sift_down_loop";
         label sift_down_done;
         return (lit 0L)]
   ;;
@@ -252,7 +217,7 @@ struct
         let insert_ptr = array_offset t current_len in
         let _ = copy_elt elt insert_ptr in
         let new_len = add current_len (lit 1L) in
-        seq [ store_record_field binary_heap.len t new_len ];
+        store_record_field binary_heap.len t new_len;
         let _ = sift_up t current_len in
         return (lit 0L)]
   ;;
@@ -262,26 +227,21 @@ struct
       fun (t : ptr) (out : ptr) ->
         let current_len = load_record_field binary_heap.len t in
         (* if len == 0, return error or undefined *)
-        seq
-          [ branch_to
-              current_len
-              ~if_true:"pop_has_elements"
-              ~if_false:"pop_empty"
-          ];
+        branch_to current_len ~if_true:"pop_has_elements" ~if_false:"pop_empty";
         label pop_has_elements;
         let root_ptr = array_offset t (lit 0L) in
         let _ = copy_elt root_ptr out in
         let new_len = sub current_len (lit 1L) in
-        seq [ store_record_field binary_heap.len t new_len ];
+        store_record_field binary_heap.len t new_len;
         (* if new_len == 0, nothing to sift *)
-        seq [ branch_to new_len ~if_true:"pop_sift" ~if_false:"pop_done" ];
+        branch_to new_len ~if_true:"pop_sift" ~if_false:"pop_done";
         label pop_sift;
         let last_ptr = array_offset t new_len in
         let _ = copy_elt last_ptr root_ptr in
         let _ = sift_down t (lit 0L) in
-        seq [ jump_to "pop_done" ];
+        jump_to "pop_done";
         label pop_empty;
-        seq [ jump_to "pop_done" ];
+        jump_to "pop_done";
         label pop_done;
         return (lit 0L)]
   ;;
