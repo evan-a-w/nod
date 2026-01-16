@@ -238,6 +238,8 @@ let is_nod_builtin_name =
     ; "call1"
     ; "call2"
     ; "label"
+    ; "jump_to"
+    ; "branch_to"
     ; "return"
     ; "seq"
     ; "load_record_field"
@@ -257,10 +259,12 @@ let rec collect_field_access expr =
 ;;
 
 let rec take n lst =
-  if n <= 0 then [] else
-  match lst with
-  | [] -> []
-  | x :: xs -> x :: take (n - 1) xs
+  if n <= 0
+  then []
+  else (
+    match lst with
+    | [] -> []
+    | x :: xs -> x :: take (n - 1) xs)
 ;;
 
 let expand_load_record_field ~loc ~var_name field_expr ptr_expr =
@@ -274,7 +278,9 @@ let expand_load_record_field ~loc ~var_name field_expr ptr_expr =
   | [ field_name ] ->
     let open Builder in
     let record_ref = ident base_lid loc in
-    let field_ref = pexp_field ~loc record_ref { txt = Lident field_name; loc } in
+    let field_ref =
+      pexp_field ~loc record_ref { txt = Lident field_name; loc }
+    in
     [%expr
       Field.load_immediate
         (Field.Loader.dest [%e estring ~loc var_name])
@@ -288,14 +294,12 @@ let expand_load_record_field ~loc ~var_name field_expr ptr_expr =
       match fields with
       | [] -> base
       | field :: rest ->
-        let field_expr =
-          pexp_field ~loc base { txt = Lident field; loc }
-        in
+        let field_expr = pexp_field ~loc base { txt = Lident field; loc } in
         build_field_ref field_expr rest
     in
     let rec split_last = function
       | [] -> failwith "empty list"
-      | [x] -> [], x
+      | [ x ] -> [], x
       | x :: xs ->
         let rest, last = split_last xs in
         x :: rest, last
@@ -303,24 +307,28 @@ let expand_load_record_field ~loc ~var_name field_expr ptr_expr =
     let intermediate_fields, _final_field = split_last fields in
     let rec build_loader idx remaining_fields =
       match remaining_fields with
-      | [] ->
-        [%expr Field.Loader.dest [%e estring ~loc var_name]]
+      | [] -> [%expr Field.Loader.dest [%e estring ~loc var_name]]
       | field :: rest ->
         let prefix_fields = take idx intermediate_fields in
         let field_ref = build_field_ref record_ref prefix_fields in
-        let field_access = pexp_field ~loc field_ref { txt = Lident field; loc } in
+        let field_access =
+          pexp_field ~loc field_ref { txt = Lident field; loc }
+        in
         let inner_loader = build_loader (idx + 1) rest in
-        [%expr
-          Field.load_record
-            [%e inner_loader]
-            [%e field_access]]
+        [%expr Field.load_record [%e inner_loader] [%e field_access]]
     in
     let loader_expr = build_loader 0 intermediate_fields in
-    let intermediate_field_ref = build_field_ref record_ref intermediate_fields in
+    let intermediate_field_ref =
+      build_field_ref record_ref intermediate_fields
+    in
     let final_field_name = List.hd (List.rev fields) in
     let final_field_ref =
-      pexp_field ~loc
-        (pexp_field ~loc intermediate_field_ref { txt = Lident "type_info"; loc })
+      pexp_field
+        ~loc
+        (pexp_field
+           ~loc
+           intermediate_field_ref
+           { txt = Lident "type_info"; loc })
         { txt = Lident final_field_name; loc }
     in
     [%expr
@@ -342,7 +350,9 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
   | [ field_name ] ->
     let open Builder in
     let record_ref = ident base_lid loc in
-    let field_ref = pexp_field ~loc record_ref { txt = Lident field_name; loc } in
+    let field_ref =
+      pexp_field ~loc record_ref { txt = Lident field_name; loc }
+    in
     [%expr
       [ Field.store_immediate
           (Field.Storer.src [%e value_expr])
@@ -357,14 +367,12 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
       match fields with
       | [] -> base
       | field :: rest ->
-        let field_expr =
-          pexp_field ~loc base { txt = Lident field; loc }
-        in
+        let field_expr = pexp_field ~loc base { txt = Lident field; loc } in
         build_field_ref field_expr rest
     in
     let rec split_last = function
       | [] -> failwith "empty list"
-      | [x] -> [], x
+      | [ x ] -> [], x
       | x :: xs ->
         let rest, last = split_last xs in
         x :: rest, last
@@ -376,19 +384,24 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
       | field :: rest ->
         let prefix_fields = take idx intermediate_fields in
         let field_ref = build_field_ref record_ref prefix_fields in
-        let field_access = pexp_field ~loc field_ref { txt = Lident field; loc } in
+        let field_access =
+          pexp_field ~loc field_ref { txt = Lident field; loc }
+        in
         let inner_storer = build_storer (idx + 1) rest in
-        [%expr
-          Field.store_record
-            [%e inner_storer]
-            [%e field_access]]
+        [%expr Field.store_record [%e inner_storer] [%e field_access]]
     in
     let storer_expr = build_storer 0 intermediate_fields in
-    let intermediate_field_ref = build_field_ref record_ref intermediate_fields in
+    let intermediate_field_ref =
+      build_field_ref record_ref intermediate_fields
+    in
     let final_field_name = List.hd (List.rev fields) in
     let final_field_ref =
-      pexp_field ~loc
-        (pexp_field ~loc intermediate_field_ref { txt = Lident "type_info"; loc })
+      pexp_field
+        ~loc
+        (pexp_field
+           ~loc
+           intermediate_field_ref
+           { txt = Lident "type_info"; loc })
         { txt = Lident final_field_name; loc }
     in
     [%expr
@@ -419,8 +432,7 @@ let rewrite_call_expr expr =
      | Pexp_ident { txt = Lident "store_record_field"; _ } ->
        (match args with
         | [ (Nolabel, field_expr); (Nolabel, ptr_expr); (Nolabel, value_expr) ]
-          ->
-          expand_store_record_field ~loc field_expr value_expr ptr_expr
+          -> expand_store_record_field ~loc field_expr value_expr ptr_expr
         | _ ->
           errorf
             ~loc
@@ -510,8 +522,8 @@ let add_name_argument ~loc name expr =
         | _ ->
           errorf
             ~loc
-            "nod: load_record_field expects exactly two arguments: field access \
-             and pointer")
+            "nod: load_record_field expects exactly two arguments: field \
+             access and pointer")
      | _ ->
        let name_expr = Builder.estring ~loc name in
        { expr with pexp_desc = Pexp_apply (fn, (Nolabel, name_expr) :: args) })
@@ -534,9 +546,7 @@ let rec translate ~add_instr expr =
     (match pat_var_name pat with
      | Some _ -> ()
      | None ->
-       errorf
-         ~loc:pat.ppat_loc
-         "nod: let%%unnamed expects a variable pattern");
+       errorf ~loc:pat.ppat_loc "nod: let%%unnamed expects a variable pattern");
     let instr_name = gen_symbol ~prefix:"__nod_instr" () in
     let rhs = normalize_call_expr binding.pvb_expr in
     let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
@@ -613,26 +623,22 @@ and emit ~add_instr expr =
     if no_nod
     then with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]])
     else (
-      match return_arg expr with
-      | Some _ -> errorf ~loc "nod: return must be in tail position"
-      | None ->
-        (match expr.pexp_desc with
-         | Pexp_let _ | Pexp_sequence _ ->
-           errorf ~loc "nod: expected instruction expression"
-         | _ ->
-           (match seq_arg expr with
-            | Some instrs ->
-              let instrs = normalize_call_expr instrs in
-              with_loc loc (fun () ->
-                [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
-            | None ->
-              let expr =
-                match label_application expr with
-                | Some label_expr -> label_expr
-                | None -> normalize_call_expr expr
-              in
-              with_loc loc (fun () ->
-                [%expr [%e evar ~loc add_instr] [%e expr]]))))
+      match expr.pexp_desc with
+      | Pexp_let _ | Pexp_sequence _ ->
+        errorf ~loc "nod: expected instruction expression"
+      | _ ->
+        (match seq_arg expr with
+         | Some instrs ->
+           let instrs = normalize_call_expr instrs in
+           with_loc loc (fun () ->
+             [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
+         | None ->
+           let expr =
+             match label_application expr with
+             | Some label_expr -> label_expr
+             | None -> normalize_call_expr expr
+           in
+           with_loc loc (fun () -> [%expr [%e evar ~loc add_instr] [%e expr]])))
 ;;
 
 let collect_fun expr =
