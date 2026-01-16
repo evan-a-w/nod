@@ -156,7 +156,109 @@ let str_type_decl ~ctxt (_rec_flag, type_decls) =
       "nod_record can only be derived for a single type at a time"
 ;;
 
-let sig_type_decl ~ctxt:_ (_rec_flag, _type_decls) = []
+let generate_record_sig ~loc type_name (fields : record_field list) =
+  let open Builder in
+  let type_repr_inner =
+    ptyp_tuple
+      ~loc
+      (List.map
+         (fun field -> Util.arg_type_to_core_type ~loc field.field_type)
+         fields) [@metaloc loc]
+  in
+  let type_repr_type =
+    ptyp_constr
+      ~loc
+      { loc; txt = Longident.parse "Dsl.Type_repr.t" }
+      [ type_repr_inner ]
+  in
+  let repr_field =
+    { pld_name = { loc; txt = "repr" }
+    ; pld_mutable = Immutable
+    ; pld_type = type_repr_type
+    ; pld_loc = loc
+    ; pld_attributes = []
+    ; pld_modalities = []
+    }
+  in
+  let accessor_fields =
+    List.map
+      (fun field ->
+        let field_type_param =
+          Util.arg_type_to_core_type ~loc field.field_type
+        in
+        { pld_name = { loc; txt = field.field_name }
+        ; pld_mutable = Immutable
+        ; pld_type =
+            ptyp_constr
+              ~loc
+              { loc; txt = Longident.parse "Dsl.Field.t" }
+              [ type_repr_inner
+              ; field_type_param
+              ; Util.field_type_info_type ~loc field.field_type
+              ; Util.field_type_info_kind_type ~loc field.field_type
+              ]
+        ; pld_loc = loc
+        ; pld_attributes = []
+        ; pld_modalities = []
+        })
+      fields
+  in
+  let all_fields = repr_field :: accessor_fields in
+  let tuple_type_alias =
+    psig_type
+      ~loc
+      Nonrecursive
+      [ type_declaration
+          ~loc
+          ~name:{ loc; txt = type_name ^ Util.record_type_suffix }
+          ~params:[]
+          ~cstrs:[]
+          ~kind:Ptype_abstract
+          ~private_:Public
+          ~manifest:(Some type_repr_inner)
+      ]
+  in
+  let record_type_decl =
+    psig_type
+      ~loc
+      Nonrecursive
+      [ type_declaration
+          ~loc
+          ~name:{ loc; txt = type_name ^ Util.value_type_suffix }
+          ~params:[]
+          ~cstrs:[]
+          ~kind:(Ptype_record all_fields)
+          ~private_:Public
+          ~manifest:None
+      ]
+  in
+  let value_sig =
+    psig_value
+      ~loc
+      (value_description
+         ~loc
+         ~name:{ loc; txt = type_name }
+         ~type_:
+           (ptyp_constr
+              ~loc
+              { loc; txt = Lident (type_name ^ Util.value_type_suffix) }
+              [])
+         ~prim:[])
+  in
+  [ tuple_type_alias; record_type_decl; value_sig ]
+;;
+
+let sig_type_decl ~ctxt (_rec_flag, type_decls) =
+  let loc = Expansion_context.Deriver.derived_item_loc ctxt in
+  match type_decls with
+  | [ type_decl ] ->
+    let type_name, fields = parse_record_type_decl ~loc type_decl in
+    generate_record_sig ~loc type_name fields
+  | _ ->
+    Location.raise_errorf
+      ~loc
+      "nod_record can only be derived for a single type at a time"
+;;
 
 let _nod_record_deriver =
   Deriving.add
