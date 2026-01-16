@@ -1,8 +1,6 @@
 open! Core
 open! Dsl_import
 
-val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
-
 type base = Dsl_types.base
 type record = Dsl_types.record
 type int64 = Dsl_types.int64
@@ -115,6 +113,7 @@ end
 (** meta functions *)
 
 val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
+val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
 
 (** builder functions *)
 
