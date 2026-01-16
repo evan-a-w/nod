@@ -24,10 +24,10 @@ let%expect_test "nod type expr" =
   [%expect {| (Tuple (I64 F64 Ptr)) |}]
 ;;
 
-let%expect_test "nod block from let%named" =
+let%expect_test "nod block from let" =
   let instrs =
     [%nod
-      let%named tmp = mov (lit 1L) in
+      let tmp = mov (lit 1L) in
       return tmp]
   in
   let root = block_of_instrs instrs in
@@ -66,7 +66,7 @@ let%expect_test "nod fun builds args and return type" =
   let fn =
     [%nod
       fun (a : int64) (b : int64) ->
-        let%named sum = add a b in
+        let sum = add a b in
         return sum]
   in
   let unnamed = Dsl.Fn.unnamed fn in
@@ -91,16 +91,16 @@ let%expect_test "nod calculator with labels" =
   let instrs =
     [%nod
       label entry;
-      let%named x = mov (lit 10L) in
-      let%named y = mov (lit 4L) in
-      let%named sum = add x y in
-      let%named diff = sub x y in
-      let%named prod = mul sum diff in
+      let x = mov (lit 10L) in
+      let y = mov (lit 4L) in
+      let sum = add x y in
+      let diff = sub x y in
+      let prod = mul sum diff in
       seq [ Instr.ir (Ir0.jump_to "final") ];
       label skipped;
       seq [ return (lit 0L) ];
       label final;
-      let%named result = add prod (lit 3L) in
+      let result = add prod (lit 3L) in
       return result]
   in
   let root = block_of_instrs instrs in
@@ -139,10 +139,10 @@ let%expect_test "nod calls externals with mixed types" =
   in
   let instrs =
     [%nod
-      let%named slot = alloca (lit 8L) in
-      let%named sum = ext_add (lit 5L) (lit 7L) in
-      let%named peeked = ext_peek slot in
-      let%named total = add sum peeked in
+      let slot = alloca (lit 8L) in
+      let sum = ext_add (lit 5L) (lit 7L) in
+      let peeked = ext_peek slot in
+      let total = add sum peeked in
       return total]
   in
   let root = block_of_instrs instrs in
@@ -166,7 +166,7 @@ let%expect_test "nod calls externals with mixed types" =
 let%expect_test "nod no_nod preserves ocaml call" =
   let instrs =
     [%nod
-      let%named tmp = [%no_nod helper (lit 9L)] in
+      let tmp = [%no_nod helper (lit 9L)] in
       return tmp]
   in
   let root = block_of_instrs instrs in
@@ -183,7 +183,7 @@ let%expect_test "nod no_nod preserves ocaml call" =
 let%expect_test "nod bang preserves ocaml call" =
   let instrs =
     [%nod
-      let%named tmp = !(helper (lit 11L)) in
+      let tmp = !(helper (lit 11L)) in
       return tmp]
   in
   let root = block_of_instrs instrs in
