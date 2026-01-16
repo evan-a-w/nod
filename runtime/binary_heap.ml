@@ -18,6 +18,11 @@ module Compile (Arg : sig
 struct
   include Arg
 
+  (* note: can use [%nod
+     let v = Libc.malloc size in]
+     defined as an external function in libc.ml
+  *)
+
   let elt_bytes = Type.size_in_bytes elt_type |> Int64.of_int
 
   let array_offset =
