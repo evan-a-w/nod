@@ -3,6 +3,8 @@ open! Dsl_import
 
 val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
 
+type base = [ `Base ]
+type record = [ `Record ]
 type int64
 type float64
 type ptr
@@ -56,11 +58,47 @@ module Instr : sig
 end
 
 module Field : sig
-  type ('record, 'field) t =
+  type ('record, 'field, 'type_info, 'kind) t =
     { repr : 'field Type_repr.t
-    (* ; load_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
-    (* ; store_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
+    ; name : string
+    ; index : int
+    ; type_info : 'type_info
+    ; record_repr : 'record Type_repr.t
     }
+
+  module Loader : sig
+    type 'field t
+
+    val dest : string -> 'field t
+  end
+
+  val load_immediate
+    :  'record Loader.t
+    -> ('record, 'field, _, base) t
+    -> ptr Atom.t
+    -> 'field Atom.t * 'ret Instr.t
+
+  val load_record
+    :  'record Loader.t
+    -> ('record, 'field, _, record) t
+    -> 'field Loader.t
+
+  module Storer : sig
+    type ('field, 'record) t
+
+    val src : 'field Atom.t -> ('field, 'record) t
+  end
+
+  val store_immediate
+    :  ('field, 'record) Storer.t
+    -> ('record, 'field, _, base) t
+    -> ptr Atom.t
+    -> 'ret Instr.t
+
+  val store_record
+    :  ('stored_field, 'record) Storer.t
+    -> ('record, 'field, _, record) t
+    -> ('stored_field, 'field) Storer.t
 end
 
 module Fn : sig

@@ -62,7 +62,11 @@ let generate_record_type ~loc type_name (fields : record_field list) =
             ptyp_constr
               ~loc
               { loc; txt = Longident.parse "Dsl.Field.t" }
-              [ type_repr_inner; field_type_param ]
+              [ type_repr_inner
+              ; field_type_param
+              ; Util.field_type_info_type ~loc field.field_type
+              ; Util.field_type_info_kind_type ~loc field.field_type
+              ]
         ; pld_loc = loc
         ; pld_attributes = []
         ; pld_modalities = []
@@ -104,57 +108,25 @@ let generate_record_type ~loc type_name (fields : record_field list) =
 let generate_record_value ~loc type_name (fields : record_field list) =
   let open Builder in
   let field_types = List.map (fun f -> f.field_type) fields in
-  (* let overall_type_expr = Util.type_expr ~loc (Tuple field_types) in *)
   let overall_type_repr =
     Util.type_repr_expr ~in_record_context:true ~loc (Tuple field_types)
   in
   let field_exprs =
-    List.map
-      (fun field ->
+    List.mapi
+      (fun index field ->
         let field_type_repr =
           Util.type_repr_expr ~in_record_context:true ~loc field.field_type
         in
-        (* let field_type_expr = Util.type_expr ~loc field.field_type in *)
-        (* let field_index = field.field_index in *)
-        (* let load_fn = *)
-        (*   [%expr *)
-        (*     fun name base -> *)
-        (*       let open Dsl in *)
-        (*       let dest = *)
-        (*         Nod_core.Var.create ~name ~type_:[%e field_type_expr] *)
-        (*       in *)
-        (*       let instr = *)
-        (*         Ir0.Load_field *)
-        (*           { dest *)
-        (*           ; base = Atom.lit_or_var base *)
-        (*           ; type_ = [%e overall_type_expr] *)
-        (*           ; indices = [ [%e eint ~loc field_index] ] *)
-        (*           } *)
-        (*       in *)
-        (*       var dest, Instr.ir instr] *)
-        (*   [@metaloc loc] *)
-        (* in *)
-        (* let store_fn = *)
-        (*   [%expr *)
-        (*     fun src base -> *)
-        (*       let open Dsl in *)
-        (*       let instr = *)
-        (*         Ir0.Store_field *)
-        (*           { base = Atom.lit_or_var base *)
-        (*           ; src = Atom.lit_or_var src *)
-        (*           ; type_ = [%e overall_type_expr] *)
-        (*           ; indices = [ [%e eint ~loc field_index] ] *)
-        (*           } *)
-        (*       in *)
-        (*       Instr.ir instr] *)
-        (*   [@metaloc loc] *)
-        (* in *)
         let accessor_record =
           pexp_record
             ~loc
-            [ { loc; txt = Lident "repr" }, field_type_repr
-              (* ; { loc; txt = Lident "load" }, load_fn *)
-              (* ; { loc; txt = Lident "store" }, store_fn *)
+            [ { loc; txt = Lident "record_repr" }, overall_type_repr
+            ; { loc; txt = Lident "repr" }, field_type_repr
+            ; ( { loc; txt = Lident "name" }
+              , Builder.estring ~loc field.field_name )
+            ; { loc; txt = Lident "index" }, Builder.eint ~loc index
+            ; ( { loc; txt = Lident "type_info" }
+              , Util.field_type_info_value ~loc field.field_type )
             ]
             None
         in
