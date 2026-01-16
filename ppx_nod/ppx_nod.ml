@@ -316,7 +316,13 @@ let expand_load_record_field ~loc ~var_name field_expr ptr_expr =
             [%e field_access]]
     in
     let loader_expr = build_loader 0 intermediate_fields in
-    let final_field_ref = build_field_ref record_ref fields in
+    let intermediate_field_ref = build_field_ref record_ref intermediate_fields in
+    let final_field_name = List.hd (List.rev fields) in
+    let final_field_ref =
+      pexp_field ~loc
+        (pexp_field ~loc intermediate_field_ref { txt = Lident "type_info"; loc })
+        { txt = Lident final_field_name; loc }
+    in
     [%expr
       let [%p pvar ~loc loader_name] = [%e loader_expr] in
       Field.load_immediate
@@ -338,10 +344,11 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
     let record_ref = ident base_lid loc in
     let field_ref = pexp_field ~loc record_ref { txt = Lident field_name; loc } in
     [%expr
-      Field.store_immediate
-        (Field.Storer.src [%e value_expr])
-        [%e field_ref]
-        [%e ptr_expr]]
+      [ Field.store_immediate
+          (Field.Storer.src [%e value_expr])
+          [%e field_ref]
+          [%e ptr_expr]
+      ]]
   | _ :: _ as fields ->
     let open Builder in
     let record_ref = ident base_lid loc in
@@ -377,13 +384,20 @@ let expand_store_record_field ~loc field_expr value_expr ptr_expr =
             [%e field_access]]
     in
     let storer_expr = build_storer 0 intermediate_fields in
-    let final_field_ref = build_field_ref record_ref fields in
+    let intermediate_field_ref = build_field_ref record_ref intermediate_fields in
+    let final_field_name = List.hd (List.rev fields) in
+    let final_field_ref =
+      pexp_field ~loc
+        (pexp_field ~loc intermediate_field_ref { txt = Lident "type_info"; loc })
+        { txt = Lident final_field_name; loc }
+    in
     [%expr
-      let [%p pvar ~loc storer_name] = [%e storer_expr] in
-      Field.store_immediate
-        [%e evar ~loc storer_name]
-        [%e final_field_ref]
-        [%e ptr_expr]]
+      [ (let [%p pvar ~loc storer_name] = [%e storer_expr] in
+         Field.store_immediate
+           [%e evar ~loc storer_name]
+           [%e final_field_ref]
+           [%e ptr_expr])
+      ]]
 ;;
 
 let rewritable_callee expr =
@@ -400,19 +414,18 @@ let rewrite_call_expr expr =
   | Pexp_apply (fn, args) ->
     (match fn.pexp_desc with
      | Pexp_ident { txt = Lident "load_record_field"; _ } ->
-       errorf
-         ~loc
-         "nod: load_record_field must be used with let%%named binding"
+       (* Don't rewrite load_record_field here; it's handled by add_name_argument *)
+       expr
      | Pexp_ident { txt = Lident "store_record_field"; _ } ->
        (match args with
-        | [ (Nolabel, field_expr); (Nolabel, value_expr); (Nolabel, ptr_expr) ]
+        | [ (Nolabel, field_expr); (Nolabel, ptr_expr); (Nolabel, value_expr) ]
           ->
           expand_store_record_field ~loc field_expr value_expr ptr_expr
         | _ ->
           errorf
             ~loc
             "nod: store_record_field expects exactly three arguments: field \
-             access, value, and pointer")
+             access, pointer, and value")
      | _ when rewritable_callee fn ->
        (match args with
         | _ when not (List.for_all (fun (label, _) -> label = Nolabel) args) ->
@@ -605,13 +618,14 @@ and emit ~add_instr expr =
          | _ ->
            (match seq_arg expr with
             | Some instrs ->
+              let instrs = normalize_call_expr instrs in
               with_loc loc (fun () ->
                 [%expr Core.List.iter [%e instrs] ~f:[%e evar ~loc add_instr]])
             | None ->
               let expr =
                 match label_application expr with
                 | Some label_expr -> label_expr
-                | None -> expr
+                | None -> normalize_call_expr expr
               in
               with_loc loc (fun () ->
                 [%expr [%e evar ~loc add_instr] [%e expr]]))))
