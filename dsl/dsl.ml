@@ -1,6 +1,8 @@
 open! Core
 open! Dsl_import
 
+type base = [ `Base ]
+type record = [ `Record ]
 type int64 = Int64 [@@warning "-37"]
 type float64 = Float64 [@@warning "-37"]
 type ptr = Ptr [@@warning "-37"]
@@ -123,14 +125,6 @@ module Instr = struct
       let instrs_by_label = end_this_label current_label instrs_by_label in
       Ok (~instrs_by_label, ~labels)
   ;;
-end
-
-module Field = struct
-  type ('record, 'field) t =
-    { repr : 'field Type_repr.t
-    (* ; load_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
-    (* ; store_field : 'ret. string -> ptr Atom.t -> 'field Atom.t * 'ret Instr.t *)
-    }
 end
 
 module Fn = struct
@@ -346,3 +340,83 @@ let compile_program_exn program =
   | Ok program -> program
   | Error err -> Nod_error.to_string err |> failwith
 ;;
+
+module Field = struct
+  type ('record, 'field, 'type_info, 'kind) t =
+    { repr : 'field Type_repr.t
+    ; name : string
+    ; index : int
+    ; type_info : 'type_info
+    ; record_repr : 'record Type_repr.t
+    }
+
+  type 'a field_access =
+    { always_have : 'a
+    ; type_ : Nod_core.Type.t option
+    ; indices : int list
+    }
+
+  let create_field_access always_have =
+    { always_have; type_ = None; indices = [] }
+  ;;
+
+  module Loader = struct
+    type 'field t = string field_access
+
+    let dest = create_field_access
+  end
+
+  module Storer = struct
+    type ('field, 'record) t = 'field Atom.t field_access
+
+    let src = create_field_access
+  end
+
+  let inter loader t =
+    { loader with
+      type_ =
+        (match loader.type_ with
+         | None -> Some (Type_repr.type_ t.record_repr)
+         | Some _ as x -> x)
+    ; indices = loader.indices @ [ t.index ]
+    }
+  ;;
+
+  let load_record = inter
+  let store_record = inter
+
+  let load_immediate (loader : _ Loader.t) t base =
+    let dest =
+      Nod_core.Var.create
+        ~name:loader.always_have
+        ~type_:(Type_repr.type_ t.repr)
+    in
+    let instr =
+      Ir0.Load_field
+        { dest
+        ; base = Atom.lit_or_var base
+        ; type_ =
+            (match loader.type_ with
+             | None -> Type_repr.type_ t.record_repr
+             | Some type_ -> type_)
+        ; indices = loader.indices @ [ t.index ]
+        }
+    in
+    var dest, Instr.ir instr
+  ;;
+
+  let store_immediate (storer : _ Storer.t) t base =
+    let instr =
+      Ir0.Store_field
+        { src = storer.always_have
+        ; base = Atom.lit_or_var base
+        ; type_ =
+            (match storer.type_ with
+             | None -> Type_repr.type_ t.record_repr
+             | Some type_ -> type_)
+        ; indices = storer.indices @ [ t.index ]
+        }
+    in
+    Instr.ir instr
+  ;;
+end

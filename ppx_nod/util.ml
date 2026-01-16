@@ -118,3 +118,25 @@ let rec arg_type_to_core_type ~loc = function
       { txt = longident_append_suffix lid ~suffix:record_type_suffix; loc }
       []
 ;;
+
+let field_type_info_kind_type ~loc = function
+  | I64 | F64 | Ptr | Tuple _ ->
+    Builder.ptyp_constr ~loc { txt = Longident.parse "Dsl.base"; loc } []
+  | Lid _ ->
+    Builder.ptyp_constr ~loc { txt = Longident.parse "Dsl.record"; loc } []
+;;
+
+let field_type_info_type ~loc = function
+  | I64 | F64 | Ptr | Tuple _ ->
+    Builder.ptyp_constr ~loc { txt = Longident.parse "unit"; loc } []
+  | Lid (lid, loc) ->
+    Builder.ptyp_constr
+      ~loc
+      { txt = longident_append_suffix lid ~suffix:value_type_suffix; loc }
+      []
+;;
+
+let field_type_info_value ~loc = function
+  | I64 | F64 | Ptr | Tuple _ -> [%expr ()]
+  | Lid (lid, loc) -> ident lid loc
+;;
