@@ -443,30 +443,30 @@ let normalize_call_expr expr =
   if no_nod then expr else rewrite_call_expr expr
 ;;
 
-let extract_named_let expr =
+let extract_unnamed_let expr =
   match expr.pexp_desc with
-  | Pexp_extension ({ txt = "named"; _ }, PStr [ item ]) ->
+  | Pexp_extension ({ txt = "unnamed"; _ }, PStr [ item ]) ->
     (match item.pstr_desc with
      | Pstr_eval (inner, _) ->
        (match inner.pexp_desc with
         | Pexp_let (Immutable, Nonrecursive, [ binding ], body) ->
           Some (binding, body)
         | Pexp_let (Mutable, _, _, _) ->
-          errorf ~loc:expr.pexp_loc "nod: let%%named does not support mutable"
+          errorf ~loc:expr.pexp_loc "nod: let%%unnamed does not support mutable"
         | Pexp_let (_, Recursive, _, _) ->
-          errorf ~loc:expr.pexp_loc "nod: let%%named does not support rec"
+          errorf ~loc:expr.pexp_loc "nod: let%%unnamed does not support rec"
         | _ ->
           errorf
             ~loc:expr.pexp_loc
-            "nod: let%%named must be followed by a single let binding")
+            "nod: let%%unnamed must be followed by a single let binding")
      | _ ->
        errorf
          ~loc:expr.pexp_loc
-         "nod: let%%named must be followed by a let binding")
-  | Pexp_extension ({ txt = "named"; _ }, _) ->
+         "nod: let%%unnamed must be followed by a let binding")
+  | Pexp_extension ({ txt = "unnamed"; _ }, _) ->
     errorf
       ~loc:expr.pexp_loc
-      "nod: let%%named must be followed by a let binding"
+      "nod: let%%unnamed must be followed by a let binding"
   | _ -> None
 ;;
 
@@ -527,19 +527,18 @@ let let_in ~loc pat expr body =
 let rec translate ~add_instr expr =
   let loc = expr.pexp_loc in
   let open Builder in
-  match extract_named_let expr with
+  match extract_unnamed_let expr with
   | Some (binding, body) ->
+    (* let%unnamed - don't add name argument *)
     let pat = binding.pvb_pat in
-    let name =
-      match pat_var_name pat with
-      | Some name -> name
-      | None ->
-        errorf ~loc:pat.ppat_loc "nod: let%%named expects a variable pattern"
-    in
+    (match pat_var_name pat with
+     | Some _ -> ()
+     | None ->
+       errorf
+         ~loc:pat.ppat_loc
+         "nod: let%%unnamed expects a variable pattern");
     let instr_name = gen_symbol ~prefix:"__nod_instr" () in
-    let rhs =
-      binding.pvb_expr |> normalize_call_expr |> add_name_argument ~loc name
-    in
+    let rhs = normalize_call_expr binding.pvb_expr in
     let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
     let add_expr = [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]] in
     let body_expr = translate ~add_instr body in
@@ -551,15 +550,20 @@ let rec translate ~add_instr expr =
   | None ->
     (match expr.pexp_desc with
      | Pexp_let (Immutable, Nonrecursive, [ binding ], body) ->
+       (* Regular let - add name argument (was let%named behavior) *)
        let pat = binding.pvb_pat in
-       (match pat_var_name pat with
-        | Some _ -> ()
-        | None ->
-          errorf
-            ~loc:pat.ppat_loc
-            "nod: let bindings must use a variable pattern");
+       let name =
+         match pat_var_name pat with
+         | Some name -> name
+         | None ->
+           errorf
+             ~loc:pat.ppat_loc
+             "nod: let bindings must use a variable pattern"
+       in
        let instr_name = gen_symbol ~prefix:"__nod_instr" () in
-       let rhs = normalize_call_expr binding.pvb_expr in
+       let rhs =
+         binding.pvb_expr |> normalize_call_expr |> add_name_argument ~loc name
+       in
        let bound_pat = ppat_tuple ~loc [ pat; pvar ~loc instr_name ] in
        let add_expr =
          [%expr [%e evar ~loc add_instr] [%e evar ~loc instr_name]]
@@ -602,8 +606,8 @@ let rec translate ~add_instr expr =
 and emit ~add_instr expr =
   let loc = expr.pexp_loc in
   let open Builder in
-  match extract_named_let expr with
-  | Some _ -> errorf ~loc "nod: let%%named must be in tail position"
+  match extract_unnamed_let expr with
+  | Some _ -> errorf ~loc "nod: let%%unnamed must be in tail position"
   | None ->
     let expr, no_nod = unwrap_no_nod expr in
     if no_nod

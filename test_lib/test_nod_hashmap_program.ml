@@ -5,30 +5,30 @@ open Nod_runtime
 let root =
   let instrs =
     [%nod
-      let%named state = alloca (lit 16L) in
-      let%named table = alloca (lit 64L) in
+      let state = alloca (lit 16L) in
+      let table = alloca (lit 64L) in
       seq [ store_addr (lit 4L) state 0; store_addr table state 8 ];
-      let%named init_done = Hashmap.hashmap_init state in
-      let%named entry1 = alloca (lit 16L) in
+      let init_done = Hashmap.hashmap_init state in
+      let entry1 = alloca (lit 16L) in
       seq [ store_addr (lit 7L) entry1 0; store_addr (lit 21L) entry1 8 ];
-      let%named put1 = Hashmap.hashmap_put state entry1 in
-      let%named entry2 = alloca (lit 16L) in
+      let put1 = Hashmap.hashmap_put state entry1 in
+      let entry2 = alloca (lit 16L) in
       seq [ store_addr (lit 42L) entry2 0; store_addr (lit 100L) entry2 8 ];
-      let%named put2 = Hashmap.hashmap_put state entry2 in
-      let%named query_hit = alloca (lit 16L) in
+      let put2 = Hashmap.hashmap_put state entry2 in
+      let query_hit = alloca (lit 16L) in
       seq [ store_addr (lit 7L) query_hit 0; store_addr (lit 0L) query_hit 8 ];
-      let%named hit = Hashmap.hashmap_get state query_hit in
-      let%named query_miss = alloca (lit 16L) in
+      let hit = Hashmap.hashmap_get state query_hit in
+      let query_miss = alloca (lit 16L) in
       seq
         [ store_addr (lit 99L) query_miss 0; store_addr (lit 5L) query_miss 8 ];
-      let%named miss = Hashmap.hashmap_get state query_miss in
-      let%named total = add hit miss in
-      let%named total = add total init_done in
-      let%named total = sub total init_done in
-      let%named total = add total put1 in
-      let%named total = sub total put1 in
-      let%named total = add total put2 in
-      let%named total = sub total put2 in
+      let miss = Hashmap.hashmap_get state query_miss in
+      let total = add hit miss in
+      let total = add total init_done in
+      let total = sub total init_done in
+      let total = add total put1 in
+      let total = sub total put1 in
+      let total = add total put2 in
+      let total = sub total put2 in
       return total]
   in
   let unnamed = Dsl.Fn.Unnamed.const Dsl.Type_repr.Int64 instrs in
