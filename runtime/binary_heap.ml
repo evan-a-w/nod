@@ -43,4 +43,266 @@ struct
         let res = compare ptr1 ptr2 in
         return res]
   ;;
+
+  let copy_elt =
+    [%nod
+      fun (src : ptr) (dst : ptr) ->
+        let bytes_to_copy = mov (lit elt_bytes) in
+        let i_slot = alloca (lit 8L) in
+        store (lit 0L) i_slot;
+        label copy_loop;
+        let i = load i_slot in
+        let remaining = sub bytes_to_copy i in
+        branch_to remaining ~if_true:"copy_body" ~if_false:"copy_done";
+        label copy_body;
+        let src_ptr = ptr_add src i in
+        let dst_ptr = ptr_add dst i in
+        let byte = load src_ptr in
+        store byte dst_ptr;
+        let next_i = add i (lit 8L) in
+        store next_i i_slot;
+        jump_to "copy_loop";
+        label copy_done;
+        return (lit 0L)]
+  ;;
+
+  let swap =
+    [%nod
+      fun (t : ptr) (index1 : int64) (index2 : int64) ->
+        let ptr1 = array_offset t index1 in
+        let ptr2 = array_offset t index2 in
+        let tmp = alloca (lit elt_bytes) in
+        let _ = copy_elt ptr1 tmp in
+        let _ = copy_elt ptr2 ptr1 in
+        let _ = copy_elt tmp ptr2 in
+        return (lit 0L)]
+  ;;
+
+  let parent_index =
+    [%nod
+      fun (i : int64) ->
+        let one = mov (lit 1L) in
+        let i_minus_1 = sub i one in
+        let parent = div i_minus_1 (lit 2L) in
+        return parent]
+  ;;
+
+  let left_child_index =
+    [%nod
+      fun (i : int64) ->
+        let two_i = mul i (lit 2L) in
+        let left = add two_i (lit 1L) in
+        return left]
+  ;;
+
+  let right_child_index =
+    [%nod
+      fun (i : int64) ->
+        let two_i = mul i (lit 2L) in
+        let right = add two_i (lit 2L) in
+        return right]
+  ;;
+
+  let sift_up =
+    [%nod
+      fun (t : ptr) (index : int64) ->
+        let i_slot = alloca (lit 8L) in
+        store index i_slot;
+        label sift_up_loop;
+        let i = load i_slot in
+        (* if i == 0, we're at root, done *)
+        branch_to i ~if_true:"sift_up_check_parent" ~if_false:"sift_up_done";
+        label sift_up_check_parent;
+        let parent = parent_index i in
+        let cmp = compare_indices t i parent in
+        (* if cmp < 0, element is smaller than parent, swap *)
+        (* cmp < 0 means we need to check if cmp is negative *)
+        let is_negative = sub (lit 0L) cmp in
+        (* is_negative > 0 iff cmp < 0 *)
+        let should_swap = sub is_negative (lit 1L) in
+        (* should_swap >= 0 iff is_negative >= 1 iff cmp <= -1 iff cmp < 0 *)
+        let neg_should_swap = sub (lit 0L) should_swap in
+        (* neg_should_swap <= 0 iff should_swap >= 0 *)
+        (* we want to branch if cmp < 0, i.e. if neg_should_swap <= 0 *)
+        (* branch_to branches to if_true when cond != 0 *)
+        (* so we want to branch to swap when neg_should_swap > 0, which is wrong *)
+        (* let's reconsider: cmp < 0 means child < parent, need to swap *)
+        (* we can use: if cmp is negative, its sign bit is 1 *)
+        (* simpler: let's do a comparison manually *)
+        (* cmp < 0 equivalent to (cmp - 1) being very negative or (0 - cmp) > 0 *)
+        (* Actually simpler: branch_to cmp goes to if_true if cmp != 0 *)
+        (* We want to check if cmp < 0. Since we have signed integers: *)
+        (* if cmp < 0, then cmp is a large positive number when interpreted unsigned *)
+        (* Let's just check sign: shift right by 63 bits would give sign *)
+        (* But we don't have shift. Let's use a different approach. *)
+        (* We can check if cmp >= 0 by doing: cmp + large_positive, if it overflows... *)
+        (* Actually, the simplest: use the comparison result directly *)
+        (* In most systems, negative is truthy. Let's check both cases. *)
+        (* cmp could be negative, zero, or positive *)
+        (* We want to swap only if cmp < 0 *)
+        (* Create a mask: if cmp is negative, the high bit is set *)
+        (* For simplicity, let's compute: (cmp >> 63) & 1, but we don't have shift *)
+        (* Alternative: check if cmp != 0 and then check sign separately *)
+        (* Actually, let's just use: cmp & 0x8000000000000000 to get sign bit *)
+        let sign_bit = and_ cmp (lit 0x8000000000000000L) in
+        seq
+          [ branch_to sign_bit ~if_true:"sift_up_swap" ~if_false:"sift_up_done"
+          ];
+        label sift_up_swap;
+        let _ = swap t i parent in
+        seq [ store parent i_slot; jump_to "sift_up_loop" ];
+        label sift_up_done;
+        return (lit 0L)]
+  ;;
+
+  let sift_down =
+    [%nod
+      fun (t : ptr) (index : int64) ->
+        let len = load_record_field binary_heap.len t in
+        let i_slot = alloca (lit 8L) in
+        seq [ store index i_slot ];
+        label sift_down_loop;
+        let i = load i_slot in
+        let left = left_child_index i in
+        (* if left >= len, no children, done *)
+        let left_in_bounds = sub len left in
+        (* left_in_bounds > 0 iff left < len *)
+        seq
+          [ branch_to
+              left_in_bounds
+              ~if_true:"sift_down_has_left"
+              ~if_false:"sift_down_done"
+          ];
+        label sift_down_has_left;
+        let right = right_child_index i in
+        let right_in_bounds = sub len right in
+        (* right_in_bounds > 0 iff right < len *)
+        let smallest_slot = alloca (lit 8L) in
+        seq [ store left smallest_slot ];
+        seq
+          [ branch_to
+              right_in_bounds
+              ~if_true:"sift_down_check_right"
+              ~if_false:"sift_down_compare_with_parent"
+          ];
+        label sift_down_check_right;
+        (* compare right with current smallest (left) *)
+        let smallest = load smallest_slot in
+        let cmp_right_left = compare_indices t right smallest in
+        let sign_bit_rl = and_ cmp_right_left (lit 0x8000000000000000L) in
+        seq
+          [ branch_to
+              sign_bit_rl
+              ~if_true:"sift_down_right_smaller"
+              ~if_false:"sift_down_compare_with_parent"
+          ];
+        label sift_down_right_smaller;
+        seq
+          [ store right smallest_slot; jump_to "sift_down_compare_with_parent" ];
+        label sift_down_compare_with_parent;
+        let smallest_final = load smallest_slot in
+        let cmp_smallest_i = compare_indices t smallest_final i in
+        let sign_bit_si = and_ cmp_smallest_i (lit 0x8000000000000000L) in
+        seq
+          [ branch_to
+              sign_bit_si
+              ~if_true:"sift_down_swap"
+              ~if_false:"sift_down_done"
+          ];
+        label sift_down_swap;
+        let _ = swap t i smallest_final in
+        seq [ store smallest_final i_slot; jump_to "sift_down_loop" ];
+        label sift_down_done;
+        return (lit 0L)]
+  ;;
+
+  let create =
+    [%nod
+      fun (initial_capacity : int64) ->
+        let heap_size = mov (lit 24L) in
+        (* 3 fields * 8 bytes each *)
+        let heap_ptr = Libc.malloc heap_size in
+        let array_size = mul initial_capacity (lit elt_bytes) in
+        let array_ptr = Libc.malloc array_size in
+        store_record_field binary_heap.array heap_ptr array_ptr;
+        store_record_field binary_heap.capacity heap_ptr initial_capacity;
+        store_record_field binary_heap.len heap_ptr (lit 0L);
+        return heap_ptr]
+  ;;
+
+  let len =
+    [%nod
+      fun (t : ptr) ->
+        let len = load_record_field binary_heap.len t in
+        return len]
+  ;;
+
+  let peek =
+    [%nod
+      fun (t : ptr) ->
+        let ptr = array_offset t (lit 0L) in
+        return ptr]
+  ;;
+
+  let push =
+    [%nod
+      fun (t : ptr) (elt : ptr) ->
+        let current_len = load_record_field binary_heap.len t in
+        (* TODO: check capacity and grow if needed *)
+        let insert_ptr = array_offset t current_len in
+        let _ = copy_elt elt insert_ptr in
+        let new_len = add current_len (lit 1L) in
+        seq [ store_record_field binary_heap.len t new_len ];
+        let _ = sift_up t current_len in
+        return (lit 0L)]
+  ;;
+
+  let pop =
+    [%nod
+      fun (t : ptr) (out : ptr) ->
+        let current_len = load_record_field binary_heap.len t in
+        (* if len == 0, return error or undefined *)
+        seq
+          [ branch_to
+              current_len
+              ~if_true:"pop_has_elements"
+              ~if_false:"pop_empty"
+          ];
+        label pop_has_elements;
+        let root_ptr = array_offset t (lit 0L) in
+        let _ = copy_elt root_ptr out in
+        let new_len = sub current_len (lit 1L) in
+        seq [ store_record_field binary_heap.len t new_len ];
+        (* if new_len == 0, nothing to sift *)
+        seq [ branch_to new_len ~if_true:"pop_sift" ~if_false:"pop_done" ];
+        label pop_sift;
+        let last_ptr = array_offset t new_len in
+        let _ = copy_elt last_ptr root_ptr in
+        let _ = sift_down t (lit 0L) in
+        seq [ jump_to "pop_done" ];
+        label pop_empty;
+        seq [ jump_to "pop_done" ];
+        label pop_done;
+        return (lit 0L)]
+  ;;
+
+  let functions =
+    [ Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_array_offset" array_offset)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_compare_indices" compare_indices)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_copy_elt" copy_elt)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_swap" swap)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_parent_index" parent_index)
+    ; Dsl.Fn.pack
+        (Dsl.Fn.renamed ~name:"heap_left_child_index" left_child_index)
+    ; Dsl.Fn.pack
+        (Dsl.Fn.renamed ~name:"heap_right_child_index" right_child_index)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_sift_up" sift_up)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_sift_down" sift_down)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_create" create)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_len" len)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_peek" peek)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_push" push)
+    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_pop" pop)
+    ]
+  ;;
 end
