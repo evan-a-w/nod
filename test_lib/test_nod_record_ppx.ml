@@ -69,3 +69,29 @@ let%expect_test "incl other" =
   print_s [%sexp (Dsl.Type_repr.type_ point'.point.repr : Type.t)];
   [%expect {| (Tuple (I64 F64 (Tuple (I64 F64)))) |}]
 ;;
+
+let%expect_test "nod load and store field" =
+  let fn =
+    [%nod
+      fun (a : ptr) ->
+        let%named x = load_record_field point.x a in
+        let%named y = load_record_field point'.point.x in
+        return x]
+  in
+  let unnamed = Dsl.Fn.unnamed fn in
+  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Var.t list)];
+  print_s [%sexp (Dsl.Fn.Unnamed.ret unnamed : Type.t)];
+  let root = block_of_instrs (Dsl.Fn.Unnamed.instrs unnamed) in
+  print_s (Block.to_sexp_verbose root);
+  [%expect
+    {|
+    (((name a) (type_ I64)) ((name b) (type_ I64)))
+    I64
+    ((%entry (args ())
+      (instrs
+       ((Add
+         ((dest ((name sum) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
+          (src2 (Var ((name b) (type_ I64))))))
+        (Return (Var ((name sum) (type_ I64))))))))
+    |}]
+;;
