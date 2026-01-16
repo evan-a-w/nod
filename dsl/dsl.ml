@@ -265,6 +265,16 @@ let call2
   call_common name fn [ arg1; arg2 ]
 ;;
 
+let call3
+  name
+  (fn : ('a -> 'b -> 'c -> 'ret, 'ret) Fn.t)
+  (arg1 : 'a Atom.t)
+  (arg2 : 'b Atom.t)
+  (arg3 : 'c Atom.t)
+  =
+  call_common name fn [ arg1; arg2; arg3 ]
+;;
+
 let branch_to cond ~if_true ~if_false =
   Instr.ir
     (Ir0.Branch

@@ -89,6 +89,7 @@ let is_nod_builtin_name =
     ; "call0"
     ; "call1"
     ; "call2"
+    ; "call3"
     ; "label"
     ; "jump_to"
     ; "branch_to"
@@ -297,6 +298,8 @@ let rewrite_call_expr expr =
         | [ (Nolabel, arg) ] -> [%expr call1 [%e fn] [%e arg]]
         | [ (Nolabel, arg1); (Nolabel, arg2) ] ->
           [%expr call2 [%e fn] [%e arg1] [%e arg2]]
+        | [ (Nolabel, arg1); (Nolabel, arg2); (Nolabel, arg3) ] ->
+          [%expr call3 [%e fn] [%e arg1] [%e arg2] [%e arg3]]
         | _ -> expr)
      | _ -> expr)
   | _ -> expr
@@ -417,10 +420,7 @@ let rec translate ~add_instr expr =
        let name =
          match pat_var_name pat with
          | Some name -> name
-         | None ->
-           errorf
-             ~loc:pat.ppat_loc
-             "nod: let bindings must use a variable pattern"
+         | None -> gen_symbol ~prefix:"_" ()
        in
        let instr_name = gen_symbol ~prefix:"__nod_instr" () in
        let rhs =

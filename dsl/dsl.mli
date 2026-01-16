@@ -183,5 +183,13 @@ val call2
   -> 'b Atom.t
   -> 'ret Atom.t * 'block Instr.t
 
+val call3
+  :  string
+  -> ('a -> 'b -> 'c -> 'ret, 'ret) Fn.t
+  -> 'a Atom.t
+  -> 'b Atom.t
+  -> 'c Atom.t
+  -> 'ret Atom.t * 'block Instr.t
+
 val branch_to : int64 Atom.t -> if_true:string -> if_false:string -> 'a Instr.t
 val jump_to : string -> 'a Instr.t
