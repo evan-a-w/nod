@@ -22,9 +22,7 @@ let ensure_function name =
   Hashtbl.find_or_add by_function name ~default:Ssa_state.create
 ;;
 
-let register_function name state =
-  Hashtbl.set by_function ~key:name ~data:state
-;;
+let register_function name state = Hashtbl.set by_function ~key:name ~data:state
 
 let register_block ~block ~state =
   Hashtbl.set by_block ~key:block ~data:state;
@@ -33,5 +31,5 @@ let register_block ~block ~state =
 
 let state_for_function name = Hashtbl.find_exn by_function name
 let state_for_block block = Hashtbl.find_exn by_block block
-
+let state_for_block_opt block = Hashtbl.find by_block block
 let table () = by_function
