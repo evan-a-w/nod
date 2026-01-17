@@ -1,53 +1,6 @@
 open! Ssa
 open! Core
 open! Import
-(* Planned opts/changes:
- 
-  8 opts: inline, unroll (& vectorise), cse, dce, code motion, constant fold, peephole
-
-  Memory:
-
-  First write in tags on ir to keep track of memory regions and stuff like reading and mutating which regions.
-  Make sure these tags can be inserted in the frontend stage (at least make it possible, and later extend the parser to parse annotations)
-
-   IR ops: alloca, gep/addr_of, load, store, and calls that may read/write memory.
-
-   Only values are in SSA; memory is implicit shared state.
-
-   Add metadata/flags to ops about effects: readonly, writeonly, argmemonly, noalias, nocapture, invariant.load, alignment, TBAA, etc.
-
-   You need a notion of disjointness to optimize safely.
-
-   Stack slots (alloca v): treat each alloca as its own location; quickly disjoint.
-
-   Fields of aggregates: use field sensitivity. Treat p->x and p->y as different alias classes (use GEP indices/offsets).
-
-   Globals: distinct by symbol + section (and possibly constant vs mutable).
-
-   Heap objects: introduce object identity via allocation sites (context-sensitive if you like). A pointer’s “points-to set” is a set of alloc-sites.
-
-   Address spaces/regions: sometimes you’ll model distinct regions (e.g., stack vs heap vs GPU local) as never-aliasing.
-
-   This granularity is the backbone for AA and DSE.
-
-  reg2mem
-
-  SROA / mem2reg (promote allocas, split aggregates)
-
-  GVN/CSE (values + loads)
-
-  DSE (kills earlier stores)
-
-  LICM (hoist invariant loads; sink dead stores)
-
-  Loop vectorization / store & load widening (if you have it)
-
-  DCE (clean up)
-
-  Repeat (2–6) once; interleave with inlining and AA rebuild as needed.
-
-  Run MemorySSA rebuild when necessary (cheap if incremental).
-*)
 
 module Tags = struct
   type t = { constant : Int64.t option } [@@deriving sexp]

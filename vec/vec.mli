@@ -16,6 +16,7 @@ val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
 val foldr : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
 val push : 'a t -> 'a -> unit
 val pop_exn : 'a t -> 'a
+val pop : 'a t -> 'a option
 val fill_to_length : 'a t -> length:int -> f:(int -> 'a) -> unit
 val map : 'a t -> f:('a -> 'b) -> 'b t
 val fold_map : 'a t -> init:'acc -> f:('acc -> 'a -> 'acc * 'b) -> 'b t
