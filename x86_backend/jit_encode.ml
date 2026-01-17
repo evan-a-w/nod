@@ -1,6 +1,5 @@
 open! Core
 open! Import
-
 module Asm = X86_asm
 module Reg = X86_reg
 module Raw = X86_reg.Raw
@@ -136,8 +135,7 @@ let raw_code_exn raw =
   | Raw.XMM13 -> 13
   | Raw.XMM14 -> 14
   | Raw.XMM15 -> 15
-  | Raw.Unallocated _ | Raw.Allocated _ ->
-    failwith "expected physical register"
+  | Raw.Unallocated _ | Raw.Allocated _ -> failwith "expected physical register"
 ;;
 
 let raw_is_xmm = function
@@ -170,8 +168,7 @@ let reg_code_exn reg = reg_raw_exn reg |> raw_code_exn
 let reg_is_xmm reg = reg_raw_exn reg |> raw_is_xmm
 
 let expect_xmm_reg reg ~context =
-  if not (reg_is_xmm reg)
-  then failwithf "%s expects xmm register" context ()
+  if not (reg_is_xmm reg) then failwithf "%s expects xmm register" context ()
 ;;
 
 let rm_size_for_base base_code disp =
@@ -223,9 +220,13 @@ let rex_b = function
 let emit_rex w ~w_bit ~r ~x ~b =
   if w_bit || r || x || b
   then
-    Writer.emit_u8 w
-      (0x40 lor ((if w_bit then 1 else 0) lsl 3) lor ((if r then 1 else 0) lsl 2)
-       lor ((if x then 1 else 0) lsl 1) lor (if b then 1 else 0))
+    Writer.emit_u8
+      w
+      (0x40
+       lor ((if w_bit then 1 else 0) lsl 3)
+       lor ((if r then 1 else 0) lsl 2)
+       lor ((if x then 1 else 0) lsl 1)
+       lor if b then 1 else 0)
 ;;
 
 let emit_modrm w ~reg ~rm =
@@ -255,8 +256,7 @@ let emit_modrm w ~reg ~rm =
       | _ -> 0b10
     in
     let rm_field = if needs_sib then 0b100 else base_low in
-    Writer.emit_u8 w
-      ((mod_bits lsl 6) lor ((reg land 7) lsl 3) lor rm_field);
+    Writer.emit_u8 w ((mod_bits lsl 6) lor ((reg land 7) lsl 3) lor rm_field);
     if needs_sib
     then Writer.emit_u8 w ((0b00 lsl 6) lor (0b100 lsl 3) lor base_low);
     (match disp_size with
@@ -278,7 +278,6 @@ let rm_code_of_operand = function
 ;;
 
 let rex_size ~w ~reg ~rm = if rex_needed ~w ~reg ~rm then 1 else 0
-
 let sse_size ~reg ~rm ~rm_size = rex_size ~w:false ~reg ~rm + 3 + rm_size
 let sse_size_rip ~reg = rex_size ~w:false ~reg ~rm:0 + 3 + 5
 
@@ -289,60 +288,72 @@ let size_of_instr instr ~add_literal =
      | Reg dst_reg, Imm imm when reg_is_xmm dst_reg ->
        let id = add_literal imm in
        sse_size_rip ~reg:(reg_code_exn dst_reg), Some id
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) when reg_is_xmm dst_reg ->
        let rm = rm_size src_op in
        let rm_code = rm_code_of_operand src_op in
-       let size = sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm in
+       let size =
+         sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm
+       in
        size, None
      | Mem _, Reg src_reg when reg_is_xmm src_reg ->
        let rm = rm_size dst in
        let rm_code = rm_code_of_operand dst in
-       let size = sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm in
+       let size =
+         sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm
+       in
        size, None
      | Reg _, Imm _ ->
        let rex = 1 in
-       (rex + 1 + 8), None
+       rex + 1 + 8, None
      | Reg _, (Reg _ | Mem _) ->
        let rm = rm_size src in
        let rex = 1 in
-       (rex + 1 + rm), None
+       rex + 1 + rm, None
      | Mem _, Reg _ ->
        let rm = rm_size dst in
        let rex = 1 in
-       (rex + 1 + rm), None
+       rex + 1 + rm, None
      | Mem _, Imm imm ->
        let _ = int32_of_int64_exn imm ~context:"mov mem, imm" in
        let rm = rm_size dst in
        let rex = 1 in
-       (rex + 1 + rm + 4), None
+       rex + 1 + rm + 4, None
      | _ -> failwith "unsupported mov operands")
   | Movsd (dst, src) ->
     (match dst, src with
      | Reg dst_reg, Imm imm ->
        let id = add_literal imm in
        sse_size_rip ~reg:(reg_code_exn dst_reg), Some id
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) ->
        let rm = rm_size src_op in
        let rm_code = rm_code_of_operand src_op in
-       let size = sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm in
+       let size =
+         sse_size ~reg:(reg_code_exn dst_reg) ~rm:rm_code ~rm_size:rm
+       in
        size, None
      | Mem _, Reg src_reg ->
        let rm = rm_size dst in
        let rm_code = rm_code_of_operand dst in
-       let size = sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm in
+       let size =
+         sse_size ~reg:(reg_code_exn src_reg) ~rm:rm_code ~rm_size:rm
+       in
        size, None
      | _ -> failwith "unsupported movsd operands")
   | Movq (dst, src) ->
     (match dst, src with
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) when reg_is_xmm dst_reg ->
        let rm = rm_size src_op in
        let rm_code = rm_code_of_operand src_op in
-       let size = rex_size ~w:true ~reg:(reg_code_exn dst_reg) ~rm:rm_code + 3 + rm in
+       let size =
+         rex_size ~w:true ~reg:(reg_code_exn dst_reg) ~rm:rm_code + 3 + rm
+       in
        size, None
-     | (Reg _ | Mem _ as dst_op), Reg src_reg when reg_is_xmm src_reg ->
+     | ((Reg _ | Mem _) as dst_op), Reg src_reg when reg_is_xmm src_reg ->
        let rm = rm_size dst_op in
        let rm_code = rm_code_of_operand dst_op in
-       let size = rex_size ~w:true ~reg:(reg_code_exn src_reg) ~rm:rm_code + 3 + rm in
+       let size =
+         rex_size ~w:true ~reg:(reg_code_exn src_reg) ~rm:rm_code + 3 + rm
+       in
        size, None
      | _ -> failwith "unsupported movq operands")
   | Cvtsi2sd (_dst, src) ->
@@ -357,7 +368,7 @@ let size_of_instr instr ~add_literal =
       | None -> rm_size src
     in
     let rex = 1 in
-    (rex + 3 + rm_size'), literal_id
+    rex + 3 + rm_size', literal_id
   | Cvttsd2si (_dst, src) ->
     let literal_id =
       match src with
@@ -370,14 +381,14 @@ let size_of_instr instr ~add_literal =
       | None -> rm_size src
     in
     let rex = 1 in
-    (rex + 3 + rm_size'), literal_id
+    rex + 3 + rm_size', literal_id
   | Add (dst, src)
   | Sub (dst, src)
   | And (dst, src)
   | Or (dst, src)
   | Cmp (dst, src) ->
     (match dst, src with
-     | (Reg _ | Mem _ as dst_op), (Reg _ | Mem _ as src_op) ->
+     | ((Reg _ | Mem _) as dst_op), ((Reg _ | Mem _) as src_op) ->
        let rm =
          match dst_op, src_op with
          | Reg _, Mem _ -> rm_size src_op
@@ -385,17 +396,14 @@ let size_of_instr instr ~add_literal =
          | _ -> failwith "unexpected binop operands"
        in
        let rex = 1 in
-       (rex + 1 + rm), None
-     | (Reg _ | Mem _ as dst_op), Imm imm ->
+       rex + 1 + rm, None
+     | ((Reg _ | Mem _) as dst_op), Imm imm ->
        let _ = int32_of_int64_exn imm ~context:"binop imm" in
        let rm = rm_size dst_op in
        let rex = 1 in
-       (rex + 1 + rm + 4), None
+       rex + 1 + rm + 4, None
      | _ -> failwith "unsupported binop operands")
-  | Addsd (dst, src)
-  | Subsd (dst, src)
-  | Mulsd (dst, src)
-  | Divsd (dst, src) ->
+  | Addsd (dst, src) | Subsd (dst, src) | Mulsd (dst, src) | Divsd (dst, src) ->
     let literal_id =
       match src with
       | Imm imm -> Some (add_literal imm)
@@ -423,28 +431,28 @@ let size_of_instr instr ~add_literal =
   | Imul op | Idiv op | Mod op ->
     let rm = rm_size op in
     let rex = 1 in
-    (rex + 1 + rm), None
+    rex + 1 + rm, None
   | Call _ -> 12, None
   | Push op ->
     (match op with
      | Reg reg ->
        let code = reg_code_exn reg in
        let rex = if code >= 8 then 1 else 0 in
-       (rex + 1), None
+       rex + 1, None
      | Imm imm ->
        let _ = int32_of_int64_exn imm ~context:"push imm" in
-       (1 + 4), None
+       1 + 4, None
      | Mem _ ->
        let rm = rm_size op in
        let rm_code = rm_code_of_operand op in
        let rex = rex_size ~w:false ~reg:0 ~rm:rm_code in
-       (rex + 1 + rm), None
+       rex + 1 + rm, None
      | Spill_slot _ -> failwith "unexpected spill slot"
      | Symbol _ -> failwith "globals are not supported in the x86 jit")
   | Pop reg ->
     let code = reg_code_exn reg in
     let rex = if code >= 8 then 1 else 0 in
-    (rex + 1), None
+    rex + 1, None
   | Jmp _ -> 5, None
   | Je _ | Jne _ -> 6, None
   | Ret -> 1, None
@@ -458,7 +466,9 @@ let size_of_instr instr ~add_literal =
   | Lock_and _ -> failwith "JIT encoding for LOCK_AND not yet implemented"
   | Lock_or _ -> failwith "JIT encoding for LOCK_OR not yet implemented"
   | Lock_xor _ -> failwith "JIT encoding for LOCK_XOR not yet implemented"
-  | Lock_cmpxchg _ -> failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
+  | Lock_cmpxchg _ ->
+    failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
+  | Cqo -> failwith "JIT encoding for CQO not yet implemented"
 ;;
 
 let layout_fn (fn : Asm.fn) =
@@ -499,19 +509,23 @@ let layout_program (program : Asm.program) =
       let labels_with_base =
         Map.map layout.labels ~f:(fun offset -> offset + base)
       in
-      labels := Map.merge !labels labels_with_base ~f:(fun ~key:_ -> function
-        | `Left v -> Some v
-        | `Right v -> Some v
-        | `Both _ -> failwith "duplicate label")
-      ;
-      entry_offsets :=
-        Map.set
-          !entry_offsets
-          ~key:layout.fn.name
-          ~data:(Map.find_exn labels_with_base layout.fn.asm_label);
+      labels
+      := Map.merge !labels labels_with_base ~f:(fun ~key:_ -> function
+           | `Left v -> Some v
+           | `Right v -> Some v
+           | `Both _ -> failwith "duplicate label");
+      entry_offsets
+      := Map.set
+           !entry_offsets
+           ~key:layout.fn.name
+           ~data:(Map.find_exn labels_with_base layout.fn.asm_label);
       { layout with base })
   in
-  { fns; labels = !labels; total_size = !total_size; entry_offsets = !entry_offsets }
+  { fns
+  ; labels = !labels
+  ; total_size = !total_size
+  ; entry_offsets = !entry_offsets
+  }
 ;;
 
 let emit_binop w ~opcode_rm_reg ~opcode_reg_rm ~imm_reg ~dst ~src =
@@ -554,7 +568,8 @@ let emit_binop w ~opcode_rm_reg ~opcode_reg_rm ~imm_reg ~dst ~src =
 
 let emit_sse_rm_reg w ~prefix ~opcode ~dst_reg ~src_rm =
   Writer.emit_u8 w prefix;
-  emit_rex w
+  emit_rex
+    w
     ~w_bit:false
     ~r:(reg_code_exn dst_reg lsr 3 = 1)
     ~x:false
@@ -566,7 +581,8 @@ let emit_sse_rm_reg w ~prefix ~opcode ~dst_reg ~src_rm =
 
 let emit_sse_reg_rm w ~prefix ~opcode ~dst_rm ~src_reg =
   Writer.emit_u8 w prefix;
-  emit_rex w
+  emit_rex
+    w
     ~w_bit:false
     ~r:(reg_code_exn src_reg lsr 3 = 1)
     ~x:false
@@ -576,20 +592,16 @@ let emit_sse_reg_rm w ~prefix ~opcode ~dst_rm ~src_reg =
   emit_modrm w ~reg:(reg_code_exn src_reg) ~rm:dst_rm
 ;;
 
-let encode_instr
-  ~writer
-  ~labels
-  ~literal_offsets
-  ~call_fixups
-  instr_layout
-  =
+let encode_instr ~writer ~labels ~literal_offsets ~call_fixups instr_layout =
   let instr = instr_layout.instr in
   let emit_literal_rm () =
     match instr_layout.literal_id with
     | None -> failwith "missing literal id"
     | Some id ->
       let literal_offset = List.nth_exn literal_offsets id in
-      let disp = literal_offset - (Writer.position writer + instr_layout.size) in
+      let disp =
+        literal_offset - (Writer.position writer + instr_layout.size)
+      in
       Rm_rip disp
   in
   match instr with
@@ -599,7 +611,7 @@ let encode_instr
        expect_xmm_reg dst_reg ~context:"mov xmm, imm";
        let rm = emit_literal_rm () in
        emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x10 ~dst_reg ~src_rm:rm
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) when reg_is_xmm dst_reg ->
        (match src_op with
         | Reg src_reg -> expect_xmm_reg src_reg ~context:"mov xmm, reg"
         | Mem _ -> ()
@@ -615,15 +627,15 @@ let encode_instr
        emit_rex writer ~w_bit:true ~r:false ~x:false ~b:(reg lsr 3 = 1);
        Writer.emit_u8 writer (0xB8 + (reg land 7));
        Writer.emit_int64_le writer imm
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) ->
        (match src_op with
         | Reg _ ->
           let rm = Rm_reg (reg_code_exn dst_reg) in
           let src_reg = reg_of_operand_exn src_op in
-          if reg_is_xmm src_reg
-          then failwith "mov gpr from xmm without movq";
+          if reg_is_xmm src_reg then failwith "mov gpr from xmm without movq";
           let reg = reg_code_exn src_reg in
-          emit_rex writer
+          emit_rex
+            writer
             ~w_bit:true
             ~r:(reg lsr 3 = 1)
             ~x:false
@@ -633,7 +645,8 @@ let encode_instr
         | Mem _ ->
           let rm = rm_of_operand src_op in
           let reg = reg_code_exn dst_reg in
-          emit_rex writer
+          emit_rex
+            writer
             ~w_bit:true
             ~r:(reg lsr 3 = 1)
             ~x:false
@@ -644,11 +657,7 @@ let encode_instr
      | Mem _, Reg src_reg ->
        let rm = rm_of_operand dst in
        let reg = reg_code_exn src_reg in
-       emit_rex writer
-         ~w_bit:true
-         ~r:(reg lsr 3 = 1)
-         ~x:false
-         ~b:(rex_b rm = 1);
+       emit_rex writer ~w_bit:true ~r:(reg lsr 3 = 1) ~x:false ~b:(rex_b rm = 1);
        Writer.emit_u8 writer 0x89;
        emit_modrm writer ~reg ~rm
      | Mem _, Imm imm ->
@@ -664,7 +673,7 @@ let encode_instr
        expect_xmm_reg dst_reg ~context:"movsd xmm, imm";
        let rm = emit_literal_rm () in
        emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x10 ~dst_reg ~src_rm:rm
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) ->
        expect_xmm_reg dst_reg ~context:"movsd dst";
        (match src_op with
         | Reg src_reg -> expect_xmm_reg src_reg ~context:"movsd src"
@@ -679,7 +688,7 @@ let encode_instr
      | _ -> failwith "unsupported movsd")
   | Movq (dst, src) ->
     (match dst, src with
-     | Reg dst_reg, (Reg _ | Mem _ as src_op) when reg_is_xmm dst_reg ->
+     | Reg dst_reg, ((Reg _ | Mem _) as src_op) when reg_is_xmm dst_reg ->
        expect_xmm_reg dst_reg ~context:"movq dst";
        (match src_op with
         | Reg src_reg when reg_is_xmm src_reg ->
@@ -687,7 +696,8 @@ let encode_instr
         | _ -> ());
        let rm = rm_of_operand src_op in
        Writer.emit_u8 writer 0x66;
-       emit_rex writer
+       emit_rex
+         writer
          ~w_bit:true
          ~r:(reg_code_exn dst_reg lsr 3 = 1)
          ~x:false
@@ -695,12 +705,13 @@ let encode_instr
        Writer.emit_u8 writer 0x0F;
        Writer.emit_u8 writer 0x6E;
        emit_modrm writer ~reg:(reg_code_exn dst_reg) ~rm
-     | (Reg _ | Mem _ as dst_op), Reg src_reg ->
+     | ((Reg _ | Mem _) as dst_op), Reg src_reg ->
        if not (reg_is_xmm src_reg)
        then failwith "movq expects xmm source for store";
        let rm = rm_of_operand dst_op in
        Writer.emit_u8 writer 0x66;
-       emit_rex writer
+       emit_rex
+         writer
          ~w_bit:true
          ~r:(reg_code_exn src_reg lsr 3 = 1)
          ~x:false
@@ -722,7 +733,8 @@ let encode_instr
       | _ -> rm_of_operand src
     in
     Writer.emit_u8 writer 0xF2;
-    emit_rex writer
+    emit_rex
+      writer
       ~w_bit:true
       ~r:(reg_code_exn dst_reg lsr 3 = 1)
       ~x:false
@@ -745,7 +757,8 @@ let encode_instr
       | _ -> rm_of_operand src
     in
     Writer.emit_u8 writer 0xF2;
-    emit_rex writer
+    emit_rex
+      writer
       ~w_bit:true
       ~r:(reg_code_exn dst_reg lsr 3 = 1)
       ~x:false
@@ -818,33 +831,54 @@ let encode_instr
     in
     emit_sse_rm_reg writer ~prefix:0xF2 ~opcode:0x5E ~dst_reg ~src_rm:rm
   | Add (dst, src) ->
-    emit_binop writer ~opcode_rm_reg:0x01 ~opcode_reg_rm:0x03 ~imm_reg:0 ~dst ~src
+    emit_binop
+      writer
+      ~opcode_rm_reg:0x01
+      ~opcode_reg_rm:0x03
+      ~imm_reg:0
+      ~dst
+      ~src
   | Sub (dst, src) ->
-    emit_binop writer ~opcode_rm_reg:0x29 ~opcode_reg_rm:0x2B ~imm_reg:5 ~dst ~src
+    emit_binop
+      writer
+      ~opcode_rm_reg:0x29
+      ~opcode_reg_rm:0x2B
+      ~imm_reg:5
+      ~dst
+      ~src
   | And (dst, src) ->
-    emit_binop writer ~opcode_rm_reg:0x21 ~opcode_reg_rm:0x23 ~imm_reg:4 ~dst ~src
+    emit_binop
+      writer
+      ~opcode_rm_reg:0x21
+      ~opcode_reg_rm:0x23
+      ~imm_reg:4
+      ~dst
+      ~src
   | Or (dst, src) ->
-    emit_binop writer ~opcode_rm_reg:0x09 ~opcode_reg_rm:0x0B ~imm_reg:1 ~dst ~src
+    emit_binop
+      writer
+      ~opcode_rm_reg:0x09
+      ~opcode_reg_rm:0x0B
+      ~imm_reg:1
+      ~dst
+      ~src
   | Cmp (dst, src) ->
     (match dst, src with
-     | (Reg _ | Mem _ as dst_op), (Reg _ | Mem _ as src_op) ->
+     | ((Reg _ | Mem _) as dst_op), ((Reg _ | Mem _) as src_op) ->
        let rm, reg, opcode =
          match dst_op, src_op with
          | Reg dst_reg, Mem _ ->
            rm_of_operand src_op, reg_code_exn dst_reg, 0x3B
          | Reg dst_reg, Reg src_reg ->
            Rm_reg (reg_code_exn dst_reg), reg_code_exn src_reg, 0x39
-         | Mem _, Reg src_reg -> rm_of_operand dst_op, reg_code_exn src_reg, 0x39
+         | Mem _, Reg src_reg ->
+           rm_of_operand dst_op, reg_code_exn src_reg, 0x39
          | _ -> failwith "unexpected cmp operands"
        in
-       emit_rex writer
-         ~w_bit:true
-         ~r:(reg lsr 3 = 1)
-         ~x:false
-         ~b:(rex_b rm = 1);
+       emit_rex writer ~w_bit:true ~r:(reg lsr 3 = 1) ~x:false ~b:(rex_b rm = 1);
        Writer.emit_u8 writer opcode;
        emit_modrm writer ~reg ~rm
-     | (Reg _ | Mem _ as dst_op), Imm imm ->
+     | ((Reg _ | Mem _) as dst_op), Imm imm ->
        let rm = rm_of_operand dst_op in
        emit_rex writer ~w_bit:true ~r:false ~x:false ~b:(rex_b rm = 1);
        Writer.emit_u8 writer 0x81;
@@ -917,7 +951,9 @@ let encode_instr
   | Lock_and _ -> failwith "JIT encoding for LOCK_AND not yet implemented"
   | Lock_or _ -> failwith "JIT encoding for LOCK_OR not yet implemented"
   | Lock_xor _ -> failwith "JIT encoding for LOCK_XOR not yet implemented"
-  | Lock_cmpxchg _ -> failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
+  | Lock_cmpxchg _ ->
+    failwith "JIT encoding for LOCK_CMPXCHG not yet implemented"
+  | Cqo -> failwith "JIT encoding for CQO not yet implemented"
 ;;
 
 let encode (program : Asm.program) =
