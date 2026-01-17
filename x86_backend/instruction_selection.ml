@@ -294,6 +294,19 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     let pre1, op1 = operand_of_lit_or_var t ~class_:Class.F64 arith.src1 in
     let pre2, op2 = operand_of_lit_or_var t ~class_:Class.F64 arith.src2 in
     pre1 @ pre2 @ [ movsd dest_op op1; divsd dest_op op2 ]
+  | Lt arith ->
+    (* Signed less than comparison: dest = 1 if src1 < src2, else 0 *)
+    require_class t arith.dest Class.I64;
+    let dest_reg = reg_of_var t arith.dest in
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.I64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.I64 arith.src2 in
+    (* Zero out dest first (setl only sets lowest byte) *)
+    pre1
+    @ pre2
+    @ [ mov (Reg dest_reg) (Imm 0L)
+      ; cmp op1 op2
+      ; setl (Reg dest_reg)
+      ]
   | Return lit_or_var ->
     let pre, op = operand_of_lit_or_var t ~class_:Class.I64 lit_or_var in
     pre @ [ RET [ op ] ]
@@ -722,7 +735,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | LOCK_AND (_, _)
        | LOCK_OR (_, _)
        | LOCK_XOR (_, _)
-       | LOCK_CMPXCHG _ | SETE _ -> ()));
+       | LOCK_CMPXCHG _ | SETE _ | SETL _ -> ()));
   t
 ;;
 
@@ -821,7 +834,7 @@ let insert_par_moves t =
          | LOCK_AND (_, _)
          | LOCK_OR (_, _)
          | LOCK_XOR (_, _)
-         | LOCK_CMPXCHG _ | SETE _ -> ())));
+         | LOCK_CMPXCHG _ | SETE _ | SETL _ -> ())));
   t
 ;;
 

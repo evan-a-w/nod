@@ -196,6 +196,7 @@ let div name lhs rhs = binary name Type.I64 lhs rhs Ir0.div
 let mod_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.mod_
 let and_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.and_
 let or_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.or_
+let lt name lhs rhs = binary name Type.I64 lhs rhs Ir0.lt
 let ptr_add name base offset = binary name (Atom.type_ base) base offset Ir0.add
 let ptr_sub name base offset = binary name (Atom.type_ base) base offset Ir0.sub
 let ptr_diff name lhs rhs = binary name Type.I64 lhs rhs Ir0.sub

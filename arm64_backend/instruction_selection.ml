@@ -266,6 +266,18 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   | Fsub arith -> make_float_arith Float_op.Fsub arith
   | Fmul arith -> make_float_arith Float_op.Fmul arith
   | Fdiv arith -> make_float_arith Float_op.Fdiv arith
+  | Lt arith ->
+    (* Signed less than comparison: dest = 1 if src1 < src2, else 0 *)
+    require_class t arith.dest Class.I64;
+    let dest_reg = reg_of_var t arith.dest in
+    let pre1, op1 = operand_of_lit_or_var t ~class_:Class.I64 arith.src1 in
+    let pre2, op2 = operand_of_lit_or_var t ~class_:Class.I64 arith.src2 in
+    (* Compare src1 with src2, then set dest to 1 if less than, else 0 *)
+    pre1
+    @ pre2
+    @ [ Comp { kind = Comp_kind.Int; lhs = op1; rhs = op2 }
+      ; Cset { condition = Condition.Lt; dst = dest_reg }
+      ]
   | Return lit_or_var ->
     let class_ = class_of_lit_or_var t lit_or_var in
     let pre, op = operand_of_lit_or_var t ~class_ lit_or_var in
@@ -703,6 +715,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
        | Ldaxr _
        | Stlxr _
        | Casal _
+       | Cset _
        | Save_clobbers
        | Restore_clobbers -> ()));
   t
@@ -791,6 +804,7 @@ let insert_par_moves t =
          | Ldaxr _
          | Stlxr _
          | Casal _
+         | Cset _
          | Save_clobbers
          | Restore_clobbers
          | Alloca _ -> ())));

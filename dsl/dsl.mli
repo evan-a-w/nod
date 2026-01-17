@@ -130,6 +130,7 @@ val div : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val mod_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val and_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val or_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val lt : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val ptr_add : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_sub : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_diff : string -> ptr Atom.t -> ptr Atom.t -> int64 Atom.t * 'ret Instr.t

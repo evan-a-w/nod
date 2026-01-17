@@ -116,9 +116,8 @@ struct
         let parent = parent_index i in
         let cmp = compare_indices t i parent in
         (* if cmp < 0, element is smaller than parent, swap *)
-        (* cmp < 0 means we need to check if cmp is negative *)
-        let sign_bit = and_ cmp (lit 0x8000000000000000L) in
-        branch_to sign_bit ~if_true:"sift_up_swap" ~if_false:"sift_up_done";
+        let is_less = lt cmp (lit 0L) in
+        branch_to is_less ~if_true:"sift_up_swap" ~if_false:"sift_up_done";
         label sift_up_swap;
         let _ = swap t i parent in
         store parent i_slot;
@@ -157,9 +156,9 @@ struct
         (* compare right with current smallest (left) *)
         let smallest = load smallest_slot in
         let cmp_right_left = compare_indices t right smallest in
-        let sign_bit_rl = and_ cmp_right_left (lit 0x8000000000000000L) in
+        let right_is_smaller = lt cmp_right_left (lit 0L) in
         branch_to
-          sign_bit_rl
+          right_is_smaller
           ~if_true:"sift_down_right_smaller"
           ~if_false:"sift_down_compare_with_parent";
         label sift_down_right_smaller;
@@ -168,9 +167,9 @@ struct
         label sift_down_compare_with_parent;
         let smallest_final = load smallest_slot in
         let cmp_smallest_i = compare_indices t smallest_final i in
-        let sign_bit_si = and_ cmp_smallest_i (lit 0x8000000000000000L) in
+        let smallest_is_less = lt cmp_smallest_i (lit 0L) in
         branch_to
-          sign_bit_si
+          smallest_is_less
           ~if_true:"sift_down_swap"
           ~if_false:"sift_down_done";
         label sift_down_swap;
