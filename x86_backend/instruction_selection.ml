@@ -303,10 +303,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     (* Zero out dest first (setl only sets lowest byte) *)
     pre1
     @ pre2
-    @ [ mov (Reg dest_reg) (Imm 0L)
-      ; cmp op1 op2
-      ; setl (Reg dest_reg)
-      ]
+    @ [ mov (Reg dest_reg) (Imm 0L); cmp op1 op2; setl (Reg dest_reg) ]
   | Return lit_or_var ->
     let pre, op = operand_of_lit_or_var t ~class_:Class.I64 lit_or_var in
     pre @ [ RET [ op ] ]
@@ -402,7 +399,15 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
         in
         pre @ [ mov (Reg force_physical) op ])
     in
-    let pre_moves = stack_arg_pushes @ reg_arg_moves in
+    let pushed_bytes = List.length stack_infos * 8 in
+    let extra_align = (16 - (pushed_bytes mod 16)) mod 16 in
+    let pushed_bytes_with_align = pushed_bytes + extra_align in
+    let align_stack =
+      if extra_align = 0
+      then []
+      else [ sub (Reg Reg.rsp) (Imm (Int64.of_int extra_align)) ]
+    in
+    let pre_moves = align_stack @ stack_arg_pushes @ reg_arg_moves in
     assert (List.length results <= 2);
     let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
     let post_moves, results_with_physical =
@@ -430,10 +435,9 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     in
     let updated_results = results_with_physical @ results_on_stack in
     let post_pop =
-      if List.is_empty stack_infos
+      if pushed_bytes_with_align = 0
       then []
-      else
-        [ add (Reg Reg.rsp) (Imm (Int64.of_int (List.length stack_infos * 8))) ]
+      else [ add (Reg Reg.rsp) (Imm (Int64.of_int pushed_bytes_with_align)) ]
     in
     [ save_clobbers ]
     @ pre_moves
