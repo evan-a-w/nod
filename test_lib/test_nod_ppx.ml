@@ -196,21 +196,3 @@ let%expect_test "nod bang preserves ocaml call" =
         (Return (Var ((name tmp) (type_ I64))))))))
     |}]
 ;;
-
-module Embed_generated = struct
-  [%%embed
-    let arities = List.init 3 ~f:(fun i -> i + 2) in
-    let lines =
-      List.map arities ~f:(fun n -> sprintf "let tuple_%d = %d\n" n (n * n))
-    in
-    String.concat lines ~sep:""]
-end
-
-let%expect_test "embed generates structure items" =
-  print_s [%sexp (Embed_generated.tuple_2 : int)];
-  print_s [%sexp (Embed_generated.tuple_4 : int)];
-  [%expect {|
-    4
-    16
-  |}]
-;;

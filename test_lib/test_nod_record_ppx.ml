@@ -77,8 +77,8 @@ let%expect_test "nod load and store field" =
       fun (a : ptr) ->
         let x = load_record_field point.x a in
         let y = load_record_field point'.point.x a in
-        seq (store_record_field point.x a x);
-        seq (store_record_field point'.point.x a y);
+        store_record_field point.x a x;
+        store_record_field point'.point.x a y;
         return x]
   in
   let unnamed = Dsl.Fn.unnamed fn in

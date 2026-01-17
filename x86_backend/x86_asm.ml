@@ -27,6 +27,7 @@ type instr =
   | Mod of operand
   | Cmp of operand * operand
   | Sete of operand
+  | Setl of operand (* set if less than, signed *)
   | Call of symbol
   | Push of operand
   | Pop of Reg.t

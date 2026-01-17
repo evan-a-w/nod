@@ -140,6 +140,10 @@ type instr =
       { lhs : Arm64_ir.operand
       ; rhs : Arm64_ir.operand
       }
+  | Cset of
+      { condition : Arm64_ir.Condition.t
+      ; dst : Reg.t
+      }
   | Adr of
       { dst : Reg.t
       ; target : Arm64_ir.Jump_target.t

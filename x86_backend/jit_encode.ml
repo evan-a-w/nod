@@ -449,6 +449,7 @@ let size_of_instr instr ~add_literal =
   | Je _ | Jne _ -> 6, None
   | Ret -> 1, None
   | Sete _ -> failwith "JIT encoding for SETE not yet implemented"
+  | Setl _ -> failwith "JIT encoding for SETL not yet implemented"
   (* Atomic operations - JIT not yet implemented *)
   | Mfence -> failwith "JIT encoding for MFENCE not yet implemented"
   | Xchg _ -> failwith "JIT encoding for XCHG not yet implemented"
@@ -907,6 +908,7 @@ let encode_instr
     Writer.emit_int32_le writer (int32_of_int_exn disp ~context:"jne")
   | Ret -> Writer.emit_u8 writer 0xC3
   | Sete _ -> failwith "JIT encoding for SETE not yet implemented"
+  | Setl _ -> failwith "JIT encoding for SETL not yet implemented"
   (* Atomic operations - JIT not yet implemented *)
   | Mfence -> failwith "JIT encoding for MFENCE not yet implemented"
   | Xchg _ -> failwith "JIT encoding for XCHG not yet implemented"

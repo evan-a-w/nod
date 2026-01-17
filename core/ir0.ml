@@ -408,6 +408,7 @@ type 'block t =
   | Mul of arith
   | Div of arith
   | Mod of arith
+  | Lt of arith (* signed less than: dest = 1 if src1 < src2, else 0 *)
   | Fadd of arith
   | Fsub of arith
   | Fmul of arith
@@ -461,6 +462,7 @@ let filter_map_call_blocks t ~f =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Fadd _
   | Fsub _
   | Fmul _
@@ -541,6 +543,7 @@ let defs = function
   | Mul a
   | Div a
   | Mod a
+  | Lt a
   | Fadd a
   | Fsub a
   | Fmul a
@@ -574,6 +577,7 @@ let blocks = function
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Fadd _
   | Fsub _
   | Fmul _
@@ -611,6 +615,7 @@ let uses = function
   | Mul a
   | Div a
   | Mod a
+  | Lt a
   | And a
   | Or a
   | Fadd a
@@ -685,6 +690,7 @@ let map_defs t ~f =
   | Mul a -> Mul (map_arith_defs a ~f)
   | Div a -> Div (map_arith_defs a ~f)
   | Mod a -> Mod (map_arith_defs a ~f)
+  | Lt a -> Lt (map_arith_defs a ~f)
   | Sub a -> Sub (map_arith_defs a ~f)
   | Fadd a -> Fadd (map_arith_defs a ~f)
   | Fsub a -> Fsub (map_arith_defs a ~f)
@@ -724,6 +730,7 @@ let map_uses t ~f =
   | Mul a -> Mul (map_arith_uses a ~f)
   | Div a -> Div (map_arith_uses a ~f)
   | Mod a -> Mod (map_arith_uses a ~f)
+  | Lt a -> Lt (map_arith_uses a ~f)
   | Sub a -> Sub (map_arith_uses a ~f)
   | Fadd a -> Fadd (map_arith_uses a ~f)
   | Fsub a -> Fsub (map_arith_uses a ~f)
@@ -765,6 +772,7 @@ let is_terminal = function
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Sub _
   | Fadd _
   | Fsub _
@@ -802,6 +810,7 @@ let map_call_blocks t ~f =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Sub _
   | Fadd _
   | Fsub _
@@ -839,6 +848,7 @@ let iter_call_blocks t ~f =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Sub _
   | Fadd _
   | Fsub _
@@ -870,6 +880,7 @@ let map_blocks (t : 'a t) ~f : 'b t =
   | Mul a -> Mul a
   | Div a -> Div a
   | Mod a -> Mod a
+  | Lt a -> Lt a
   | Fadd a -> Fadd a
   | Fsub a -> Fsub a
   | Fmul a -> Fmul a
@@ -908,6 +919,7 @@ let map_lit_or_vars t ~f =
   | Mul a -> Mul (map_arith_lit_or_vars a ~f)
   | Div a -> Div (map_arith_lit_or_vars a ~f)
   | Mod a -> Mod (map_arith_lit_or_vars a ~f)
+  | Lt a -> Lt (map_arith_lit_or_vars a ~f)
   | Sub a -> Sub (map_arith_lit_or_vars a ~f)
   | Fadd a -> Fadd (map_arith_lit_or_vars a ~f)
   | Fsub a -> Fsub (map_arith_lit_or_vars a ~f)
@@ -948,6 +960,7 @@ let call_blocks = function
   | Add _
   | Mul _
   | Div _
+  | Lt _
   | Load _
   | Store _
   | Load_field _

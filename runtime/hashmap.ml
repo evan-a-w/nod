@@ -42,24 +42,27 @@ let hashmap_put =
       let table = load_addr_ptr state 8 in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
-      seq [ store idx0 idx_slot ];
+      store idx0 idx_slot;
       label probe;
       let idx = load idx_slot in
       let offset = mul idx (lit 16L) in
       let slot = ptr_add table offset in
       let slot_key = load_addr slot 0 in
-      seq [ branch_to slot_key ~if_true:"check_key" ~if_false:"insert" ];
+      branch_to slot_key ~if_true:"check_key" ~if_false:"insert";
       label check_key;
       let diff = sub slot_key key in
       seq [ branch_to diff ~if_true:"probe_next" ~if_false:"update" ];
       label probe_next;
       let idx_inc = add idx (lit 1L) in
       let idx_wrap = mod_ idx_inc capacity in
-      seq [ store idx_wrap idx_slot; jump_to "probe" ];
+      store idx_wrap idx_slot;
+      jump_to "probe";
       label insert;
-      seq [ store_addr key slot 0; store_addr value slot 8; return value ];
+      store_addr key slot 0;
+      store_addr value slot 8;
+      return value;
       label update;
-      seq [ store_addr value slot 8 ];
+      store_addr value slot 8;
       return value]
   |> Dsl.Fn.renamed ~name:"hashmap_put"
 ;;

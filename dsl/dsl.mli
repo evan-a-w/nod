@@ -1,42 +1,13 @@
 open! Core
 open! Dsl_import
 
-val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
+type base = Dsl_types.base
+type record = Dsl_types.record
+type int64 = Dsl_types.int64
+type float64 = Dsl_types.float64
+type ptr = Dsl_types.ptr
 
-type base = [ `Base ]
-type record = [ `Record ]
-type int64
-type float64
-type ptr
-
-module Type_repr : sig
-  [%%embed
-    let max_tuple_arity = 25 in
-    let tuple_constructor arity =
-      let type_var index =
-        if index >= 26 then failwith "tuple arity too large";
-        Char.of_int_exn (Char.to_int 'a' + index)
-      in
-      let args =
-        List.init arity ~f:(fun i -> sprintf "'%c t" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      let tuple =
-        List.init arity ~f:(fun i -> sprintf "'%c" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      sprintf " | Tuple%d : %s -> (%s) t" arity args tuple
-    in
-    let tuples =
-      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_constructor (i + 2))
-      |> String.concat ~sep:""
-    in
-    sprintf
-      "type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s"
-      tuples]
-
-  val type_ : 'a t -> Type.t
-end
+module Type_repr : module type of Type_repr_gen
 
 module Atom : sig
   type _ t
@@ -142,6 +113,7 @@ end
 (** meta functions *)
 
 val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
+val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
 
 (** builder functions *)
 
@@ -158,6 +130,7 @@ val div : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val mod_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val and_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val or_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
+val lt : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val ptr_add : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_sub : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
 val ptr_diff : string -> ptr Atom.t -> ptr Atom.t -> int64 Atom.t * 'ret Instr.t
@@ -209,6 +182,14 @@ val call2
   -> ('a -> 'b -> 'ret, 'ret) Fn.t
   -> 'a Atom.t
   -> 'b Atom.t
+  -> 'ret Atom.t * 'block Instr.t
+
+val call3
+  :  string
+  -> ('a -> 'b -> 'c -> 'ret, 'ret) Fn.t
+  -> 'a Atom.t
+  -> 'b Atom.t
+  -> 'c Atom.t
   -> 'ret Atom.t * 'block Instr.t
 
 val branch_to : int64 Atom.t -> if_true:string -> if_false:string -> 'a Instr.t
