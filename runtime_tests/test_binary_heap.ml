@@ -250,5 +250,32 @@ let%expect_test "heap pop" =
 let%expect_test "heap push pop multiple" =
   (* 10 * 10000 + 30 * 100 + 40 = 103040 *)
   compile_and_execute_program_exn test_push_pop_multiple_program "103040";
-  [%expect {| |}]
+  [%expect.unreachable]
+[@@expect.uncaught_exn {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  (Failure
+    "command failed (139): cd 'nod-exec.tmp.wZ3LMY' && './program' > 'stdout.txt'")
+  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
+  Called from Nod.run_shell_exn in file "lib/nod.ml", line 115, characters 12-69
+  Called from Nod.execute_asm.(fun) in file "lib/nod.ml", lines 308-313, characters 6-166
+  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 59, characters 8-11
+  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
+  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
+  Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 35, characters 2-50
+  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 66, characters 13-49
+  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
+  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
+  Called from Nod.execute_asm in file "lib/nod.ml" (inlined), lines 241-317, characters 2-2665
+  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn.(fun) in file "runtime_tests/test_binary_heap.ml", line 212, characters 6-71
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
+  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn in file "runtime_tests/test_binary_heap.ml", lines 202-221, characters 2-561
+  Called from Nod_runtime_tests__Test_binary_heap.(fun) in file "runtime_tests/test_binary_heap.ml", line 252, characters 2-73
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
+
+  Trailing output
+  ---------------
+  Segmentation fault (core dumped)
+  |}]
 ;;
