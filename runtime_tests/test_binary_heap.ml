@@ -10,7 +10,6 @@ let compare_i64 : (ptr -> ptr -> int64, int64) Dsl.Fn.t =
       let b_val = load b in
       let diff = sub a_val b_val in
       return diff]
-  |> Dsl.Fn.renamed ~name:"compare_i64"
 ;;
 
 module I64_heap = Binary_heap.Compile (struct
