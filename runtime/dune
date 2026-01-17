@@ -8,7 +8,6 @@
   core_unix
   nod_frontend
   nod_core
-  nod_low
   vec
   nod_dsl
   feel
