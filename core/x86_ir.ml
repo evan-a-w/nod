@@ -79,6 +79,7 @@ type 'block t =
   | LABEL of string
   | CMP of operand * operand
   | SETE of operand
+  | SETL of operand (* set if less than, signed *)
   | JE of 'block Call_block.t * 'block Call_block.t option
   | JNE of 'block Call_block.t * 'block Call_block.t option
   | JMP of 'block Call_block.t
@@ -116,6 +117,7 @@ let fn = function
   | Save_clobbers | Restore_clobbers | PUSH _ | POP _ | LABEL _
   | CMP (_, _)
   | SETE _
+  | SETL _
   | JE (_, _)
   | JNE (_, _)
   | JMP _ | RET _
@@ -150,7 +152,7 @@ let fold_operands ins ~f ~init =
   | LOCK_XOR (dst, src) ->
     let init = fold_operand dst ~f ~init in
     fold_operand src ~f ~init
-  | SETE dst -> fold_operand dst ~f ~init
+  | SETE dst | SETL dst -> fold_operand dst ~f ~init
   | LOCK_CMPXCHG { dest; expected; desired } ->
     let init = fold_operand dest ~f ~init in
     let init = fold_operand expected ~f ~init in
@@ -221,6 +223,7 @@ let rec map_var_operands ins ~f =
   | CVTTSD2SI (dst, src) ->
     CVTTSD2SI (map_var_operand dst ~f, map_var_operand src ~f)
   | SETE dst -> SETE (map_var_operand dst ~f)
+  | SETL dst -> SETL (map_var_operand dst ~f)
   | XCHG (dst, src) -> XCHG (map_var_operand dst ~f, map_var_operand src ~f)
   | LOCK_ADD (dst, src) ->
     LOCK_ADD (map_var_operand dst ~f, map_var_operand src ~f)
@@ -345,7 +348,7 @@ let rec reg_defs ins : Reg.Set.t =
   | SUBSD (dst, _)
   | MULSD (dst, _)
   | DIVSD (dst, _) -> regs_of_def_operand dst
-  | SETE dst -> regs_of_def_operand dst
+  | SETE dst | SETL dst -> regs_of_def_operand dst
   (* Atomic RMW operations define both operands (dest gets old value, dest is also read) *)
   | XCHG (dst, _)
   | LOCK_ADD (dst, _)
@@ -377,7 +380,7 @@ let rec reg_uses ins : Reg.Set.t =
   | CVTSI2SD (dst, src)
   | CVTTSD2SI (dst, src) ->
     Set.union (regs_of_operand src) (regs_of_mem_base dst)
-  | SETE dst -> regs_of_mem_base dst
+  | SETE dst | SETL dst -> regs_of_mem_base dst
   | ADD (dst, src)
   | SUB (dst, src)
   | AND (dst, src)
@@ -453,6 +456,7 @@ let rec blocks instr =
   | MOD _
   | CMP _
   | SETE _
+  | SETL _
   | RET _
   | AND _
   | OR _
@@ -503,6 +507,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | POP reg -> POP reg
   | CMP (x, y) -> CMP (x, y)
   | SETE x -> SETE x
+  | SETL x -> SETL x
   | JE (lbl, next) ->
     JE
       ( Call_block.map_blocks ~f lbl
@@ -545,6 +550,7 @@ let rec filter_map_call_blocks t ~f =
   | MOD _
   | CMP _
   | SETE _
+  | SETL _
   | RET _
   | AND _
   | OR _
@@ -574,6 +580,7 @@ let rec map_defs t ~f =
   | CVTSI2SD (dst, src) -> CVTSI2SD (map_dst dst, src)
   | CVTTSD2SI (dst, src) -> CVTTSD2SI (map_dst dst, src)
   | SETE dst -> SETE (map_dst dst)
+  | SETL dst -> SETL (map_dst dst)
   | AND (dst, src) -> AND (map_dst dst, src)
   | OR (dst, src) -> OR (map_dst dst, src)
   | ADD (dst, src) -> ADD (map_dst dst, src)
@@ -616,6 +623,7 @@ let rec map_uses t ~f =
   | CVTSI2SD (dst, src) -> CVTSI2SD (dst, map_op src)
   | CVTTSD2SI (dst, src) -> CVTTSD2SI (dst, map_op src)
   | SETE dst -> SETE (map_op dst)
+  | SETL dst -> SETL (map_op dst)
   | AND (dst, src) -> AND (map_op dst, map_op src)
   | OR (dst, src) -> OR (map_op dst, map_op src)
   | ADD (dst, src) -> ADD (map_op dst, map_op src)
@@ -662,6 +670,7 @@ let rec map_operands t ~f =
   | CVTSI2SD (dst, src) -> CVTSI2SD (f dst, f src)
   | CVTTSD2SI (dst, src) -> CVTTSD2SI (f dst, f src)
   | SETE dst -> SETE (f dst)
+  | SETL dst -> SETL (f dst)
   | AND (dst, src) -> AND (f dst, f src)
   | OR (dst, src) -> OR (f dst, f src)
   | ADD (dst, src) -> ADD (f dst, f src)
@@ -718,6 +727,7 @@ let rec map_call_blocks t ~f =
   | CVTSI2SD (_, _)
   | CVTTSD2SI (_, _)
   | SETE _
+  | SETL _
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -756,6 +766,7 @@ let rec iter_call_blocks t ~f =
   | CVTSI2SD (_, _)
   | CVTTSD2SI (_, _)
   | SETE _
+  | SETL _
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -788,6 +799,7 @@ let rec call_blocks = function
   | CVTSI2SD (_, _)
   | CVTTSD2SI (_, _)
   | SETE _
+  | SETL _
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)
@@ -821,6 +833,7 @@ let rec is_terminal = function
   | CVTSI2SD (_, _)
   | CVTTSD2SI (_, _)
   | SETE _
+  | SETL _
   | ADD (_, _)
   | SUB (_, _)
   | ADDSD (_, _)

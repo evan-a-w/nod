@@ -1,6 +1,7 @@
 (library
  (name nod_dsl)
  (wrapped false)
+ (modules :standard \ gen_type_repr)
  (preprocess
   (pps ppx_jane ppx_nod))
  (inline_tests)
@@ -17,3 +18,21 @@
   nod_examples)
  (flags
   (:standard -extension-universe beta)))
+
+(rule
+ (target type_repr_gen.ml)
+ (deps gen_type_repr.ml)
+ (mode promote)
+ (action
+  (with-stdout-to
+    %{target}
+   (run ocaml gen_type_repr.ml impl))))
+
+(rule
+ (target type_repr_gen.mli)
+ (deps gen_type_repr.ml)
+ (mode promote)
+ (action
+  (with-stdout-to
+   %{target}
+   (run ocaml gen_type_repr.ml intf))))

@@ -129,6 +129,10 @@ type 'block t =
       ; lhs : operand
       ; rhs : operand
       }
+  | Cset of
+      { condition : Condition.t
+      ; dst : Reg.t
+      }
   | Conditional_branch of
       { condition : Condition.t
       ; then_ : 'block Call_block.t
@@ -186,6 +190,7 @@ let fn = function
   | Bitcast _
   | Adr _
   | Comp _
+  | Cset _
   | Conditional_branch _
   | Jump _
   | Ret _
@@ -238,6 +243,7 @@ let rec fold_operands ins ~f ~init =
   | Comp { lhs; rhs; _ } ->
     let init = fold_operand lhs ~f ~init in
     fold_operand rhs ~f ~init
+  | Cset { dst; _ } -> fold_operand (Reg dst) ~f ~init
   | Ret ops ->
     List.fold ops ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
   | Call { results; args; _ } ->
@@ -359,6 +365,7 @@ let rec map_var_operands ins ~f =
   | Adr { dst; target } ->
     Adr { dst = map_reg_definition dst; target = map_jump target }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Cset { condition; dst } -> Cset { condition; dst = map_reg_definition dst }
   | Call { fn; results; args } ->
     Call
       { fn
@@ -434,6 +441,7 @@ let rec reg_defs ins : Reg.Set.t =
   | Convert { dst; _ }
   | Bitcast { dst; _ }
   | Adr { dst; _ }
+  | Cset { dst; _ }
   | Ldar { dst; _ }
   | Ldaxr { dst; _ }
   | Casal { dst; _ } -> Reg.Set.singleton dst
@@ -464,6 +472,7 @@ let rec reg_uses ins : Reg.Set.t =
   | Adr { target; _ } -> regs_of_jump_target target
   | Comp { lhs; rhs; _ } ->
     Set.union (regs_of_operand lhs) (regs_of_operand rhs)
+  | Cset _ -> Reg.Set.empty
   | Call { args; _ } ->
     List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
       Set.union acc (regs_of_operand op))
@@ -529,6 +538,7 @@ let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
   | Bitcast bc -> Bitcast bc
   | Adr adr -> Adr adr
   | Comp cmp -> Comp cmp
+  | Cset cs -> Cset cs
   | Call call -> Call call
   | Ret ops -> Ret ops
   | Dmb -> Dmb
@@ -597,6 +607,7 @@ let rec map_defs t ~f =
   | Bitcast { dst; src } -> Bitcast { dst = map_def_reg dst ~f; src }
   | Adr { dst; target } -> Adr { dst = map_def_reg dst ~f; target }
   | Comp cmp -> Comp cmp
+  | Cset { condition; dst } -> Cset { condition; dst = map_def_reg dst ~f }
   | Call { fn; results; args } ->
     Call { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
   | Ret ops -> Ret ops
@@ -636,6 +647,7 @@ let rec map_uses t ~f =
   | Adr { dst; target } ->
     Adr { dst; target = map_jump_target target ~f:(fun r -> map_use_reg r ~f) }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Cset cs -> Cset cs
   | Call { fn; results; args } ->
     Call { fn; results; args = List.map args ~f:map_op }
   | Ret ops -> Ret (List.map ops ~f:map_op)
@@ -694,6 +706,7 @@ let rec map_operands t ~f =
     in
     Adr { dst = map_reg_operand dst; target }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
+  | Cset { condition; dst } -> Cset { condition; dst = map_reg_operand dst }
   | Call { fn; results; args } ->
     let map_result r =
       match f (Reg r) with
@@ -738,6 +751,7 @@ let rec map_call_blocks t ~f =
   | Bitcast bc -> Bitcast bc
   | Adr adr -> Adr adr
   | Comp cmp -> Comp cmp
+  | Cset cs -> Cset cs
   | Call call -> Call call
   | Ret ops -> Ret ops
 ;;
@@ -794,6 +808,7 @@ let rec is_terminal = function
   | Bitcast _
   | Adr _
   | Comp _
+  | Cset _
   | Call _
   | Alloca _
   | Dmb
@@ -874,6 +889,7 @@ module For_backend = struct
     | Adr { dst; target } -> Adr { dst; target = map_jump_target target }
     | Comp { kind; lhs; rhs } ->
       Comp { kind; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
+    | Cset cs -> Cset cs
     | Call { fn; results; args } ->
       Call { fn; results; args = List.map args ~f:map_use_operand }
     | Ret ops -> Ret (List.map ops ~f:map_use_operand)
@@ -936,6 +952,7 @@ module For_backend = struct
     | Bitcast { dst; src } -> Bitcast { dst = map_reg dst; src }
     | Adr { dst; target } -> Adr { dst = map_reg dst; target }
     | Comp cmp -> Comp cmp
+    | Cset { condition; dst } -> Cset { condition; dst = map_reg dst }
     | Call { fn; results; args } ->
       Call { fn; results = List.map results ~f:map_reg; args }
     | Ret ops -> Ret ops

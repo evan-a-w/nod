@@ -249,6 +249,8 @@ let string_of_instr = function
     sprintf "cmp %s, %s" (string_of_operand lhs) (string_of_operand rhs)
   | Fcmp { lhs; rhs } ->
     sprintf "fcmp %s, %s" (string_of_operand lhs) (string_of_operand rhs)
+  | Cset { condition; dst } ->
+    sprintf "cset %s, %s" (string_of_reg dst) (string_of_condition condition)
   | Adr { dst; target } ->
     sprintf "adr %s, %s" (string_of_reg dst) (string_of_jump_target target)
   | B target -> sprintf "b %s" target

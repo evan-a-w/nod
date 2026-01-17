@@ -1,65 +1,7 @@
 open! Core
 open! Dsl_import
-
-type base = [ `Base ]
-type record = [ `Record ]
-type int64 = Int64 [@@warning "-37"]
-type float64 = Float64 [@@warning "-37"]
-type ptr = Ptr [@@warning "-37"]
-
-module Type_repr = struct
-  [%%embed
-    let max_tuple_arity = 25 in
-    let tuple_constructor arity =
-      let type_var index =
-        if index >= 26 then failwith "tuple arity too large";
-        Char.of_int_exn (Char.to_int 'a' + index)
-      in
-      let args =
-        List.init arity ~f:(fun i -> sprintf "'%c t" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      let tuple =
-        List.init arity ~f:(fun i -> sprintf "'%c" (type_var i))
-        |> String.concat ~sep:" * "
-      in
-      sprintf " | Tuple%d : %s -> (%s) t" arity args tuple
-    in
-    let tuple_defs =
-      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_constructor (i + 2))
-      |> String.concat ~sep:""
-    in
-    let tuple_match arity =
-      let var index =
-        if index >= 26 then failwith "tuple arity too large";
-        Char.of_int_exn (Char.to_int 'a' + index) |> Char.to_string
-      in
-      let args = List.init arity ~f:(fun i -> var i) in
-      sprintf
-        " | Tuple%d (%s) -> Tuple [ %s ]"
-        arity
-        (String.concat ~sep:", " args)
-        (List.map args ~f:(fun arg -> "type_ " ^ arg) |> String.concat ~sep:"; ")
-    in
-    let tuple_matches =
-      List.init (max_tuple_arity - 2) ~f:(fun i -> tuple_match (i + 2))
-      |> String.concat ~sep:" "
-    in
-    sprintf
-      {|
-       type _ t = | Int64 : int64 t | Float64 : float64 t | Ptr : ptr t %s
-
-       let rec type_ : type a. a t -> Type.t =
-       fun (type a) (t : a t) : Type.t ->
-       match t with
-       | Int64 -> I64
-       | Float64 -> F64
-       | Ptr -> Ptr
-       %s
-       |}
-      tuple_defs
-      tuple_matches]
-end
+include Dsl_types
+module Type_repr = Type_repr_gen
 
 module Atom = struct
   type _ t = Ir.Lit_or_var.t
@@ -254,6 +196,7 @@ let div name lhs rhs = binary name Type.I64 lhs rhs Ir0.div
 let mod_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.mod_
 let and_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.and_
 let or_ name lhs rhs = binary name Type.I64 lhs rhs Ir0.or_
+let lt name lhs rhs = binary name Type.I64 lhs rhs Ir0.lt
 let ptr_add name base offset = binary name (Atom.type_ base) base offset Ir0.add
 let ptr_sub name base offset = binary name (Atom.type_ base) base offset Ir0.sub
 let ptr_diff name lhs rhs = binary name Type.I64 lhs rhs Ir0.sub
@@ -321,6 +264,16 @@ let call2
   (arg2 : 'b Atom.t)
   =
   call_common name fn [ arg1; arg2 ]
+;;
+
+let call3
+  name
+  (fn : ('a -> 'b -> 'c -> 'ret, 'ret) Fn.t)
+  (arg1 : 'a Atom.t)
+  (arg2 : 'b Atom.t)
+  (arg3 : 'c Atom.t)
+  =
+  call_common name fn [ arg1; arg2; arg3 ]
 ;;
 
 let branch_to cond ~if_true ~if_false =
