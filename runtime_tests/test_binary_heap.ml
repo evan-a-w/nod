@@ -211,7 +211,7 @@ let compile_and_print_x86_program program =
 ;;
 
 let compile_and_execute_program_exn program expected =
-  List.iter test_architectures_narrow ~f:(fun arch ->
+  List.iter test_architectures ~f:(fun arch ->
     let compiled = Dsl.compile_program_exn program in
     let asm =
       compile_and_lower_functions
