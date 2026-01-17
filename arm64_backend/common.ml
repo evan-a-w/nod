@@ -45,6 +45,7 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Alloca _
   | Fadd _
   | Fsub _
@@ -78,6 +79,7 @@ let replace_true_terminal (block : Block.t) new_true_terminal =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Alloca _
   | Fadd _
   | Fsub _

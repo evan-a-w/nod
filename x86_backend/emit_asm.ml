@@ -158,6 +158,15 @@ let string_of_instr = function
          (string_of_operand_with_size ~size_for_mem:"byte ptr" dst)
      | Imm _ | Spill_slot _ | Symbol _ ->
        failwith "sete expects register or memory operand")
+  | Setl dst ->
+    (match dst with
+     | Reg reg -> sprintf "setl %s" (string_of_reg8 reg)
+     | Mem _ ->
+       sprintf
+         "setl %s"
+         (string_of_operand_with_size ~size_for_mem:"byte ptr" dst)
+     | Imm _ | Spill_slot _ | Symbol _ ->
+       failwith "setl expects register or memory operand")
   | Call { asm_label; _ } -> sprintf "call %s" asm_label
   | Push op -> sprintf "push %s" (string_of_operand op)
   | Pop reg -> sprintf "pop %s" (string_of_reg reg)

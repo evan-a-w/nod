@@ -300,6 +300,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
                   [ Asm.Fmov { dst = scratch; src = lhs }
                   ; Asm.Fcmp { lhs = Reg scratch; rhs }
                   ]))
+        | Cset { condition; dst } -> Emit [ Asm.Cset { condition; dst } ]
         | Conditional_branch { condition; then_; else_ } ->
           Branch (condition, then_, else_)
         | Jump cb ->

@@ -45,6 +45,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Alloca _
   | Fadd _
   | Fsub _
@@ -76,6 +77,7 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Mul _
   | Div _
   | Mod _
+  | Lt _
   | Alloca _
   | Fadd _
   | Fsub _

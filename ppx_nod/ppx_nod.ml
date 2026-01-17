@@ -97,6 +97,7 @@ let is_nod_builtin_name =
     ; "seq"
     ; "load_record_field"
     ; "store_record_field"
+    ; "lt"
     ]
   in
   fun name -> List.exists (fun builtin -> String.equal name builtin) builtins

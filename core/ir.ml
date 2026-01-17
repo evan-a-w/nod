@@ -15,6 +15,7 @@ let add_block_args =
     | Or _
     | Mul _
     | Div _
+    | Lt _
     | Fadd _
     | Fsub _
     | Fmul _
@@ -64,6 +65,7 @@ let remove_block_args =
     | Or _
     | Mul _
     | Div _
+    | Lt _
     | Fadd _
     | Fsub _
     | Fmul _
@@ -892,6 +894,7 @@ module Type_check = struct
     | Mul arith -> check_arith ~op:"mul" arith
     | Div arith -> check_arith ~op:"div" arith
     | Mod arith -> check_arith ~op:"mod" arith
+    | Lt arith -> check_arith ~op:"lt" arith
     | And arith -> check_arith ~op:"and" arith
     | Or arith -> check_arith ~op:"or" arith
     | Fadd arith -> check_float_arith ~op:"fadd" arith
