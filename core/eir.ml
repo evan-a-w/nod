@@ -17,13 +17,54 @@ module Loc = struct
   type where =
     | Block_arg of Var.t
     | Instr of Block.t Ssa_instr.t
-  [@@deriving sexp, compare, hash]
 
   type t =
     { block : Block.t
     ; where : where
     }
-  [@@deriving sexp, compare, hash, fields]
+  [@@deriving fields]
+
+  let sexp_of_where = function
+    | Block_arg var -> [%sexp (var : Var.t)]
+    | Instr instr -> [%sexp (instr.Ssa_instr.id : Instr_id.t)]
+  ;;
+
+  let compare_where a b =
+    match a, b with
+    | Block_arg a, Block_arg b -> Var.compare a b
+    | Instr a, Instr b -> Instr_id.compare a.Ssa_instr.id b.Ssa_instr.id
+    | Block_arg _, Instr _ -> -1
+    | Instr _, Block_arg _ -> 1
+  ;;
+
+  let hash_where = function
+    | Block_arg var -> Var.hash var
+    | Instr instr -> Instr_id.hash instr.Ssa_instr.id
+  ;;
+
+  let sexp_of_t t =
+    [%sexp { block = (t.block : Block.t); where = (t.where : where) }]
+  ;;
+
+  let t_of_sexp _ = failwith "Loc.t_of_sexp"
+
+  let compare a b =
+    match Block.compare a.block b.block with
+    | 0 -> compare_where a.where b.where
+    | diff -> diff
+  ;;
+
+  let hash t = Hashtbl.hash (Block.hash t.block, hash_where t.where)
+
+  let hash_fold_where state = function
+    | Block_arg var -> Var.hash_fold_t state var
+    | Instr instr -> Instr_id.hash_fold_t state instr.Ssa_instr.id
+  ;;
+
+  let hash_fold_t state t =
+    let state = Block.hash_fold_t state t.block in
+    hash_fold_where state t.where
+  ;;
 
   let is_terminal_for_block t ~block =
     match t.where with
@@ -176,11 +217,11 @@ module Opt = struct
         define ~loc:{ Loc.block; where = Loc.Block_arg arg } arg);
       Block.iter_instrs block ~f:(fun instr ->
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.defs instr.ir) ~f:(define ~loc)));
+        List.iter (Ir.defs instr.Ssa_instr.ir) ~f:(define ~loc)));
     iter t ~f:(fun block ->
       let use instr =
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.uses instr.ir) ~f:(use ~loc)
+        List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(use ~loc)
       in
       Block.iter_instrs block ~f:use;
       use block.terminal);
@@ -215,7 +256,7 @@ module Opt = struct
 
   let rec remove_instr t ~block ~instr =
     let state = State.state_for_block block in
-    List.iter (Ir.uses instr.ir) ~f:(fun var ->
+    List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun var ->
       let id = Var.name var in
       match active_var t id with
       | None -> ()
@@ -328,7 +369,7 @@ module Opt = struct
           (match Loc.where var.loc with
            | Block_arg _ -> f ~var
            | Instr instr ->
-             List.iter (Ir.uses instr.ir) ~f:(fun use -> go (Var.name use));
+             List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun use -> go (Var.name use));
              f ~var);
           Option.iter t.block_tracker ~f:(Block_tracker.ready ~var))
     in
@@ -390,7 +431,7 @@ module Opt = struct
       | Instr instr -> instr
     in
     let state = State.state_for_block var.loc.block in
-    let old_ir = instr.ir in
+    let old_ir = instr.Ssa_instr.ir in
     Ssa_state.replace_instr_ir state instr ~ir:new_ir;
     update_uses t ~old_ir ~new_ir ~loc:var.loc
   ;;
@@ -445,7 +486,7 @@ module Opt = struct
       var.tags <- { constant }
 
   and refine_type_instr t ~var ~instr =
-    let new_ir = constant_fold t ~instr:instr.ir in
+    let new_ir = constant_fold t ~instr:instr.Ssa_instr.ir in
     replace_defining_instruction t ~var ~new_ir;
     match Ir.constant new_ir with
     | None -> ()

@@ -24,11 +24,11 @@ let process ~state (~instrs_by_label, ~labels) =
     let found_terminal = ref false in
     let register_instr instr = Ssa_state.register_instr state instr in
     let link_instr instr =
-      instr.prev <- !last_instr;
-      instr.next <- None;
+      instr.Ssa_instr.prev <- !last_instr;
+      instr.Ssa_instr.next <- None;
       (match !last_instr with
-       | None -> block.instructions <- Some instr
-       | Some prev -> prev.next <- Some instr);
+       | None -> block.Block.instructions <- Some instr
+       | Some prev -> prev.Ssa_instr.next <- Some instr);
       last_instr := Some instr;
       register_instr instr
     in

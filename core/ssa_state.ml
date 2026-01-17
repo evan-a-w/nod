@@ -18,8 +18,8 @@ let create () =
   }
 ;;
 
-let value t (Value_id idx : Value_id.t) = Vec.get_opt t.values idx
-let instr t (Instr_id idx : Instr_id.t) = Vec.get_opt t.instrs idx
+let value t (Value_id idx : Value_id.t) = Vec.get_opt t.values idx |> Option.join
+let instr t (Instr_id idx : Instr_id.t) = Vec.get_opt t.instrs idx |> Option.join
 
 let value_by_var t var =
   Hashtbl.find t.value_id_by_var var
@@ -138,26 +138,26 @@ let register_instr t (instr : Block.t Ssa_instr.t) =
   register_defs_uses
     t
     ~instr_id:instr.id
-    ~defs:(Ir.defs instr.ir)
-    ~uses:(Ir.uses instr.ir)
+    ~defs:(Ir0.defs instr.ir)
+    ~uses:(Ir0.uses instr.ir)
 ;;
 
 let unregister_instr t (instr : Block.t Ssa_instr.t) =
   unregister_defs_uses
     t
     ~instr_id:instr.id
-    ~defs:(Ir.defs instr.ir)
-    ~uses:(Ir.uses instr.ir)
+    ~defs:(Ir0.defs instr.ir)
+    ~uses:(Ir0.uses instr.ir)
 ;;
 
 let replace_instr_ir t (instr : Block.t Ssa_instr.t) ~ir =
   replace_defs_uses
     t
     ~instr_id:instr.id
-    ~old_defs:(Ir.defs instr.ir)
-    ~old_uses:(Ir.uses instr.ir)
-    ~new_defs:(Ir.defs ir)
-    ~new_uses:(Ir.uses ir);
+    ~old_defs:(Ir0.defs instr.ir)
+    ~old_uses:(Ir0.uses instr.ir)
+    ~new_defs:(Ir0.defs ir)
+    ~new_uses:(Ir0.uses ir);
   instr.ir <- ir
 ;;
 
@@ -172,16 +172,16 @@ let replace_block_instructions t ~block ~irs =
   Block.iter_instrs block ~f:(fun instr ->
     unregister_instr t instr;
     free_instr t instr);
-  block.instructions <- None;
+  block.Block.instructions <- None;
   let last = ref None in
   List.iter irs ~f:(fun ir ->
     let instr = alloc_instr t ~ir in
     register_instr t instr;
-    instr.prev <- !last;
-    instr.next <- None;
+    instr.Ssa_instr.prev <- !last;
+    instr.Ssa_instr.next <- None;
     (match !last with
-     | None -> block.instructions <- Some instr
-     | Some prev -> prev.next <- Some instr);
+     | None -> block.Block.instructions <- Some instr
+     | Some prev -> prev.Ssa_instr.next <- Some instr);
     last := Some instr)
 ;;
 
@@ -192,7 +192,7 @@ let remove_instr t ~block ~instr =
 ;;
 
 let set_terminal_ir t ~block ~ir =
-  replace_instr_ir t block.terminal ~ir
+  replace_instr_ir t block.Block.terminal ~ir
 ;;
 
 let register_block_args t ~block =

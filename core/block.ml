@@ -94,8 +94,8 @@ let iter_instructions t ~f =
     let rec go = function
       | None -> ()
       | Some instr ->
-        f instr.ir;
-        go instr.next
+        f instr.Ssa_instr.ir;
+        go instr.Ssa_instr.next
     in
     go block.instructions;
     f block.terminal.ir)
@@ -107,7 +107,7 @@ let to_sexp_verbose root =
     let instrs =
       let rec go acc = function
         | None -> List.rev acc
-        | Some instr -> go (instr.ir :: acc) instr.next
+        | Some instr -> go (instr.Ssa_instr.ir :: acc) instr.Ssa_instr.next
       in
       go [] t.instructions @ [ t.terminal.ir ]
     in
@@ -120,7 +120,7 @@ let to_sexp_verbose root =
 let instrs_to_list t =
   let rec go acc = function
     | None -> List.rev acc
-    | Some instr -> go (instr :: acc) instr.next
+    | Some instr -> go (instr :: acc) instr.Ssa_instr.next
   in
   go [] t.instructions
 ;;
@@ -128,7 +128,7 @@ let instrs_to_list t =
 let instrs_to_ir_list t =
   let rec go acc = function
     | None -> List.rev acc
-    | Some instr -> go (instr.ir :: acc) instr.next
+    | Some instr -> go (instr.Ssa_instr.ir :: acc) instr.Ssa_instr.next
   in
   go [] t.instructions
 ;;
@@ -138,36 +138,36 @@ let iter_instrs t ~f =
     | None -> ()
     | Some instr ->
       f instr;
-      go instr.next
+      go instr.Ssa_instr.next
   in
   go t.instructions
 ;;
 
 let append_instr t instr =
-  instr.prev <- None;
-  instr.next <- None;
+  instr.Ssa_instr.prev <- None;
+  instr.Ssa_instr.next <- None;
   match t.instructions with
   | None -> t.instructions <- Some instr
   | Some head ->
     let rec last curr =
-      match curr.next with
+      match curr.Ssa_instr.next with
       | None -> curr
       | Some next -> last next
     in
     let tail = last head in
-    tail.next <- Some instr;
-    instr.prev <- Some tail
+    tail.Ssa_instr.next <- Some instr;
+    instr.Ssa_instr.prev <- Some tail
 ;;
 
 let unlink_instr t instr =
-  (match instr.prev with
-   | None -> t.instructions <- instr.next
-   | Some prev -> prev.next <- instr.next);
-  (match instr.next with
+  (match instr.Ssa_instr.prev with
+   | None -> t.instructions <- instr.Ssa_instr.next
+   | Some prev -> prev.Ssa_instr.next <- instr.Ssa_instr.next);
+  (match instr.Ssa_instr.next with
    | None -> ()
-   | Some next -> next.prev <- instr.prev);
-  instr.prev <- None;
-  instr.next <- None
+   | Some next -> next.Ssa_instr.prev <- instr.Ssa_instr.prev);
+  instr.Ssa_instr.prev <- None;
+  instr.Ssa_instr.next <- None
 ;;
 
 module Pair = struct
