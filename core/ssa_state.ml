@@ -1,17 +1,21 @@
 open! Core
 
+(** per function ssa state to map between values and instrs etc. *)
 type t =
   { values : Ssa_value.t option Vec.t
   ; free_values : int Vec.t
   ; instrs : Ssa_instr.t option Vec.t
   ; free_instrs : int Vec.t
+  ; value_id_by_var : Value_id.t Var.Table.t
   }
 
 let value t (Value_id idx : Value_id.t) = Vec.get_opt t.values idx
 
-let alloc_value t ~type_ =
+let alloc_value t ~type_ ~var =
   let res id : Ssa_value.t =
+    Hashtbl.set t.value_id_by_var ~key:var ~data:(Value_id id);
     { id = Value_id id
+    ; var
     ; type_
     ; def = Undefined
     ; opt_tags = Opt_tags.empty
@@ -30,6 +34,7 @@ let alloc_value t ~type_ =
 ;;
 
 let free_value t ({ id = Value_id id; _ } : Ssa_value.t) =
+  Hashtbl.remove t.value_id_by_var (Option.value_exn (Vec.get t.values id)).var;
   Vec.set t.values id None;
   Vec.push t.free_values id
 ;;
