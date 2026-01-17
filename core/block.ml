@@ -1,7 +1,16 @@
 open! Core
 
+let next_uid = ref 0
+
+let fresh_uid () =
+  let uid = !next_uid in
+  incr next_uid;
+  uid
+;;
+
 type t =
-  { id_hum : string
+  { uid : int
+  ; id_hum : string
   ; mutable args : Var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
@@ -25,7 +34,8 @@ let sexp_of_t t =
 ;;
 
 let create ~id_hum ~terminal =
-  { id_hum
+  { uid = fresh_uid ()
+  ; id_hum
   ; args = Vec.create ()
   ; parents = Vec.create ()
   ; children = Vec.create ()

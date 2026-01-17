@@ -267,8 +267,7 @@ let%expect_test "heap push pop multiple" =
 
 let%expect_test "x86 test push pop program" =
   compile_and_print_x86_program test_push_pop_multiple_program;
-  [%expect
-    {|
+  [%expect {|
     .intel_syntax noprefix
     .text
     .globl nod_fn_103_6
