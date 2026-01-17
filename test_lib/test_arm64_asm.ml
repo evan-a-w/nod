@@ -19,10 +19,22 @@ let compile_and_lower_functions functions =
 ;;
 
 let make_fn ~name ~args ~root =
+  let state = State.state_for_block root in
+  let old_args = Vec.to_list root.Block.args in
   List.iter args ~f:(Vec.push root.Block.args);
+  Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
   root.dfs_id <- Some 0;
   Function.create ~name ~args ~root
 ;;
+
+let create_block state ~id_hum ~terminal =
+  let terminal = Ssa_state.alloc_instr state ~ir:terminal in
+  let block = Block.create ~id_hum ~terminal in
+  State.register_block ~block ~state;
+  block
+;;
+
+let append_ir state block ir = ignore (Ssa_state.append_ir state ~block ~ir)
 
 let print_mnemonics_with_prefixes prefixes asm =
   asm
@@ -504,23 +516,28 @@ root() {
 ;;
 
 let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
+  State.reset ();
+  let state = State.ensure_function "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
   let root =
-    Block.create
+    create_block
+      state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
+  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir
+    state
+    root
     (Ir.atomic_store
        { addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
        ; src = Ir.Lit_or_var.Lit 7L
        ; order = Ir.Memory_order.Seq_cst
        });
-  Vec.push
-    root.instructions
+  append_ir
+    state
+    root
     (Ir.atomic_load
        { dest = loaded
        ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
@@ -541,15 +558,21 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
 ;;
 
 let%expect_test "atomic cmpxchg lowers to casal and success masking" =
+  State.reset ();
+  let state = State.ensure_function "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
   let ok = Var.create ~name:"ok" ~type_:Type.I64 in
   let root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
+    create_block
+      state
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
+  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir
+    state
+    root
     (Ir.atomic_cmpxchg
        { dest = old
        ; success = ok
@@ -577,14 +600,20 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
 ;;
 
 let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
+  State.reset ();
+  let state = State.ensure_function "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
   let root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
+    create_block
+      state
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
+  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir
+    state
+    root
     (Ir.atomic_rmw
        { dest = old
        ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)

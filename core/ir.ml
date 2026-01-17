@@ -945,8 +945,8 @@ let lower_aggregates ~root =
     let add_instr_vars instr =
       List.iter (vars instr) ~f:(add_var used_names)
     in
-    Vec.iter block.Block.instructions ~f:add_instr_vars;
-    add_instr_vars block.Block.terminal);
+    List.iter (Block.instrs_to_ir_list block) ~f:add_instr_vars;
+    add_instr_vars block.Block.terminal.ir);
   let counter = ref 0 in
   let fresh_temp ~type_ =
     let rec next_name () =
@@ -961,24 +961,28 @@ let lower_aggregates ~root =
   List.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
     let open Result.Let_syntax in
     let%bind () = acc in
-    let new_instrs = Vec.create () in
+    let new_instrs = ref [] in
     let%bind () =
-      Vec.fold block.Block.instructions ~init:(Ok ()) ~f:(fun acc instr ->
+      List.fold (Block.instrs_to_ir_list block) ~init:(Ok ()) ~f:(fun acc instr ->
         let%bind () = acc in
         match Aggregate.lower_instruction ~fresh_temp instr with
         | Ok instrs ->
-          List.iter instrs ~f:(Vec.push new_instrs);
+          new_instrs := List.rev_append instrs !new_instrs;
           Ok ()
         | Error err ->
           Error (`Type_mismatch (Error.to_string_hum err)))
     in
-    block.Block.instructions <- new_instrs;
+    let state = State.state_for_block block in
+    Ssa_state.replace_block_instructions
+      state
+      ~block
+      ~irs:(List.rev !new_instrs);
     let%bind () =
-      match Aggregate.lower_instruction ~fresh_temp block.Block.terminal with
+      match Aggregate.lower_instruction ~fresh_temp block.Block.terminal.ir with
       | Ok [ instr ] ->
         if is_terminal instr
         then (
-          block.terminal <- instr;
+          Ssa_state.set_terminal_ir state ~block ~ir:instr;
           Ok ())
         else Error (`Type_mismatch "aggregate instruction cannot be terminal")
       | Ok _ -> Error (`Type_mismatch "aggregate instruction cannot be terminal")

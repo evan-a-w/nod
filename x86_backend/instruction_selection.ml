@@ -11,6 +11,9 @@ type t =
   }
 [@@deriving fields]
 
+let state_for t = State.state_for_function t.fn.name
+let register_block t block = State.register_block ~block ~state:(state_for t)
+
 let require_class t var class_ =
   match Hashtbl.find t.var_classes var with
   | None -> Hashtbl.set t.var_classes ~key:var ~data:class_
@@ -64,6 +67,7 @@ let expand_atomic_rmw t =
   let used_names = String.Hash_set.create () in
   Block.iter t.fn.root ~f:(fun block ->
     Hash_set.add used_names block.Block.id_hum);
+  let state = State.state_for_function t.fn.name in
   let fresh_name base =
     let rec loop attempt =
       let candidate =
@@ -121,7 +125,7 @@ let expand_atomic_rmw t =
     , success )
   in
   let rec split_block block =
-    let instrs = Vec.to_list block.Block.instructions in
+    let instrs = Block.instrs_to_ir_list block in
     match
       List.findi instrs ~f:(fun _ instr ->
         match instr with
@@ -132,31 +136,38 @@ let expand_atomic_rmw t =
     | Some (idx, Atomic_rmw atomic) ->
       let before = List.take instrs idx in
       let after = List.drop instrs (idx + 1) in
-      let original_terminal = block.Block.terminal in
+      let original_terminal = block.Block.terminal.ir in
       let cont_block =
+        let terminal = Ssa_state.alloc_instr state ~ir:original_terminal in
         Block.create
           ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
-          ~terminal:original_terminal
+          ~terminal
       in
+      State.register_block ~block:cont_block ~state;
       cont_block.dfs_id <- Some 0;
-      cont_block.Block.instructions <- Vec.of_list after;
+      Ssa_state.replace_block_instructions state ~block:cont_block ~irs:after;
       let loop_block =
+        let terminal = Ssa_state.alloc_instr state ~ir:Noop in
         Block.create
           ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
-          ~terminal:Noop
+          ~terminal
       in
+      State.register_block ~block:loop_block ~state;
       loop_block.dfs_id <- Some 0;
       let loop_instrs, success_var = rmw_loop_instrs atomic in
-      loop_block.Block.instructions <- Vec.of_list loop_instrs;
+      Ssa_state.replace_block_instructions state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
-      loop_block.Block.terminal
-      <- Branch
-           (Cond
-              { cond = Ir.Lit_or_var.Var success_var
-              ; if_true = cont_cb
-              ; if_false = loop_cb
-              });
+      Ssa_state.set_terminal_ir
+        state
+        ~block:loop_block
+        ~ir:
+          (Branch
+             (Cond
+                { cond = Ir.Lit_or_var.Var success_var
+                ; if_true = cont_cb
+                ; if_false = loop_cb
+                }));
       let init_load =
         Ir.atomic_load
           { dest = atomic.dest
@@ -164,8 +175,11 @@ let expand_atomic_rmw t =
           ; order = Ir.Memory_order.Relaxed
           }
       in
-      block.Block.instructions <- Vec.of_list (before @ [ init_load ]);
-      block.Block.terminal <- Branch (Uncond loop_cb);
+      Ssa_state.replace_block_instructions
+        state
+        ~block
+        ~irs:(before @ [ init_load ]);
+      Ssa_state.set_terminal_ir state ~block ~ir:(Branch (Uncond loop_cb));
       split_block cont_block
     | Some _ -> ()
   in
@@ -546,7 +560,12 @@ let mint_intermediate
     "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
     |> Util.new_name t.block_names
   in
-  let block = Block.create ~id_hum ~terminal:(X86 (X86_ir.jmp to_call_block)) in
+  let state = state_for t in
+  let terminal =
+    Ssa_state.alloc_instr state ~ir:(X86 (X86_ir.jmp to_call_block))
+  in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   block.dfs_id <- Some 0;
@@ -583,23 +602,28 @@ let make_prologue t =
       let stack_offset = (i + 2) * 8 in
       mov (Reg (Reg.unallocated arg)) (Mem (Reg.rbp, stack_offset)))
   in
-  let block =
-    Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))
-  in
+  let state = state_for t in
+  let terminal = Ssa_state.alloc_instr state ~ir:(X86 (jmp { block = t.fn.root; args })) in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   block.dfs_id <- Some 0;
+  let old_args = Vec.to_list block.args in
   block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map
-       ~f:Ir.x86
-       (reg_arg_moves
-        @ stack_arg_moves
-        @ [ tag_def noop (Reg Reg.rbp) ]
-          (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
-       )
-     |> Vec.of_list;
+  Ssa_state.update_block_args state ~block ~old_args ~new_args:args;
+  Ssa_state.replace_block_instructions
+    state
+    ~block
+    ~irs:
+      (List.map
+         ~f:Ir.x86
+         (reg_arg_moves
+          @ stack_arg_moves
+          @ [ tag_def noop (Reg Reg.rbp) ]
+            (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
+         ));
   block
 ;;
 
@@ -628,17 +652,21 @@ let make_epilogue t ~ret_shape =
     |> List.map ~f:(fun (arg, reg) ->
       Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
   in
-  let block = Block.create ~id_hum ~terminal:(X86 (RET args')) in
+  let state = state_for t in
+  let terminal = Ssa_state.alloc_instr state ~ir:(X86 (RET args')) in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   block.dfs_id <- Some 0;
+  let old_args = Vec.to_list block.args in
   block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map
-       ~f:Ir.x86
-       reg_res_moves (* clobbers restores will be added here later *)
-     |> Vec.of_list;
+  Ssa_state.update_block_args state ~block ~old_args ~new_args:args;
+  Ssa_state.replace_block_instructions
+    state
+    ~block
+    ~irs:(List.map ~f:Ir.x86 reg_res_moves);
   block
 ;;
 
@@ -667,7 +695,8 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.iter block.instructions ~f:(function
+    Block.iter_instrs block ~f:(fun instr ->
+      match instr.ir with
       | X86 (ALLOCA (_, i)) ->
         t.fn.bytes_statically_alloca'd
         <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
@@ -686,6 +715,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
              (Some (mint_intermediate t ~from_block:block ~to_call_block:b)))
       in
       let epilogue_jmp operands_to_ret =
+        let state = State.state_for_block block in
         let args =
           List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
           |> List.map ~f:(fun (operand, arg) ->
@@ -695,15 +725,19 @@ let split_blocks_and_add_prologue_and_epilogue t =
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
-                 Vec.push
-                   block.instructions
-                   (X86 (mov (Reg (Reg.unallocated v)) operand));
+                 ignore
+                   (Ssa_state.append_ir
+                      state
+                      ~block
+                      ~ir:(X86 (mov (Reg (Reg.unallocated v)) operand)));
                  v)
             | other ->
               let v = fresh_like_var t arg in
-              Vec.push
-                block.instructions
-                (X86 (mov (Reg (Reg.unallocated v)) other));
+              ignore
+                (Ssa_state.append_ir
+                   state
+                   ~block
+                   ~ir:(X86 (mov (Reg (Reg.unallocated v)) other)));
               v)
         in
         jmp { Call_block.block = epilogue; args }
@@ -808,7 +842,9 @@ let insert_par_moves t =
         (match true_terminal with
          | JMP cb ->
            let dst_to_src = List.zip_exn (Vec.to_list cb.block.args) cb.args in
-           Vec.append block.instructions (par_moves t ~dst_to_src)
+           let state = State.state_for_block block in
+           Vec.iter (par_moves t ~dst_to_src) ~f:(fun ir ->
+             ignore (Ssa_state.append_ir state ~block ~ir))
          | RET _ -> ()
          | JNE _ | JE _ ->
            (* [block.insert_phi_moves] should be false *)
@@ -844,7 +880,11 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    block.terminal <- Ir.remove_block_args block.terminal
+    let state = State.state_for_block block in
+    Ssa_state.set_terminal_ir
+      state
+      ~block
+      ~ir:(Ir.remove_block_args block.terminal.ir)
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -859,10 +899,17 @@ let simple_translation_to_x86_ir ~this_call_conv t =
   in
   Block.iter t.fn.root ~f:(fun block ->
     add_count t.block_names block.id_hum;
-    block.instructions
-    <- Vec.concat_map block.instructions ~f:(fun ir ->
-         lower_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
-    block.terminal <- Ir.x86_terminal (lower_ir block.terminal));
+    let state = State.state_for_block block in
+    let instrs =
+      Block.instrs_to_ir_list block
+      |> List.concat_map ~f:(fun ir ->
+        lower_ir ir |> List.map ~f:Ir0.x86)
+    in
+    Ssa_state.replace_block_instructions state ~block ~irs:instrs;
+    Ssa_state.set_terminal_ir
+      state
+      ~block
+      ~ir:(Ir.x86_terminal (lower_ir block.terminal.ir)));
   t
 ;;
 

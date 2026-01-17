@@ -5,8 +5,8 @@ type t =
   ; mutable args : Var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
-  ; mutable instructions : t Ir0.t Vec.t
-  ; mutable terminal : t Ir0.t
+  ; mutable instructions : t Ssa_instr.t option
+  ; mutable terminal : t Ssa_instr.t
   ; mutable dfs_id : int option
   ; mutable insert_phi_moves : bool
   }
@@ -29,7 +29,7 @@ let create ~id_hum ~terminal =
   ; args = Vec.create ()
   ; parents = Vec.create ()
   ; children = Vec.create ()
-  ; instructions = Vec.create ()
+  ; instructions = None
   ; terminal
   ; dfs_id = None
   ; insert_phi_moves = true
@@ -66,7 +66,7 @@ let iter_and_update_bookkeeping root ~f =
       set_dfs_id block None;
       f block;
       let children =
-        Ir0.call_blocks block.terminal
+        Ir0.call_blocks block.terminal.ir
         |> List.map ~f:Call_block.block
         |> Vec.of_list
       in
@@ -91,18 +91,83 @@ let iter_and_update_bookkeeping root ~f =
 
 let iter_instructions t ~f =
   iter t ~f:(fun block ->
-    Vec.iter block.instructions ~f;
-    f block.terminal)
+    let rec go = function
+      | None -> ()
+      | Some instr ->
+        f instr.ir;
+        go instr.next
+    in
+    go block.instructions;
+    f block.terminal.ir)
 ;;
 
 let to_sexp_verbose root =
   let ts = Vec.create () in
   iter root ~f:(fun t ->
-    let instrs = Vec.to_list t.instructions @ [ t.terminal ] in
+    let instrs =
+      let rec go acc = function
+        | None -> List.rev acc
+        | Some instr -> go (instr.ir :: acc) instr.next
+      in
+      go [] t.instructions @ [ t.terminal.ir ]
+    in
     Vec.push
       ts
       [%message t.id_hum ~args:(t.args : Var.t Vec.t) (instrs : t Ir0.t list)]);
   [%sexp (ts : Sexp.t Vec.t)]
+;;
+
+let instrs_to_list t =
+  let rec go acc = function
+    | None -> List.rev acc
+    | Some instr -> go (instr :: acc) instr.next
+  in
+  go [] t.instructions
+;;
+
+let instrs_to_ir_list t =
+  let rec go acc = function
+    | None -> List.rev acc
+    | Some instr -> go (instr.ir :: acc) instr.next
+  in
+  go [] t.instructions
+;;
+
+let iter_instrs t ~f =
+  let rec go = function
+    | None -> ()
+    | Some instr ->
+      f instr;
+      go instr.next
+  in
+  go t.instructions
+;;
+
+let append_instr t instr =
+  instr.prev <- None;
+  instr.next <- None;
+  match t.instructions with
+  | None -> t.instructions <- Some instr
+  | Some head ->
+    let rec last curr =
+      match curr.next with
+      | None -> curr
+      | Some next -> last next
+    in
+    let tail = last head in
+    tail.next <- Some instr;
+    instr.prev <- Some tail
+;;
+
+let unlink_instr t instr =
+  (match instr.prev with
+   | None -> t.instructions <- instr.next
+   | Some prev -> prev.next <- instr.next);
+  (match instr.next with
+   | None -> ()
+   | Some next -> next.prev <- instr.prev);
+  instr.prev <- None;
+  instr.next <- None
 ;;
 
 module Pair = struct

@@ -3,10 +3,23 @@ open! Import
 
 let map_function_roots ~f program = Program.map_function_roots program ~f
 
+let create_block state ~id_hum ~terminal =
+  let terminal = Ssa_state.alloc_instr state ~ir:terminal in
+  let block = Block.create ~id_hum ~terminal in
+  State.register_block ~block ~state;
+  block
+;;
+
+let append_ir state block ir = ignore (Ssa_state.append_ir state ~block ~ir)
+
 let test_cfg s =
+  State.reset ();
   s
   |> Parser.parse_string
-  |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    Program.map_function_roots_with_name program ~f:(fun ~name root ->
+      let state = State.ensure_function name in
+      Cfg.process ~state root))
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
@@ -15,7 +28,7 @@ let test_cfg s =
       ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
-            Vec.to_list block.Block.instructions @ [ block.terminal ]
+            Block.instrs_to_ir_list block @ [ block.terminal.ir ]
           in
           print_s [%message block.id_hum (instrs : Ir.t list)]))
 ;;
@@ -23,8 +36,12 @@ let test_cfg s =
 let test_ssa ?don't_opt s =
   test_cfg s;
   print_endline "=================================";
+  State.reset ();
   Parser.parse_string s
-  |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    Program.map_function_roots_with_name program ~f:(fun ~name root ->
+      let state = State.ensure_function name in
+      Cfg.process ~state root))
   |> Result.map ~f:Eir.set_entry_block_args
   |> Result.map ~f:(map_function_roots ~f:Ssa.create)
   |> function
@@ -35,7 +52,7 @@ let test_ssa ?don't_opt s =
         program.Program.functions
         ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
           Vec.iter ssa.in_order ~f:(fun block ->
-            let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+            let instrs = Block.instrs_to_ir_list block @ [ block.terminal.ir ] in
             print_s
               [%message
                 block.id_hum
@@ -97,37 +114,51 @@ let%expect_test "temp alloca passed to child; child loads value" =
   in
   let make_fn ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
+    let state = State.state_for_block root in
+    let old_args = Vec.to_list root.Block.args in
     List.iter args ~f:(Vec.push root.Block.args);
+    Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
     root.dfs_id <- Some 0;
     Function.create ~name ~args ~root
   in
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
+    State.reset ();
+    let child_state = State.ensure_function "child" in
+    let root_state = State.ensure_function "root" in
     let p = Var.create ~name:"p" ~type_:Type.Ptr in
     let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
     let child_root =
-      Block.create
+      create_block
+        child_state
         ~id_hum:"%root"
         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
     in
-    Vec.push
-      child_root.instructions
+    append_ir
+      child_state
+      child_root
       (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
     let root_root =
-      Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
+      create_block
+        root_state
+        ~id_hum:"%root"
+        ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
     in
-    Vec.push
-      root_root.instructions
+    append_ir
+      root_state
+      root_root
       (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-    Vec.push
-      root_root.instructions
+    append_ir
+      root_state
+      root_root
       (Ir.store
          (Ir.Lit_or_var.Lit 41L)
          (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
-    Vec.push
-      root_root.instructions
+    append_ir
+      root_state
+      root_root
       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
     let root = make_fn ~name:"root" ~args:[] ~root:root_root in
     String.Map.of_alist_exn [ "root", root; "child", child ]
@@ -242,34 +273,48 @@ let%expect_test "temp alloca passed to child; child loads value" =
 let%expect_test "print helper" =
   let make_fn ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
+    let state = State.state_for_block root in
+    let old_args = Vec.to_list root.Block.args in
     List.iter args ~f:(Vec.push root.Block.args);
+    Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
     root.dfs_id <- Some 0;
     Function.create ~name ~args ~root
   in
+  State.reset ();
+  let child_state = State.ensure_function "child" in
+  let root_state = State.ensure_function "root" in
   let p = Var.create ~name:"p" ~type_:Type.Ptr in
   let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
   let child_root =
-    Block.create
+    create_block
+      child_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
   in
-  Vec.push
-    child_root.instructions
+  append_ir
+    child_state
+    child_root
     (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
   let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let res = Var.create ~name:"res" ~type_:Type.I64 in
   let root_root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
+    create_block
+      root_state
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var res))
   in
-  Vec.push
-    root_root.instructions
+  append_ir
+    root_state
+    root_root
     (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root_root.instructions
+  append_ir
+    root_state
+    root_root
     (Ir.store (Ir.Lit_or_var.Lit 41L) (Ir.Mem.address (Ir.Lit_or_var.Var slot)));
-  Vec.push
-    root_root.instructions
+  append_ir
+    root_state
+    root_root
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   let functions = String.Map.of_alist_exn [ "root", root; "child", child ] in

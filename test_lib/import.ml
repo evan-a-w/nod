@@ -1,6 +1,7 @@
 include Nod_core
 include Nod_common
 include Nod
+module State = Nod_core.State
 
 let host_system = Lazy.force Nod.host_system
 

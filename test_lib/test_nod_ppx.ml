@@ -4,12 +4,14 @@ open! Import
 let helper name arg = Dsl.mov name arg
 
 let block_of_instrs instrs =
+  State.reset ();
+  let state = State.ensure_function "root" in
   instrs
   |> Dsl.Instr.process
   |> (function
         | Ok raw -> raw
         | Error err -> Nod_error.to_string err |> failwith)
-  |> Cfg.process
+  |> Cfg.process ~state
   |> fun (~root, ~blocks:_, ~in_order) ->
   Vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
   root
@@ -48,13 +50,13 @@ let%expect_test "nod seq embeds instruction list" =
       return (lit 0L)]
   in
   let root = block_of_instrs instrs in
-  let instrs = Vec.to_list root.instructions in
+  let instrs = Block.instrs_to_ir_list root in
   let noop_count =
     List.count instrs ~f:(function
       | Ir0.Noop -> true
       | _ -> false)
   in
-  print_s [%sexp (Vec.length root.instructions : int)];
+  print_s [%sexp (List.length instrs : int)];
   print_s [%sexp (noop_count : int)];
   [%expect {|
     2
