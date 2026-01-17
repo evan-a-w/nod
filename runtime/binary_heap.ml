@@ -18,11 +18,6 @@ module Compile (Arg : sig
 struct
   include Arg
 
-  (* note: can use [%nod
-     let v = Libc.malloc size in]
-     defined as an external function in libc.ml
-  *)
-
   let elt_bytes = Type.size_in_bytes elt_type |> Int64.of_int
 
   let array_offset =
@@ -246,22 +241,20 @@ struct
   ;;
 
   let functions =
-    [ Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_array_offset" array_offset)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_compare_indices" compare_indices)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_copy_elt" copy_elt)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_swap" swap)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_parent_index" parent_index)
-    ; Dsl.Fn.pack
-        (Dsl.Fn.renamed ~name:"heap_left_child_index" left_child_index)
-    ; Dsl.Fn.pack
-        (Dsl.Fn.renamed ~name:"heap_right_child_index" right_child_index)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_sift_up" sift_up)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_sift_down" sift_down)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_create" create)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_len" len)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_peek" peek)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_push" push)
-    ; Dsl.Fn.pack (Dsl.Fn.renamed ~name:"heap_pop" pop)
+    [ Dsl.Fn.pack array_offset
+    ; Dsl.Fn.pack compare_indices
+    ; Dsl.Fn.pack copy_elt
+    ; Dsl.Fn.pack swap
+    ; Dsl.Fn.pack parent_index
+    ; Dsl.Fn.pack left_child_index
+    ; Dsl.Fn.pack right_child_index
+    ; Dsl.Fn.pack sift_up
+    ; Dsl.Fn.pack sift_down
+    ; Dsl.Fn.pack create
+    ; Dsl.Fn.pack len
+    ; Dsl.Fn.pack peek
+    ; Dsl.Fn.pack push
+    ; Dsl.Fn.pack pop
     ]
   ;;
 end
