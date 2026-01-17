@@ -18,12 +18,16 @@ let create () =
   }
 ;;
 
-let value t (Value_id idx : Value_id.t) = Vec.get_opt t.values idx |> Option.join
-let instr t (Instr_id idx : Instr_id.t) = Vec.get_opt t.instrs idx |> Option.join
+let value t (Value_id idx : Value_id.t) =
+  Vec.get_opt t.values idx |> Option.join
+;;
+
+let instr t (Instr_id idx : Instr_id.t) =
+  Vec.get_opt t.instrs idx |> Option.join
+;;
 
 let value_by_var t var =
-  Hashtbl.find t.value_id_by_var var
-  |> Option.bind ~f:(fun id -> value t id)
+  Hashtbl.find t.value_id_by_var var |> Option.bind ~f:(fun id -> value t id)
 ;;
 
 let alloc_value t ~type_ ~var =
@@ -98,8 +102,7 @@ let register_defs_uses t ~instr_id ~defs ~uses =
 
 let unregister_defs_uses t ~instr_id ~defs ~uses =
   List.iter uses ~f:(fun var ->
-    Option.iter (value_by_var t var) ~f:(fun value ->
-      remove_use value instr_id));
+    Option.iter (value_by_var t var) ~f:(fun value -> remove_use value instr_id));
   List.iter defs ~f:(fun var ->
     Option.iter (value_by_var t var) ~f:(fun value ->
       match value.def with
@@ -118,8 +121,7 @@ let replace_defs_uses t ~instr_id ~old_defs ~old_uses ~new_defs ~new_uses =
   let removed_defs = Set.diff old_defs_set new_defs_set |> Set.to_list in
   let added_defs = Set.diff new_defs_set old_defs_set |> Set.to_list in
   List.iter removed_uses ~f:(fun var ->
-    Option.iter (value_by_var t var) ~f:(fun value ->
-      remove_use value instr_id));
+    Option.iter (value_by_var t var) ~f:(fun value -> remove_use value instr_id));
   List.iter added_uses ~f:(fun var ->
     let value = ensure_value t ~var in
     add_use value instr_id);
@@ -191,9 +193,7 @@ let remove_instr t ~block ~instr =
   free_instr t instr
 ;;
 
-let set_terminal_ir t ~block ~ir =
-  replace_instr_ir t block.Block.terminal ~ir
-;;
+let set_terminal_ir t ~block ~ir = replace_instr_ir t block.Block.terminal ~ir
 
 let register_block_args t ~block =
   Vec.iteri block.Block.args ~f:(fun i var ->
