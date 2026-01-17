@@ -53,8 +53,9 @@ let save_and_restore_in_prologue_and_epilogue
     (* align to 16 bytes *)
     fn.bytes_for_padding
     <- (let m =
-          ((* 8 bytes for return address on stack *)
+          ((* 8 bytes for return address on stack, 8 for rbp (ofc 16 is redundant, but for clarity) *)
            8
+           + 8
            + fn.bytes_for_spills
            + fn.bytes_statically_alloca'd
            + fn.bytes_for_clobber_saves)

@@ -588,6 +588,7 @@ let%expect_test "borked" =
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
     root___root:
       push 8
       push 7
@@ -617,6 +618,7 @@ let%expect_test "borked" =
       push r13
       push r14
       push r15
+      sub rsp, 8
       mov r13, [rbp + 16]
       mov r14, [rbp + 24]
       mov r15, rdi
