@@ -3,7 +3,15 @@ open! Core
 type t = Ssa_state.t String.Table.t
 
 let by_function : t = String.Table.create ()
-let by_block : Ssa_state.t Block.Table.t = Block.Table.create ()
+
+module Block_uid = struct
+  type t = Block.t [@@deriving sexp]
+
+  let compare a b = Int.compare a.Block.uid b.Block.uid
+  let hash t = Int.hash t.Block.uid
+end
+
+let by_block = Hashtbl.create (module Block_uid)
 
 let reset () =
   Hashtbl.clear by_function;

@@ -319,8 +319,7 @@ let%expect_test "print helper" =
   let root = make_fn ~name:"root" ~args:[] ~root:root_root in
   let functions = String.Map.of_alist_exn [ "root", root; "child", child ] in
   print_s [%sexp (functions : Function.t String.Map.t)];
-  [%expect
-    {|
+  [%expect {|
     ((child
       ((call_conv Default)
        (root
@@ -471,8 +470,7 @@ let%expect_test "borked regaloc" =
      | `Arm64 ->
        Arm64_backend.For_testing.print_assignments program.Program.functions
      | `Other -> failwith "unecpected arch");
-    [%expect
-      {|
+    [%expect {|
       ((function_name root)
        (assignments
         ((((name arg_reg) (type_ I64)) (Reg ((reg X0) (class_ I64))))
@@ -624,8 +622,7 @@ let%expect_test "borked regaloc" =
 let%expect_test "borked" =
   compile_and_lower ~arch:`X86_64 ~system ~opt_flags:Eir.Opt_flags.no_opt borked
   |> print_endline;
-  [%expect
-    {|
+  [%expect {|
     .intel_syntax noprefix
     .text
     .globl _root
@@ -695,8 +692,7 @@ let%expect_test "borked" =
 
 let%expect_test "debug borked opt ssa" =
   test_ssa ~don't_opt:() borked;
-  [%expect
-    {|
+  [%expect {|
     (%root
      (instrs
       ((Call (fn sum8) (results (((name res) (type_ I64))))
@@ -765,8 +761,7 @@ let%expect_test "debug borked opt ssa" =
 
 let%expect_test "debug borked opt x86" =
   test ~opt_flags:Eir.Opt_flags.no_opt borked;
-  [%expect
-    {|
+  [%expect {|
     (((call_conv Default)
       (root
        ((root__prologue (args ())
@@ -1040,8 +1035,7 @@ let%expect_test "debug borked" =
        Arm64_backend.For_testing.print_selected_instructions
          program.Program.functions
      | `Other -> failwith "unexpected arch");
-    [%expect
-      {|
+    [%expect {|
       (block (block.id_hum root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |
@@ -1175,8 +1169,7 @@ let%expect_test "debug borked opt" =
        Arm64_backend.For_testing.print_selected_instructions
          program.Program.functions
      | `Other -> failwith "unexpected arch");
-    [%expect
-      {|
+    [%expect {|
       (block (block.id_hum root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |

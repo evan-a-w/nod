@@ -70,11 +70,11 @@ let save_and_restore_in_prologue_and_epilogue
     let () =
       (* change prologue *)
       let new_prologue =
-        [ X86 (push (Reg Reg.rbp)); X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)) ]
-        @ List.map to_restore ~f:(fun reg -> X86 (push (Reg reg)))
+        [ Ir0.X86 (push (Reg Reg.rbp)); Ir0.X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)) ]
+        @ List.map to_restore ~f:(fun reg -> Ir0.X86 (push (Reg reg)))
         @ (if extra_bytes_after_callee_saves > 0
            then
-             [ X86
+             [ Ir0.X86
                  (sub
                     (Reg Reg.rsp)
                     (Imm (extra_bytes_after_callee_saves |> Int64.of_int))) ]
@@ -90,15 +90,15 @@ let save_and_restore_in_prologue_and_epilogue
       (* change epilogue *)
       let new_epilogue =
         Block.instrs_to_ir_list epilogue
-        @ [ X86
+        @ [ Ir0.X86
               (sub
                  (* sub rbp first, because we don't want rsp to be above places we care about in case the os clobbers them *)
                  (Reg Reg.rbp)
                  (Imm (fn.bytes_for_clobber_saves |> Int64.of_int)))
-          ; X86 (mov (Reg Reg.rsp) (Reg Reg.rbp))
+          ; Ir0.X86 (mov (Reg Reg.rsp) (Reg Reg.rbp))
           ]
-        @ List.rev_map to_restore ~f:(fun reg -> X86 (pop reg))
-        @ [ X86 (pop Reg.rbp) ]
+        @ List.rev_map to_restore ~f:(fun reg -> Ir0.X86 (pop reg))
+        @ [ Ir0.X86 (pop Reg.rbp) ]
       in
       Ssa_state.replace_block_instructions
         epilogue_state
