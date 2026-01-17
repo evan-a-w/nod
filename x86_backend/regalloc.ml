@@ -302,17 +302,20 @@ let replace_regs
        update_slots
          ~which:`Both
          { live_in = live_out; live_out = block_liveness.overall.live_in });
+    let instrs = Block.instrs_to_list block in
+    let liveness = Vec.to_list block_liveness.instructions in
     let new_instructions =
-      Vec.zip_exn block.instructions block_liveness.instructions
-      |> Vec.map ~f:(fun (instruction, liveness) ->
+      List.zip_exn instrs liveness
+      |> List.map ~f:(fun (instruction, liveness) ->
         update_slots ~which:`Open liveness;
-        let ir = map_ir instruction in
+        let ir = map_ir instruction.ir in
         update_slots ~which:`Close liveness;
         ir)
     in
-    block.instructions <- new_instructions;
+    let state = State.state_for_block block in
+    Ssa_state.replace_block_instructions state ~block ~irs:new_instructions;
     update_slots ~which:`Both block_liveness.terminal;
-    block.terminal <- map_ir block.terminal;
+    Ssa_state.set_terminal_ir state ~block ~ir:(map_ir block.terminal.ir);
     prev_liveness := Some block_liveness.terminal);
   let spill_slots_used =
     match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with

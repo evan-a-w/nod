@@ -7,17 +7,31 @@ open! Core
 
      to an actual cfg, [Ir.t]
 *)
-let process (~instrs_by_label, ~labels) =
+let process ~state (~instrs_by_label, ~labels) =
   let blocks =
     Vec.map labels ~f:(fun label ->
-      label, Block.create ~id_hum:label ~terminal:Ir.unreachable)
+      let terminal = Ssa_state.alloc_instr state ~ir:Ir.unreachable in
+      let block = Block.create ~id_hum:label ~terminal in
+      State.register_block ~block ~state;
+      label, block)
     |> Vec.to_list
     |> String.Map.of_alist_exn
   in
   let in_order = Vec.map labels ~f:(Map.find_exn blocks) in
   Vec.iteri labels ~f:(fun i label ->
     let block = Map.find_exn blocks label in
+    let last_instr = ref None in
     let found_terminal = ref false in
+    let register_instr instr = Ssa_state.register_instr state instr in
+    let link_instr instr =
+      instr.prev <- !last_instr;
+      instr.next <- None;
+      (match !last_instr with
+       | None -> block.instructions <- Some instr
+       | Some prev -> prev.next <- Some instr);
+      last_instr := Some instr;
+      register_instr instr
+    in
     let add_terminal instr =
       found_terminal := true;
       Ir.blocks instr
@@ -25,7 +39,8 @@ let process (~instrs_by_label, ~labels) =
         let block' = Map.find_exn blocks block' in
         Vec.push block.children block';
         Vec.push block'.parents block);
-      block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
+      let new_ir = Ir.map_blocks ~f:(Map.find_exn blocks) instr in
+      Ssa_state.replace_instr_ir state block.terminal ~ir:new_ir
     in
     Vec.iter
       (Map.find instrs_by_label label
@@ -36,9 +51,9 @@ let process (~instrs_by_label, ~labels) =
         else if Ir.is_terminal instr
         then add_terminal instr
         else
-          Vec.push
-            block.instructions
-            (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+          let ir = Ir.map_blocks ~f:(Map.find_exn blocks) instr in
+          let instr = Ssa_state.alloc_instr state ~ir in
+          link_instr instr);
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with
@@ -48,6 +63,7 @@ let process (~instrs_by_label, ~labels) =
 ;;
 
 let process'
+  ~state
   ~is_label
   ~add_fall_through_to_terminal
   (instrs : string Ir0.t Vec.t)
@@ -85,5 +101,5 @@ let process'
       new_block new_label)
     else Vec.push curr_instrs instr);
   let instrs_by_label = !instrs_by_label in
-  process (~instrs_by_label, ~labels)
+  process ~state (~instrs_by_label, ~labels)
 ;;

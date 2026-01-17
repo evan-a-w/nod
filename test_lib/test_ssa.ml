@@ -4,8 +4,12 @@ open! Import
 let test ?don't_opt s =
   Test_cfg.test s;
   print_endline "=================================";
+  State.reset ();
   Parser.parse_string s
-  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    Program.map_function_roots_with_name program ~f:(fun ~name root ->
+      let state = State.ensure_function name in
+      Cfg.process ~state root))
   |> Result.map ~f:Eir.set_entry_block_args
   |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
   |> function
@@ -14,7 +18,7 @@ let test ?don't_opt s =
     let go program =
       Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
         Vec.iter ssa.in_order ~f:(fun block ->
-          let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+          let instrs = Block.instrs_to_ir_list block @ [ block.terminal.ir ] in
           print_s
             [%message
               block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
@@ -49,7 +53,7 @@ let%expect_test "eir compile with args" =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     Map.iter program.Program.functions ~f:(fun { Function.root = block; _ } ->
-      let instrs = Vec.to_list block.Block.instructions @ [ block.terminal ] in
+      let instrs = Block.instrs_to_ir_list block @ [ block.terminal.ir ] in
       print_s
         [%message
           block.Block.id_hum

@@ -33,7 +33,7 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
 ;;
 
 let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
-  match x86_block.terminal with
+  match x86_block.terminal.ir with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
   | Arm64 _ | Arm64_terminal _ -> None
@@ -61,13 +61,18 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
 ;;
 
 let replace_true_terminal (x86_block : Block.t) new_true_terminal =
-  match x86_block.terminal with
-  | X86 _terminal -> x86_block.terminal <- X86 new_true_terminal
+  let state = State.state_for_block x86_block in
+  match x86_block.terminal.ir with
+  | X86 _terminal ->
+    Ssa_state.set_terminal_ir state ~block:x86_block ~ir:(X86 new_true_terminal)
   | X86_terminal terminals ->
-    x86_block.terminal
-    <- X86_terminal
-         (List.take terminals (List.length terminals - 1)
-          @ [ new_true_terminal ])
+    Ssa_state.set_terminal_ir
+      state
+      ~block:x86_block
+      ~ir:
+        (X86_terminal
+           (List.take terminals (List.length terminals - 1)
+            @ [ new_true_terminal ]))
   | Arm64 _ | Arm64_terminal _ -> ()
   | Noop
   | And _

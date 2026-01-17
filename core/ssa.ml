@@ -133,7 +133,7 @@ module Def_uses = struct
         block
     in
     Vec.iter block.Block.args ~f:(update t.defs);
-    Vec.iter (Block.instructions block) ~f:(fun instr ->
+    Block.instrs_to_ir_list block |> List.iter ~f:(fun instr ->
       let uses = Ir.uses instr in
       let defs = Ir.defs instr in
       List.iter uses ~f:(update t.uses);
@@ -258,6 +258,11 @@ let new_name t var =
 
 let insert_args t =
   let def_uses = t.def_uses in
+  let changed = Block.Table.create () in
+  let mark_changed block =
+    if not (Hashtbl.mem changed block)
+    then Hashtbl.set changed ~key:block ~data:(Vec.to_list block.Block.args)
+  in
   Hash_set.iter def_uses.vars ~f:(fun var ->
     match Hashtbl.find def_uses.defs var with
     | None -> ()
@@ -266,14 +271,22 @@ let insert_args t =
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
           if not (Vec.mem block.args var ~compare:Var.compare)
-          then Vec.push block.args var;
+          then (
+            mark_changed block;
+            Vec.push block.args var);
           Hash_set.add defs block)));
+  Hashtbl.iteri changed ~f:(fun ~key:block ~data:old_args ->
+    let state = State.state_for_block block in
+    let new_args = Vec.to_list block.Block.args in
+    Ssa_state.update_block_args state ~block ~old_args ~new_args);
   t
 ;;
 
 let add_args_to_calls t =
   let rec go block =
-    Block.set_terminal block (Block.terminal block |> Ir.add_block_args);
+    let state = State.state_for_block block in
+    let ir = Ir.add_block_args block.terminal.ir in
+    Ssa_state.set_terminal_ir state ~block ~ir;
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -291,9 +304,12 @@ let uses_in_block_ex_calls ~block =
     defs, uses
   in
   let acc =
-    Vec.fold block.Block.instructions ~init:(Var.Set.empty, Var.Set.empty) ~f
+    List.fold
+      (Block.instrs_to_ir_list block)
+      ~init:(Var.Set.empty, Var.Set.empty)
+      ~f
   in
-  let _defs, uses = f acc block.terminal in
+  let _defs, uses = f acc block.terminal.ir in
   uses
 ;;
 
@@ -309,12 +325,18 @@ let prune_args t =
   in
   let uses = go Var.Set.empty t.def_uses.root in
   let rec go' block =
+    let state = State.state_for_block block in
     let pre_len = Vec.length block.Block.args in
+    let old_args = Vec.to_list block.Block.args in
     Vec.filter_inplace block.args ~f:(Set.mem uses);
+    let new_args = Vec.to_list block.Block.args in
+    Ssa_state.update_block_args state ~block ~old_args ~new_args;
     if Vec.length block.args <> pre_len
     then
       Vec.iter block.parents ~f:(fun block' ->
-        Block.set_terminal block' (Block.terminal block' |> Ir.add_block_args));
+        let parent_state = State.state_for_block block' in
+        let ir = Ir.add_block_args block'.terminal.ir in
+        Ssa_state.set_terminal_ir parent_state ~block:block' ~ir);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -346,11 +368,16 @@ let rename t =
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
+    let state = State.state_for_block block in
+    let old_args = Vec.to_list block.Block.args in
     block.Block.args <- Vec.map block.Block.args ~f:replace_def;
-    block.Block.instructions
-    <- Vec.map block.instructions ~f:(fun instr ->
-         instr |> replace_uses |> replace_defs);
-    Block.terminal block |> replace_uses |> Block.set_terminal block;
+    let new_args = Vec.to_list block.Block.args in
+    Ssa_state.update_block_args state ~block ~old_args ~new_args;
+    Block.iter_instrs block ~f:(fun instr ->
+      let ir = instr.ir |> replace_uses |> replace_defs in
+      Ssa_state.replace_instr_ir state instr ~ir);
+    let terminal_ir = block.terminal.ir |> replace_uses in
+    Ssa_state.set_terminal_ir state ~block ~ir:terminal_ir;
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -359,6 +386,13 @@ let rename t =
     stacks := stacks_before
   in
   go t.def_uses.root;
+  t
+;;
+
+let register_block_args t =
+  Block.iter t.def_uses.root ~f:(fun block ->
+    let state = State.state_for_block block in
+    Ssa_state.register_block_args state ~block);
   t
 ;;
 
@@ -381,6 +415,7 @@ let create (~root, ~blocks:_, ~in_order) =
   |> add_args_to_calls
   |> prune_args
   |> rename
+  |> register_block_args
 ;;
 
 let root t = t.def_uses.root

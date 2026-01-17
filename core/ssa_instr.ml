@@ -1,9 +1,9 @@
 open! Core
+open! Import
 
-type t =
+type 'block t =
   { id : Instr_id.t
-  ; mutable ir : Ir.t
-  ; mutable block : Block.t option
-  ; mutable next : t option
-  ; mutable prev : t option
+  ; mutable ir : 'block Ir0.t
+  ; mutable next : 'block t option
+  ; mutable prev : 'block t option
   }
