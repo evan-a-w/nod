@@ -262,34 +262,7 @@ let%expect_test "heap pop" =
 let%expect_test "heap push pop multiple" =
   (* 10 * 10000 + 30 * 100 + 40 = 103040 *)
   compile_and_execute_program_exn test_push_pop_multiple_program "103040";
-  [%expect.unreachable]
-[@@expect.uncaught_exn {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Failure
-    "command failed (139): cd 'nod-exec.tmp.lZ5Txw' && './program' > 'stdout.txt'")
-  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
-  Called from Nod.run_shell_exn in file "lib/nod.ml", line 115, characters 12-69
-  Called from Nod.execute_asm.(fun) in file "lib/nod.ml", lines 308-313, characters 6-166
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 59, characters 8-11
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
-  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
-  Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 35, characters 2-50
-  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 66, characters 13-49
-  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
-  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
-  Called from Nod.execute_asm in file "lib/nod.ml" (inlined), lines 241-317, characters 2-2665
-  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn.(fun) in file "runtime_tests/test_binary_heap.ml", line 224, characters 6-71
-  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
-  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn in file "runtime_tests/test_binary_heap.ml", lines 214-233, characters 2-561
-  Called from Nod_runtime_tests__Test_binary_heap.(fun) in file "runtime_tests/test_binary_heap.ml", line 264, characters 2-73
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
-
-  Trailing output
-  ---------------
-  Segmentation fault (core dumped)
-  |}]
+  [%expect {| |}]
 ;;
 
 let%expect_test "x86 test push pop program" =
@@ -394,8 +367,9 @@ let%expect_test "x86 test push pop program" =
       mov rdi, r9
       call nod_fn_87_6
       mov r10, rax
-      mov r15, rcx
-      sub r15, r10
+      mov r15, 0
+      cmp r10, rcx
+      setl r15b
       cmp r15, 0
       je nod_fn_126_6__intermediate_sift_down_loop_to_sift_down_done
     nod_fn_126_6__intermediate_sift_down_loop_to_sift_down_has_left:
@@ -409,8 +383,9 @@ let%expect_test "x86 test push pop program" =
       mov rdi, r9
       call nod_fn_95_6
       mov r11, rax
-      mov r15, rcx
-      sub r15, r11
+      mov r15, 0
+      cmp r11, rcx
+      setl r15b
       mov r12, rbp
       sub r12, 64
       mov [r12], r10
@@ -488,8 +463,8 @@ let%expect_test "x86 test push pop program" =
       mov r14, r12
       jmp nod_fn_126_6__sift_down_loop
 
-    .globl nod_fn_180_6
-    nod_fn_180_6:
+    .globl nod_fn_179_6
+    nod_fn_179_6:
       push rbp
       mov rbp, rsp
       push r13
@@ -497,7 +472,7 @@ let%expect_test "x86 test push pop program" =
       push r15
       sub rsp, 8
       mov r13, rdi
-    nod_fn_180_6___entry:
+    nod_fn_179_6___entry:
       mov r15, 24
       mov rdi, r15
       call malloc
@@ -513,7 +488,7 @@ let%expect_test "x86 test push pop program" =
       mov [r14 + 8], r13
       mov qword ptr [r14 + 16], 0
       mov rax, r14
-    nod_fn_180_6__nod_fn_180_6__epilogue:
+    nod_fn_179_6__nod_fn_179_6__epilogue:
       sub rbp, 24
       mov rsp, rbp
       pop r15
@@ -522,45 +497,45 @@ let%expect_test "x86 test push pop program" =
       pop rbp
       ret
 
-    .globl nod_fn_194_6
-    nod_fn_194_6:
+    .globl nod_fn_193_6
+    nod_fn_193_6:
       push rbp
       mov rbp, rsp
       push r15
       sub rsp, 8
       mov r15, rdi
-    nod_fn_194_6___entry:
+    nod_fn_193_6___entry:
       mov r15, [r15 + 16]
       mov rax, r15
-    nod_fn_194_6__nod_fn_194_6__epilogue:
+    nod_fn_193_6__nod_fn_193_6__epilogue:
       sub rbp, 8
       mov rsp, rbp
       pop r15
       pop rbp
       ret
 
-    .globl nod_fn_201_6
-    nod_fn_201_6:
+    .globl nod_fn_200_6
+    nod_fn_200_6:
       push rbp
       mov rbp, rsp
       push r15
       sub rsp, 8
       mov r15, rdi
-    nod_fn_201_6___entry:
+    nod_fn_200_6___entry:
       mov rdi, r15
       mov rsi, 0
       call nod_fn_25_6
       mov r15, rax
       mov rax, r15
-    nod_fn_201_6__nod_fn_201_6__epilogue:
+    nod_fn_200_6__nod_fn_200_6__epilogue:
       sub rbp, 8
       mov rsp, rbp
       pop r15
       pop rbp
       ret
 
-    .globl nod_fn_208_6
-    nod_fn_208_6:
+    .globl nod_fn_207_6
+    nod_fn_207_6:
       push rbp
       mov rbp, rsp
       push r12
@@ -569,7 +544,7 @@ let%expect_test "x86 test push pop program" =
       push r15
       mov r12, rsi
       mov r13, rdi
-    nod_fn_208_6___entry:
+    nod_fn_207_6___entry:
       mov r14, [r13 + 16]
       mov rdi, r13
       mov rsi, r14
@@ -588,7 +563,7 @@ let%expect_test "x86 test push pop program" =
       mov r15, rax
       mov r15, 0
       mov rax, r15
-    nod_fn_208_6__nod_fn_208_6__epilogue:
+    nod_fn_207_6__nod_fn_207_6__epilogue:
       sub rbp, 32
       mov rsp, rbp
       pop r15
@@ -598,8 +573,8 @@ let%expect_test "x86 test push pop program" =
       pop rbp
       ret
 
-    .globl nod_fn_221_6
-    nod_fn_221_6:
+    .globl nod_fn_220_6
+    nod_fn_220_6:
       push rbp
       mov rbp, rsp
       push r12
@@ -608,15 +583,15 @@ let%expect_test "x86 test push pop program" =
       push r15
       mov r10, rsi
       mov r11, rdi
-    nod_fn_221_6___entry:
+    nod_fn_220_6___entry:
       mov r12, [r11 + 16]
       cmp r12, 0
-      je nod_fn_221_6__intermediate__entry_to_pop_empty
-    nod_fn_221_6__intermediate__entry_to_pop_has_elements:
-      jmp nod_fn_221_6__pop_has_elements
-    nod_fn_221_6__intermediate__entry_to_pop_empty:
-      jmp nod_fn_221_6__pop_empty
-    nod_fn_221_6__pop_has_elements:
+      je nod_fn_220_6__intermediate__entry_to_pop_empty
+    nod_fn_220_6__intermediate__entry_to_pop_has_elements:
+      jmp nod_fn_220_6__pop_has_elements
+    nod_fn_220_6__intermediate__entry_to_pop_empty:
+      jmp nod_fn_220_6__pop_empty
+    nod_fn_220_6__pop_has_elements:
       mov rdi, r11
       mov rsi, 0
       call nod_fn_25_6
@@ -633,18 +608,18 @@ let%expect_test "x86 test push pop program" =
       sub r14, 1
       mov [r11 + 16], r14
       cmp r14, 0
-      jne nod_fn_221_6__intermediate_pop_has_elements_to_pop_sift
-      jmp nod_fn_221_6__intermediate_pop_has_elements_to_pop_done
-    nod_fn_221_6__pop_empty:
+      jne nod_fn_220_6__intermediate_pop_has_elements_to_pop_sift
+      jmp nod_fn_220_6__intermediate_pop_has_elements_to_pop_done
+    nod_fn_220_6__pop_empty:
       mov r15, r14
-      jmp nod_fn_221_6__pop_done
-    nod_fn_221_6__intermediate_pop_has_elements_to_pop_sift:
-      jmp nod_fn_221_6__pop_sift
-    nod_fn_221_6__intermediate_pop_has_elements_to_pop_done:
+      jmp nod_fn_220_6__pop_done
+    nod_fn_220_6__intermediate_pop_has_elements_to_pop_sift:
+      jmp nod_fn_220_6__pop_sift
+    nod_fn_220_6__intermediate_pop_has_elements_to_pop_done:
       mov r15, r14
       mov r14, r13
-      jmp nod_fn_221_6__pop_done
-    nod_fn_221_6__pop_sift:
+      jmp nod_fn_220_6__pop_done
+    nod_fn_220_6__pop_sift:
       mov rdi, r11
       mov rsi, r14
       call nod_fn_25_6
@@ -663,10 +638,10 @@ let%expect_test "x86 test push pop program" =
       pop r11
       mov r15, r14
       mov r14, r13
-    nod_fn_221_6__pop_done:
+    nod_fn_220_6__pop_done:
       mov r15, 0
       mov rax, r15
-    nod_fn_221_6__nod_fn_221_6__epilogue:
+    nod_fn_220_6__nod_fn_220_6__epilogue:
       sub rbp, 32
       mov rsp, rbp
       pop r15
@@ -935,7 +910,7 @@ let%expect_test "x86 test push pop program" =
       sub rsp, 16
     root___entry:
       mov rdi, 16
-      call nod_fn_180_6
+      call nod_fn_179_6
       mov r11, rax
       mov r14, rbp
       sub r14, 40
@@ -943,35 +918,35 @@ let%expect_test "x86 test push pop program" =
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_208_6
+      call nod_fn_207_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 30
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_208_6
+      call nod_fn_207_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 70
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_208_6
+      call nod_fn_207_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 10
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_208_6
+      call nod_fn_207_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 40
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_208_6
+      call nod_fn_207_6
       mov r15, rax
       pop r11
       mov r12, rbp
@@ -979,21 +954,21 @@ let%expect_test "x86 test push pop program" =
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_221_6
+      call nod_fn_220_6
       mov r15, rax
       pop r11
       mov r13, [r12]
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_221_6
+      call nod_fn_220_6
       mov r15, rax
       pop r11
       mov r14, [r12]
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_221_6
+      call nod_fn_220_6
       mov r15, rax
       pop r11
       mov r12, [r12]
