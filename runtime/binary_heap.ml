@@ -131,20 +131,19 @@ struct
         let i = load i_slot in
         let left = left_child_index i in
         (* if left >= len, no children, done *)
-        let left_in_bounds = sub len left in
-        (* left_in_bounds > 0 iff left < len *)
+        let left_lt_len = lt left len in
         branch_to
-          left_in_bounds
-          ~if_true:"sift_down_has_left"
-          ~if_false:"sift_down_done";
+          left_lt_len
+          ~if_false:"sift_down_done"
+          ~if_true:"sift_down_has_left";
         label sift_down_has_left;
         let right = right_child_index i in
-        let right_in_bounds = sub len right in
-        (* right_in_bounds > 0 iff right < len *)
+        (* right >= len, no right child, done *)
+        let right_lt_len = lt right len in
         let smallest_slot = alloca (lit 8L) in
         store left smallest_slot;
         branch_to
-          right_in_bounds
+          right_lt_len
           ~if_true:"sift_down_check_right"
           ~if_false:"sift_down_compare_with_parent";
         label sift_down_check_right;
