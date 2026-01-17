@@ -34,6 +34,7 @@ type instr =
   | Jmp of string
   | Je of string
   | Jne of string
+  | Cqo (* sign extend rax into rdx:rax *)
   | Ret
   (* Atomic operations *)
   | Mfence

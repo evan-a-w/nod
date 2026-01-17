@@ -263,13 +263,12 @@ let%expect_test "heap push pop multiple" =
   (* 10 * 10000 + 30 * 100 + 40 = 103040 *)
   compile_and_execute_program_exn test_push_pop_multiple_program "103040";
   [%expect.unreachable]
-[@@expect.uncaught_exn
-  {|
+[@@expect.uncaught_exn {|
   (* CR expect_test_collector: This test expectation appears to contain a backtrace.
      This is strongly discouraged as backtraces are fragile.
      Please change this test to not include a backtrace. *)
   (Failure
-    "command failed (139): cd 'nod-exec.tmp.jaXBnP' && './program' > 'stdout.txt'")
+    "command failed (139): cd 'nod-exec.tmp.lZ5Txw' && './program' > 'stdout.txt'")
   Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
   Called from Nod.run_shell_exn in file "lib/nod.ml", line 115, characters 12-69
   Called from Nod.execute_asm.(fun) in file "lib/nod.ml", lines 308-313, characters 6-166
@@ -848,6 +847,7 @@ let%expect_test "x86 test push pop program" =
       sub r14, r15
       mov r15, 2
       mov rax, r14
+      cqo
       idiv r15
       mov r15, rax
       mov rax, r15

@@ -189,6 +189,7 @@ let string_of_instr = function
       "lock cmpxchg %s, %s"
       (string_of_operand dest)
       (string_of_operand desired)
+  | Cqo -> "cqo"
 ;;
 
 let add_line buf line =
