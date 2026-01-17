@@ -65,7 +65,6 @@ let%expect_test "super triv lowers to assembly" =
       mov rbp, rsp
       push r14
       push r15
-      sub rsp, 8
     root__a:
       mov r14, 10
       mov r15, 20
@@ -196,7 +195,6 @@ let%expect_test "branches lower with labels" =
       mov rbp, rsp
       push r14
       push r15
-      sub rsp, 8
     root__a:
       mov r14, 10
       mov r15, 20
@@ -244,6 +242,7 @@ let%expect_test "recursive fib" =
       push r13
       push r14
       push r15
+      sub rsp, 8
       mov r14, rdi
     fib___root:
       cmp r14, 0
@@ -305,6 +304,7 @@ ret %result
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
     root___root:
       mov xmm15, 3
       mov xmm14, 7
@@ -358,6 +358,7 @@ root() {
       push r13
       push r14
       push r15
+      sub rsp, 8
     root___root:
       lea r15, [rip + g]
       mov r13, [r15]
@@ -403,7 +404,6 @@ root() {
       mov rbp, rsp
       push r14
       push r15
-      sub rsp, 8
     root___root:
       mov r14, 123
       lea r15, [rip + g]
@@ -448,6 +448,7 @@ root() {
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
     root___root:
       lea r15, [rip + buf]
       add r15, 8
@@ -488,6 +489,7 @@ root() {
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
       mov r15, rdi
     id___root:
       mov r15, 0
@@ -504,6 +506,7 @@ root() {
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
     root___root:
       lea r15, [rip + g]
       mov rdi, r15
@@ -563,6 +566,7 @@ root() {
       push rbp
       mov rbp, rsp
       push r15
+      sub rsp, 8
     root___root:
       mov r15, 0
       mov rax, r15

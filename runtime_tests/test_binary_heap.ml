@@ -198,6 +198,18 @@ let test_push_pop_multiple_program =
     ~globals:[]
 ;;
 
+let compile_and_print_x86_program program =
+  let compiled = Dsl.compile_program_exn program in
+  let asm =
+    compile_and_lower_functions
+      ~arch:`X86_64
+      ~system:`Linux
+      ~globals:compiled.Program.globals
+      compiled.Program.functions
+  in
+  print_endline asm
+;;
+
 let compile_and_execute_program_exn program expected =
   List.iter test_architectures_narrow ~f:(fun arch ->
     let compiled = Dsl.compile_program_exn program in
@@ -250,5 +262,762 @@ let%expect_test "heap pop" =
 let%expect_test "heap push pop multiple" =
   (* 10 * 10000 + 30 * 100 + 40 = 103040 *)
   compile_and_execute_program_exn test_push_pop_multiple_program "103040";
-  [%expect {| |}]
+  [%expect.unreachable]
+[@@expect.uncaught_exn
+  {|
+  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
+     This is strongly discouraged as backtraces are fragile.
+     Please change this test to not include a backtrace. *)
+  (Failure
+    "command failed (139): cd 'nod-exec.tmp.jaXBnP' && './program' > 'stdout.txt'")
+  Raised at Stdlib.failwith in file "stdlib.ml" (inlined), line 39, characters 17-33
+  Called from Nod.run_shell_exn in file "lib/nod.ml", line 115, characters 12-69
+  Called from Nod.execute_asm.(fun) in file "lib/nod.ml", lines 308-313, characters 6-166
+  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 59, characters 8-11
+  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
+  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
+  Re-raised at Base__Exn.raise_with_original_backtrace in file "src/exn.ml" (inlined), line 35, characters 2-50
+  Called from Base__Exn.protectx in file "src/exn.ml" (inlined), line 66, characters 13-49
+  Called from Base__Exn.protect in file "src/exn.ml" (inlined), line 72, characters 26-49
+  Called from Nod.execute_asm in file "lib/nod.ml", lines 287-317, characters 2-1185
+  Called from Nod.execute_asm in file "lib/nod.ml" (inlined), lines 241-317, characters 2-2665
+  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn.(fun) in file "runtime_tests/test_binary_heap.ml", line 224, characters 6-71
+  Called from Base__List0.iter in file "src/list0.ml" (inlined), line 83, characters 4-7
+  Called from Nod_runtime_tests__Test_binary_heap.compile_and_execute_program_exn in file "runtime_tests/test_binary_heap.ml", lines 214-233, characters 2-561
+  Called from Nod_runtime_tests__Test_binary_heap.(fun) in file "runtime_tests/test_binary_heap.ml", line 264, characters 2-73
+  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
+
+  Trailing output
+  ---------------
+  Segmentation fault (core dumped)
+  |}]
+;;
+
+let%expect_test "x86 test push pop program" =
+  compile_and_print_x86_program test_push_pop_multiple_program;
+  [%expect
+    {|
+    .intel_syntax noprefix
+    .text
+    .globl nod_fn_103_6
+    nod_fn_103_6:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      sub rsp, 16
+      mov r13, rsi
+      mov r10, rdi
+    nod_fn_103_6___entry:
+      mov r11, rbp
+      sub r11, 48
+      mov [r11], r13
+      mov r15, r14
+    nod_fn_103_6__sift_up_loop:
+      mov r12, [r11]
+      cmp r12, 0
+      je nod_fn_103_6__intermediate_sift_up_loop_to_sift_up_done
+    nod_fn_103_6__intermediate_sift_up_loop_to_sift_up_check_parent:
+      jmp nod_fn_103_6__sift_up_check_parent
+    nod_fn_103_6__intermediate_sift_up_loop_to_sift_up_done:
+      mov r15, r14
+      jmp nod_fn_103_6__sift_up_done
+    nod_fn_103_6__sift_up_check_parent:
+      mov rdi, r12
+      call nod_fn_78_6
+      mov r13, rax
+      mov rdi, r10
+      mov rsi, r12
+      mov rdx, r13
+      call nod_fn_35_6
+      mov r14, rax
+      mov r15, 0
+      cmp r14, 0
+      setl r15b
+      cmp r15, 0
+      je nod_fn_103_6__intermediate_sift_up_check_parent_to_sift_up_done
+    nod_fn_103_6__intermediate_sift_up_check_parent_to_sift_up_swap:
+      jmp nod_fn_103_6__sift_up_swap
+    nod_fn_103_6__intermediate_sift_up_check_parent_to_sift_up_done:
+      mov r15, r13
+    nod_fn_103_6__sift_up_done:
+      mov r15, 0
+      mov rax, r15
+    nod_fn_103_6__nod_fn_103_6__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+    nod_fn_103_6__sift_up_swap:
+      push r10
+      push r11
+      mov rdi, r10
+      mov rsi, r12
+      mov rdx, r13
+      call nod_fn_66_6
+      mov r15, rax
+      pop r11
+      pop r10
+      mov [r11], r13
+      mov r15, r12
+      mov r14, r13
+      jmp nod_fn_103_6__sift_up_loop
+
+    .globl nod_fn_126_6
+    nod_fn_126_6:
+      push rbp
+      mov rbp, rsp
+      push rbx
+      push r12
+      push r13
+      push r14
+      push r15
+      sub rsp, 24
+      mov r12, rsi
+      mov rbx, rdi
+    nod_fn_126_6___entry:
+      mov rcx, [rbx + 16]
+      mov r8, rbp
+      sub r8, 56
+      mov [r8], r12
+      mov r12, r15
+      mov r15, r11
+      mov r15, r13
+      mov r15, r14
+    nod_fn_126_6__sift_down_loop:
+      mov r9, [r8]
+      mov rdi, r9
+      call nod_fn_87_6
+      mov r10, rax
+      mov r15, rcx
+      sub r15, r10
+      cmp r15, 0
+      je nod_fn_126_6__intermediate_sift_down_loop_to_sift_down_done
+    nod_fn_126_6__intermediate_sift_down_loop_to_sift_down_has_left:
+      jmp nod_fn_126_6__sift_down_has_left
+    nod_fn_126_6__intermediate_sift_down_loop_to_sift_down_done:
+      mov r15, r11
+      mov r15, r13
+      mov r15, r14
+      jmp nod_fn_126_6__sift_down_done
+    nod_fn_126_6__sift_down_has_left:
+      mov rdi, r9
+      call nod_fn_95_6
+      mov r11, rax
+      mov r15, rcx
+      sub r15, r11
+      mov r12, rbp
+      sub r12, 64
+      mov [r12], r10
+      cmp r15, 0
+      je nod_fn_126_6__intermediate_sift_down_has_left_to_sift_down_compare_with_parent
+    nod_fn_126_6__intermediate_sift_down_has_left_to_sift_down_check_right:
+      jmp nod_fn_126_6__sift_down_check_right
+    nod_fn_126_6__intermediate_sift_down_has_left_to_sift_down_compare_with_parent:
+      jmp nod_fn_126_6__sift_down_compare_with_parent
+    nod_fn_126_6__sift_down_done:
+      mov r15, 0
+      mov rax, r15
+    nod_fn_126_6__nod_fn_126_6__epilogue:
+      sub rbp, 40
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbx
+      pop rbp
+      ret
+    nod_fn_126_6__sift_down_check_right:
+      mov r15, [r12]
+      mov rdi, rbx
+      mov rsi, r11
+      mov rdx, r15
+      call nod_fn_35_6
+      mov r14, rax
+      mov r15, 0
+      cmp r14, 0
+      setl r15b
+      cmp r15, 0
+      je nod_fn_126_6__intermediate_sift_down_check_right_to_sift_down_compare_with_parent
+    nod_fn_126_6__intermediate_sift_down_check_right_to_sift_down_right_smaller:
+      jmp nod_fn_126_6__sift_down_right_smaller
+    nod_fn_126_6__intermediate_sift_down_check_right_to_sift_down_compare_with_parent:
+    nod_fn_126_6__sift_down_compare_with_parent:
+      mov r13, [r12]
+      mov rdi, rbx
+      mov rsi, r13
+      mov rdx, r9
+      call nod_fn_35_6
+      mov r14, rax
+      mov r15, 0
+      cmp r14, 0
+      setl r15b
+      cmp r15, 0
+      je nod_fn_126_6__intermediate_sift_down_compare_with_parent_to_sift_down_done
+    nod_fn_126_6__intermediate_sift_down_compare_with_parent_to_sift_down_swap:
+      jmp nod_fn_126_6__sift_down_swap
+    nod_fn_126_6__intermediate_sift_down_compare_with_parent_to_sift_down_done:
+      mov r15, r11
+      mov r15, r13
+      mov r15, r12
+      jmp nod_fn_126_6__sift_down_done
+    nod_fn_126_6__sift_down_right_smaller:
+      mov [r12], r11
+      jmp nod_fn_126_6__sift_down_compare_with_parent
+    nod_fn_126_6__sift_down_swap:
+      push r9
+      push r10
+      push r11
+      mov rdi, rbx
+      mov rsi, r9
+      mov rdx, r13
+      call nod_fn_66_6
+      mov r15, rax
+      pop r11
+      pop r10
+      pop r9
+      mov [r8], r13
+      mov r15, r9
+      mov r15, r10
+      mov r14, r12
+      jmp nod_fn_126_6__sift_down_loop
+
+    .globl nod_fn_180_6
+    nod_fn_180_6:
+      push rbp
+      mov rbp, rsp
+      push r13
+      push r14
+      push r15
+      sub rsp, 8
+      mov r13, rdi
+    nod_fn_180_6___entry:
+      mov r15, 24
+      mov rdi, r15
+      call malloc
+      mov r14, rax
+      mov r15, 8
+      mov rax, r13
+      imul r15
+      mov r15, rax
+      mov rdi, r15
+      call malloc
+      mov r15, rax
+      mov [r14], r15
+      mov [r14 + 8], r13
+      mov qword ptr [r14 + 16], 0
+      mov rax, r14
+    nod_fn_180_6__nod_fn_180_6__epilogue:
+      sub rbp, 24
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop rbp
+      ret
+
+    .globl nod_fn_194_6
+    nod_fn_194_6:
+      push rbp
+      mov rbp, rsp
+      push r15
+      sub rsp, 8
+      mov r15, rdi
+    nod_fn_194_6___entry:
+      mov r15, [r15 + 16]
+      mov rax, r15
+    nod_fn_194_6__nod_fn_194_6__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+
+    .globl nod_fn_201_6
+    nod_fn_201_6:
+      push rbp
+      mov rbp, rsp
+      push r15
+      sub rsp, 8
+      mov r15, rdi
+    nod_fn_201_6___entry:
+      mov rdi, r15
+      mov rsi, 0
+      call nod_fn_25_6
+      mov r15, rax
+      mov rax, r15
+    nod_fn_201_6__nod_fn_201_6__epilogue:
+      sub rbp, 8
+      mov rsp, rbp
+      pop r15
+      pop rbp
+      ret
+
+    .globl nod_fn_208_6
+    nod_fn_208_6:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      mov r12, rsi
+      mov r13, rdi
+    nod_fn_208_6___entry:
+      mov r14, [r13 + 16]
+      mov rdi, r13
+      mov rsi, r14
+      call nod_fn_25_6
+      mov r15, rax
+      mov rdi, r12
+      mov rsi, r15
+      call nod_fn_44_6
+      mov r15, rax
+      mov r15, r14
+      add r15, 1
+      mov [r13 + 16], r15
+      mov rdi, r13
+      mov rsi, r14
+      call nod_fn_103_6
+      mov r15, rax
+      mov r15, 0
+      mov rax, r15
+    nod_fn_208_6__nod_fn_208_6__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+
+    .globl nod_fn_221_6
+    nod_fn_221_6:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      mov r10, rsi
+      mov r11, rdi
+    nod_fn_221_6___entry:
+      mov r12, [r11 + 16]
+      cmp r12, 0
+      je nod_fn_221_6__intermediate__entry_to_pop_empty
+    nod_fn_221_6__intermediate__entry_to_pop_has_elements:
+      jmp nod_fn_221_6__pop_has_elements
+    nod_fn_221_6__intermediate__entry_to_pop_empty:
+      jmp nod_fn_221_6__pop_empty
+    nod_fn_221_6__pop_has_elements:
+      mov rdi, r11
+      mov rsi, 0
+      call nod_fn_25_6
+      mov r13, rax
+      push r10
+      push r11
+      mov rdi, r13
+      mov rsi, r10
+      call nod_fn_44_6
+      mov r15, rax
+      pop r11
+      pop r10
+      mov r14, r12
+      sub r14, 1
+      mov [r11 + 16], r14
+      cmp r14, 0
+      jne nod_fn_221_6__intermediate_pop_has_elements_to_pop_sift
+      jmp nod_fn_221_6__intermediate_pop_has_elements_to_pop_done
+    nod_fn_221_6__pop_empty:
+      mov r15, r14
+      jmp nod_fn_221_6__pop_done
+    nod_fn_221_6__intermediate_pop_has_elements_to_pop_sift:
+      jmp nod_fn_221_6__pop_sift
+    nod_fn_221_6__intermediate_pop_has_elements_to_pop_done:
+      mov r15, r14
+      mov r14, r13
+      jmp nod_fn_221_6__pop_done
+    nod_fn_221_6__pop_sift:
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_25_6
+      mov r15, rax
+      push r11
+      mov rdi, r15
+      mov rsi, r13
+      call nod_fn_44_6
+      mov r15, rax
+      pop r11
+      push r11
+      mov rdi, r11
+      mov rsi, 0
+      call nod_fn_126_6
+      mov r15, rax
+      pop r11
+      mov r15, r14
+      mov r14, r13
+    nod_fn_221_6__pop_done:
+      mov r15, 0
+      mov rax, r15
+    nod_fn_221_6__nod_fn_221_6__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+
+    .globl nod_fn_25_6
+    nod_fn_25_6:
+      push rbp
+      mov rbp, rsp
+      push r13
+      push r14
+      push r15
+      sub rsp, 8
+      mov r14, rsi
+      mov r13, rdi
+    nod_fn_25_6___entry:
+      mov r15, 8
+      mov rax, r15
+      imul r14
+      mov r14, rax
+      mov r15, [r13]
+      add r15, r14
+      mov rax, r15
+    nod_fn_25_6__nod_fn_25_6__epilogue:
+      sub rbp, 24
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop rbp
+      ret
+
+    .globl nod_fn_35_6
+    nod_fn_35_6:
+      push rbp
+      mov rbp, rsp
+      push r13
+      push r14
+      push r15
+      sub rsp, 8
+      mov r14, rsi
+      mov r13, rdx
+      mov r15, rdi
+    nod_fn_35_6___entry:
+      mov rdi, r15
+      mov rsi, r14
+      call nod_fn_25_6
+      mov r14, rax
+      mov rdi, r15
+      mov rsi, r13
+      call nod_fn_25_6
+      mov r15, rax
+      mov rdi, r14
+      mov rsi, r15
+      call nod_fn_8_4
+      mov r15, rax
+      mov rax, r15
+    nod_fn_35_6__nod_fn_35_6__epilogue:
+      sub rbp, 24
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop rbp
+      ret
+
+    .globl nod_fn_44_6
+    nod_fn_44_6:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      sub rsp, 16
+      mov r9, rsi
+      mov r10, rdi
+    nod_fn_44_6___entry:
+      mov r11, 8
+      mov r12, rbp
+      sub r12, 48
+      mov qword ptr [r12], 0
+    nod_fn_44_6__copy_loop:
+      mov r13, [r12]
+      mov r15, r11
+      sub r15, r13
+      cmp r15, 0
+      je nod_fn_44_6__intermediate_copy_loop_to_copy_done
+    nod_fn_44_6__intermediate_copy_loop_to_copy_body:
+      jmp nod_fn_44_6__copy_body
+    nod_fn_44_6__intermediate_copy_loop_to_copy_done:
+      jmp nod_fn_44_6__copy_done
+    nod_fn_44_6__copy_body:
+      mov r15, r10
+      add r15, r13
+      mov r14, r9
+      add r14, r13
+      mov r15, [r15]
+      mov [r14], r15
+      mov r15, r13
+      add r15, 8
+      mov [r12], r15
+      mov r15, r13
+      jmp nod_fn_44_6__copy_loop
+    nod_fn_44_6__copy_done:
+      mov r15, 0
+      mov rax, r15
+    nod_fn_44_6__nod_fn_44_6__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+
+    .globl nod_fn_66_6
+    nod_fn_66_6:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      sub rsp, 16
+      mov r13, rsi
+      mov r14, rdx
+      mov r15, rdi
+    nod_fn_66_6___entry:
+      mov rdi, r15
+      mov rsi, r13
+      call nod_fn_25_6
+      mov r12, rax
+      mov rdi, r15
+      mov rsi, r14
+      call nod_fn_25_6
+      mov r13, rax
+      mov r14, rbp
+      sub r14, 48
+      mov rdi, r12
+      mov rsi, r14
+      call nod_fn_44_6
+      mov r15, rax
+      mov rdi, r13
+      mov rsi, r12
+      call nod_fn_44_6
+      mov r15, rax
+      mov rdi, r14
+      mov rsi, r13
+      call nod_fn_44_6
+      mov r15, rax
+      mov r15, 0
+      mov rax, r15
+    nod_fn_66_6__nod_fn_66_6__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+
+    .globl nod_fn_78_6
+    nod_fn_78_6:
+      push rbp
+      mov rbp, rsp
+      push r14
+      push r15
+      mov r14, rdi
+    nod_fn_78_6___entry:
+      mov r15, 1
+      sub r14, r15
+      mov r15, 2
+      mov rax, r14
+      idiv r15
+      mov r15, rax
+      mov rax, r15
+    nod_fn_78_6__nod_fn_78_6__epilogue:
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop rbp
+      ret
+
+    .globl nod_fn_87_6
+    nod_fn_87_6:
+      push rbp
+      mov rbp, rsp
+      push r14
+      push r15
+      mov r14, rdi
+    nod_fn_87_6___entry:
+      mov r15, 2
+      mov rax, r14
+      imul r15
+      mov r15, rax
+      add r15, 1
+      mov rax, r15
+    nod_fn_87_6__nod_fn_87_6__epilogue:
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop rbp
+      ret
+
+    .globl nod_fn_8_4
+    nod_fn_8_4:
+      push rbp
+      mov rbp, rsp
+      push r14
+      push r15
+      mov r15, rdi
+      mov r14, rsi
+    nod_fn_8_4___entry:
+      mov r15, [r15]
+      mov r14, [r14]
+      sub r15, r14
+      mov rax, r15
+    nod_fn_8_4__nod_fn_8_4__epilogue:
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop rbp
+      ret
+
+    .globl nod_fn_95_6
+    nod_fn_95_6:
+      push rbp
+      mov rbp, rsp
+      push r14
+      push r15
+      mov r14, rdi
+    nod_fn_95_6___entry:
+      mov r15, 2
+      mov rax, r14
+      imul r15
+      mov r15, rax
+      add r15, 2
+      mov rax, r15
+    nod_fn_95_6__nod_fn_95_6__epilogue:
+      sub rbp, 16
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop rbp
+      ret
+
+    .globl root
+    root:
+      push rbp
+      mov rbp, rsp
+      push r12
+      push r13
+      push r14
+      push r15
+      sub rsp, 16
+    root___entry:
+      mov rdi, 16
+      call nod_fn_180_6
+      mov r11, rax
+      mov r14, rbp
+      sub r14, 40
+      mov qword ptr [r14], 50
+      push r11
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_208_6
+      mov r15, rax
+      pop r11
+      mov qword ptr [r14], 30
+      push r11
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_208_6
+      mov r15, rax
+      pop r11
+      mov qword ptr [r14], 70
+      push r11
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_208_6
+      mov r15, rax
+      pop r11
+      mov qword ptr [r14], 10
+      push r11
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_208_6
+      mov r15, rax
+      pop r11
+      mov qword ptr [r14], 40
+      push r11
+      mov rdi, r11
+      mov rsi, r14
+      call nod_fn_208_6
+      mov r15, rax
+      pop r11
+      mov r12, rbp
+      sub r12, 48
+      push r11
+      mov rdi, r11
+      mov rsi, r12
+      call nod_fn_221_6
+      mov r15, rax
+      pop r11
+      mov r13, [r12]
+      push r11
+      mov rdi, r11
+      mov rsi, r12
+      call nod_fn_221_6
+      mov r15, rax
+      pop r11
+      mov r14, [r12]
+      push r11
+      mov rdi, r11
+      mov rsi, r12
+      call nod_fn_221_6
+      mov r15, rax
+      pop r11
+      mov r12, [r12]
+      mov r15, 10000
+      mov rax, r13
+      imul r15
+      mov r13, rax
+      mov r15, 100
+      mov rax, r14
+      imul r15
+      mov r14, rax
+      mov r15, r13
+      add r15, r14
+      add r15, r12
+      mov rax, r15
+    root__root__epilogue:
+      sub rbp, 32
+      mov rsp, rbp
+      pop r15
+      pop r14
+      pop r13
+      pop r12
+      pop rbp
+      ret
+    .section .note.GNU-stack,"",@progbits
+    |}]
 ;;
