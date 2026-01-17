@@ -599,3 +599,35 @@ let compile ?opt_flags (input : input) =
     optimize ?opt_flags program;
     Ok (map_program_roots ~f:Ssa.root program)
 ;;
+
+(* New entry point using Graph IR optimizations *)
+let compile_with_graph_ir ?(opt_flags = Opt_flags.default) ?(verbose = false) (input : input) =
+  match
+    Result.map input ~f:(map_program_roots ~f:Cfg.process)
+    |> Result.map ~f:set_entry_block_args
+    |> Result.bind ~f:(fun program ->
+      type_check_program program |> Result.map ~f:(fun () -> program))
+    |> Result.bind ~f:lower_aggregate_program
+    |> Result.map ~f:(map_program_roots ~f:Ssa.create)
+  with
+  | Error _ as e -> e
+  | Ok program ->
+    (* For now, just use the old optimizations since we need the reverse converter *)
+    (* TODO: Once Graph_ir_convert.From_graph is implemented, use this:
+
+       let program' =
+         map_program_functions program ~f:(fun fn ->
+           if verbose then print_endline "[GRAPH_IR] Converting to Graph IR...";
+           let graph_fn = Graph_ir_convert.To_graph.convert_function fn in
+           if verbose then printf "[GRAPH_IR] Function %s converted\n%!" graph_fn.name;
+
+           if opt_flags.unused_vars || opt_flags.constant_propagation || opt_flags.gvn
+           then Graph_ir_opt.optimize ~verbose graph_fn;
+
+           Graph_ir_convert.From_graph.convert_function graph_fn)
+       in
+       Ok program'
+    *)
+    optimize ~opt_flags program;
+    Ok (map_program_roots ~f:Ssa.root program)
+;;
