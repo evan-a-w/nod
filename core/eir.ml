@@ -2,93 +2,12 @@ open! Ssa
 open! Core
 open! Import
 
-module Tags = struct
-  type t = { constant : Int64.t option } [@@deriving sexp]
-
-  let empty = { constant = None }
-end
+module Tags = Opt_tags
 
 type raw_block =
   instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t
 
 type input = (raw_block Program.t, Nod_error.t) Result.t
-
-module Loc = struct
-  type where =
-    | Block_arg of Var.t
-    | Instr of Block.t Ssa_instr.t
-
-  type t =
-    { block : Block.t
-    ; where : where
-    }
-  [@@deriving fields]
-
-  let sexp_of_where = function
-    | Block_arg var -> [%sexp (var : Var.t)]
-    | Instr instr -> [%sexp (instr.Ssa_instr.id : Instr_id.t)]
-  ;;
-
-  let compare_where a b =
-    match a, b with
-    | Block_arg a, Block_arg b -> Var.compare a b
-    | Instr a, Instr b -> Instr_id.compare a.Ssa_instr.id b.Ssa_instr.id
-    | Block_arg _, Instr _ -> -1
-    | Instr _, Block_arg _ -> 1
-  ;;
-
-  let hash_where = function
-    | Block_arg var -> Var.hash var
-    | Instr instr -> Instr_id.hash instr.Ssa_instr.id
-  ;;
-
-  let sexp_of_t t =
-    [%sexp { block = (t.block : Block.t); where = (t.where : where) }]
-  ;;
-
-  let t_of_sexp _ = failwith "Loc.t_of_sexp"
-
-  let compare a b =
-    match Block.compare a.block b.block with
-    | 0 -> compare_where a.where b.where
-    | diff -> diff
-  ;;
-
-  let hash t = Hashtbl.hash (Block.hash t.block, hash_where t.where)
-
-  let hash_fold_where state = function
-    | Block_arg var -> Var.hash_fold_t state var
-    | Instr instr -> Instr_id.hash_fold_t state instr.Ssa_instr.id
-  ;;
-
-  let hash_fold_t state t =
-    let state = Block.hash_fold_t state t.block in
-    hash_fold_where state t.where
-  ;;
-
-  let is_terminal_for_block t ~block =
-    match t.where with
-    | Block_arg _ -> false
-    | Instr instr -> phys_equal block.Block.terminal instr
-  ;;
-
-  include functor Comparable.Make
-  include functor Hashable.Make
-end
-
-module Opt_var = struct
-  type t =
-    { id : string
-    ; mutable tags : Tags.t [@compare.ignore]
-    ; mutable loc : Loc.t [@compare.ignore]
-    ; uses : Loc.Hash_set.t [@compare.ignore]
-    ; mutable active : bool [@compare.ignore]
-    }
-  [@@deriving sexp, hash, compare]
-
-  include functor Comparable.Make
-  include functor Hashable.Make
-end
 
 module Opt_flags = struct
   type t =
@@ -106,133 +25,6 @@ module Opt_flags = struct
 end
 
 module Opt = struct
-  module Block_tracker0 = struct
-    type t =
-      { mutable needed : Opt_var.Set.t Block.Map.t
-      ; once_ready : Block.t -> unit
-      }
-
-    let ready t ~var =
-      t.needed
-      <- Map.change t.needed var.Opt_var.loc.block ~f:(function
-           | None -> None
-           | Some vars ->
-             let vars = Set.remove vars var in
-             if Set.length vars = 0
-             then (
-               t.once_ready var.loc.block;
-               None)
-             else Some vars)
-    ;;
-  end
-
-  type t =
-    { ssa : Ssa.t
-    ; vars : Opt_var.t String.Table.t
-    ; mutable active_vars : String.Set.t
-    ; opt_flags : Opt_flags.t
-    ; mutable block_tracker : Block_tracker0.t option
-    ; var_remap : string String.Table.t
-    ; instr_remap : string Ir.Table.t
-    }
-
-  let create ~opt_flags ssa =
-    { ssa
-    ; vars = String.Table.create ()
-    ; active_vars = String.Set.empty
-    ; opt_flags
-    ; block_tracker = None
-    ; var_remap = String.Table.create ()
-    ; instr_remap = Ir.Table.create ()
-    }
-  ;;
-
-  let rec iter_from t ~block ~f =
-    f block;
-    Hashtbl.find t.ssa.immediate_dominees block
-    |> Option.iter
-         ~f:
-           (Hash_set.iter ~f:(fun block' ->
-              if phys_equal block' block
-              then ()
-              else iter_from t ~block:block' ~f))
-  ;;
-
-  let active_var t id =
-    match Hashtbl.find t.vars id with
-    | None -> None
-    | Some var when not var.active -> None
-    | Some _ as x -> x
-  ;;
-
-  let iter t ~f = iter_from t ~block:t.ssa.def_uses.root ~f
-
-  module Block_tracker = struct
-    include Block_tracker0
-
-    let create ~once_ready opt =
-      let t = { needed = Block.Map.empty; once_ready } in
-      iter opt ~f:(fun block ->
-        let data =
-          Ir.uses block.terminal.ir
-          |> List.filter_map ~f:(fun var -> active_var opt (Var.name var))
-          |> Opt_var.Set.of_list
-        in
-        if Set.length data = 0
-        then once_ready block
-        else t.needed <- Map.set t.needed ~key:block ~data);
-      t
-    ;;
-  end
-
-  let create ~opt_flags ssa =
-    let t = create ~opt_flags ssa in
-    let early_sets = Var.Table.create () in
-    let early_set var =
-      Hashtbl.find_or_add early_sets var ~default:Loc.Hash_set.create
-    in
-    let define ~loc var =
-      let id = Var.name var in
-      if Hashtbl.mem t.vars id
-      then ()
-      else (
-        let opt_var =
-          { Opt_var.id
-          ; tags = Tags.empty
-          ; loc
-          ; uses = early_set var
-          ; active = true
-          }
-        in
-        Hashtbl.set t.vars ~key:id ~data:opt_var;
-        t.active_vars <- Set.add t.active_vars id)
-    in
-    let use ~loc var =
-      match Hashtbl.find t.vars (Var.name var) with
-      | None -> Hash_set.add (early_set var) loc
-      | Some opt_var -> Hash_set.add opt_var.uses loc
-    in
-    iter t ~f:(fun block ->
-      Vec.iter block.Block.args ~f:(fun arg ->
-        define ~loc:{ Loc.block; where = Loc.Block_arg arg } arg);
-      Block.iter_instrs block ~f:(fun instr ->
-        let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.defs instr.Ssa_instr.ir) ~f:(define ~loc)));
-    iter t ~f:(fun block ->
-      let use instr =
-        let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(use ~loc)
-      in
-      Block.iter_instrs block ~f:use;
-      use block.terminal);
-    t
-  ;;
-
-  (* TODO: implement, call when constant folding terminals and
-     when deleting instructions *)
-  (* if [block] is unnecessary, remove it *)
-  let kill_block (_ : t) ~block:_ = ()
-
   let defining_vars_for_block_arg ~block ~arg =
     let idx =
       Vec.findi block.Block.args ~f:(fun i s ->
@@ -254,191 +46,64 @@ module Opt = struct
     |> List.concat
   ;;
 
-  let rec remove_instr t ~block ~instr =
-    let state = t.ssa.state in
-    List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun var ->
-      let id = Var.name var in
-      match active_var t id with
-      | None -> ()
-      | Some var ->
-        Hash_set.filter_inplace var.uses ~f:(fun loc ->
-          match loc.Loc.where with
-          | Loc.Block_arg _ -> true
-          | Instr i -> not (phys_equal i instr));
-        try_kill_var t ~id);
-    Ssa_state.remove_instr state ~block ~instr
+  type t =
+    { ssa : Ssa.t
+    ; ssa_state : Ssa_state.t
+    ; opt_flags : Opt_flags.t
+    ; instr_blocks : Block.t Instr_id.Table.t
+    ; vars : Var.Hash_set.t
+    }
 
-  and remove_arg_from_parent t ~parent ~idx ~from_block =
-    let found = Queue.create () in
-    let new_ =
-      Ir.map_call_blocks parent.Block.terminal.ir ~f:(fun cb ->
-        if not (phys_equal cb.block from_block)
-        then cb
-        else
-          { cb with
-            args =
-              List.filteri cb.args ~f:(fun i var ->
-                let id = Var.name var in
-                match i = idx, active_var t id with
-                | false, _ -> true
-                | true, None -> false
-                | true, Some opt_var ->
-                  (* kill the tang *)
-                  Hash_set.filter_inplace opt_var.uses ~f:(fun loc ->
-                    match loc.Loc.where with
-                    | Loc.Block_arg _ -> true
-                    | Instr instr -> not (phys_equal instr parent.terminal));
-                  Queue.enqueue found opt_var;
-                  false)
-          })
+  let create ~opt_flags ssa =
+    let state = ssa.state in
+    let instr_blocks = Instr_id.Table.create () in
+    let vars = Var.Hash_set.create () in
+    let visited = Block.Hash_set.create () in
+    let rec visit block =
+      if Hash_set.mem visited block
+      then ()
+      else (
+        Hash_set.add visited block;
+        Vec.iter block.Block.args ~f:(Hash_set.add vars);
+        Block.iter_instrs block ~f:(fun instr ->
+          Hashtbl.set instr_blocks ~key:instr.Ssa_instr.id ~data:block;
+          List.iter (Ir.defs instr.Ssa_instr.ir) ~f:(Hash_set.add vars));
+        Vec.iter block.children ~f:visit)
     in
-    let state = t.ssa.state in
-    Ssa_state.set_terminal_ir state ~block:parent ~ir:new_;
-    let loc = { Loc.where = Instr parent.terminal; block = parent } in
-    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
-      Hash_set.add opt_var.uses loc);
-    Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
-      try_kill_var t ~id:opt_var.id)
+    visit ssa.def_uses.root;
+    { ssa; ssa_state = state; opt_flags; instr_blocks; vars }
 
-  and remove_arg t ~block ~arg =
-    let idx =
-      Vec.findi block.Block.args ~f:(fun i s ->
-        if Var.equal arg s then Some i else None)
-      |> Option.value_exn
-    in
-    let state = t.ssa.state in
-    let old_args = Vec.to_list block.Block.args in
-    block.args <- Vec.filter block.args ~f:(Fn.non (Var.equal arg));
-    let new_args = Vec.to_list block.Block.args in
-    Ssa_state.update_block_args state ~block ~old_args ~new_args;
-    Vec.iter block.parents ~f:(fun parent ->
-      remove_arg_from_parent t ~parent ~idx ~from_block:block)
+  let value_opt t var = Ssa_state.value_by_var t.ssa_state var
+  let value_exn t var = Option.value_exn (value_opt t var)
 
-  and kill_definition t ~id =
-    match active_var t id with
-    | None -> ()
-    | Some var ->
-      var.Opt_var.active <- false;
-      t.active_vars <- Set.remove t.active_vars id;
-      let block = var.loc.block in
-      (match var.loc.where with
-       | Instr instr ->
-         assert (Hash_set.length var.uses = 0);
-         remove_instr t ~block ~instr
-       | Block_arg arg -> remove_arg t ~block ~arg);
-      Option.iter t.block_tracker ~f:(Block_tracker.ready ~var)
+  let instr_exn t instr_id =
+    Ssa_state.instr t.ssa_state instr_id |> Option.value_exn
 
-  and try_kill_var t ~id =
-    match active_var t id with
-    | None -> ()
-    | Some var ->
-      (match Hash_set.length var.Opt_var.uses, var.loc.where with
-       | 0, _ -> kill_definition t ~id:var.id
-       | 1, Block_arg arg ->
-         (* weird case in our ssa algo that is borked, fix it here *)
-         let loc =
-           Hash_set.min_elt ~compare:Loc.compare var.uses |> Option.value_exn
-         in
-         if phys_equal loc.block var.loc.block
-            && Loc.is_terminal_for_block loc ~block:var.loc.block
-            && List.equal
-                 Var.equal
-                 [ arg ]
-                 (defining_vars_for_block_arg ~block:var.loc.block ~arg)
-         then kill_definition t ~id:var.id
-         else ()
-       | _, _ ->
-         (* can't trim *)
-         ())
-  ;;
-
-  let dfs_vars ?on_terminal t ~f =
-    let seen = String.Hash_set.create () in
-    Option.iter on_terminal ~f:(fun once_ready ->
-      let block_tracker = Block_tracker.create ~once_ready t in
-      assert (Option.is_none t.block_tracker);
-      t.block_tracker <- Some block_tracker);
-    let rec go id =
-      match active_var t id with
-      | None -> ()
-      | Some var ->
-        if Hash_set.mem seen var.Opt_var.id
-        then ()
-        else (
-          Hash_set.add seen var.id;
-          (match Loc.where var.loc with
-           | Block_arg _ -> f ~var
-           | Instr instr ->
-             List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun use -> go (Var.name use));
-             f ~var);
-          Option.iter t.block_tracker ~f:(Block_tracker.ready ~var))
-    in
-    Set.iter t.active_vars ~f:go;
-    Option.iter on_terminal ~f:(fun _ -> t.block_tracker <- None)
-  ;;
+  let block_of_instr t instr_id = Hashtbl.find_exn t.instr_blocks instr_id
 
   let constant_fold t ~instr =
     let instr =
-      Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
-        match lit_or_var with
-        | Lit _ -> lit_or_var
+      Ir.map_lit_or_vars instr ~f:(function
+        | Ir.Lit_or_var.Lit _ as lit -> lit
+        | Global _ as global -> global
         | Var var ->
-          let opt_var = Hashtbl.find_exn t.vars (Var.name var) in
-          (match opt_var.Opt_var.tags.constant with
-           | Some i -> Lit i
-           | None ->
-             (* var can be inactive if it is constant *)
-             assert opt_var.active;
-             lit_or_var)
-        | Global _ -> lit_or_var)
+          (match value_opt t var with
+           | Some value ->
+             (match value.Ssa_value.opt_tags.constant with
+              | Some c -> Lit c
+              | None -> Var var)
+           | None -> Var var))
     in
     Ir.constant_fold instr
-  ;;
 
-  let update_uses t ~old_ir ~new_ir ~loc =
-    let instr =
-      match loc.Loc.where with
-      | Loc.Instr instr -> instr
-      | Loc.Block_arg _ -> failwith "Expected instruction loc"
-    in
-    let old_uses = Ir.uses old_ir in
-    let new_uses = Ir.uses new_ir in
-    let old_ids = List.map old_uses ~f:Var.name in
-    let new_ids = List.map new_uses ~f:Var.name in
-    List.iter old_ids ~f:(fun id ->
-      match active_var t id with
-      | None -> ()
-      | Some var ->
-        Hash_set.filter_inplace var.uses ~f:(fun loc ->
-          match loc.Loc.where with
-          | Loc.Block_arg _ -> true
-          | Instr i -> not (phys_equal i instr)));
-    List.iter new_ids ~f:(fun id ->
-      match active_var t id with
-      | None -> ()
-      | Some var' -> Hash_set.add var'.uses loc);
-    Set.iter
-      (Set.diff (String.Set.of_list old_ids) (String.Set.of_list new_ids))
-      ~f:(fun id ->
-        if Opt_flags.unused_vars t.opt_flags then try_kill_var t ~id)
-  ;;
+  let replace_defining_instruction t ~value ~new_ir =
+    match value.Ssa_value.def with
+    | Def_site.Instr instr_id ->
+      let instr = instr_exn t instr_id in
+    Ssa_state.replace_instr_ir t.ssa_state instr ~ir:new_ir
+    | Def_site.Block_arg _ | Def_site.Undefined -> ()
 
-  (* must be strict subset of uses and such *)
-  let replace_defining_instruction t ~var ~new_ir =
-    let instr =
-      match var.Opt_var.loc.where with
-      | Block_arg _ -> failwith "Can't replace defining instr for block arg"
-      | Instr instr -> instr
-    in
-    let state = t.ssa.state in
-    let old_ir = instr.Ssa_instr.ir in
-    Ssa_state.replace_instr_ir state instr ~ir:new_ir;
-    update_uses t ~old_ir ~new_ir ~loc:var.loc
-  ;;
-
-  (* must be strict subset of uses and such *)
   let replace_terminal t ~block ~new_ir =
-    let state = t.ssa.state in
     let old_terminal = block.Block.terminal in
     let old_ir = old_terminal.ir in
     let old_blocks = Ir.blocks old_ir in
@@ -452,73 +117,154 @@ module Opt = struct
       Vec.switch
         block'.parents
         (Vec.filter block'.parents ~f:(Fn.non (phys_equal block))));
-    let loc = { Loc.block; where = Instr old_terminal } in
-    Ssa_state.set_terminal_ir state ~block ~ir:new_ir;
-    update_uses t ~old_ir ~new_ir ~loc
-  ;;
+    Ssa_state.set_terminal_ir t.ssa_state ~block ~ir:new_ir
 
-  let rec refine_type t ~var =
-    match var.Opt_var.tags.constant with
-    | Some _ -> ()
-    | None ->
-      (match var.Opt_var.loc.where with
-       | Block_arg arg -> refine_type_block_arg t ~var ~arg
-       | Instr instr -> refine_type_instr t ~var ~instr)
-
-  and refine_type_block_arg t ~var ~arg =
-    let block = var.Opt_var.loc.block in
-    let constant var =
-      Option.map
-        (Hashtbl.find t.vars (Var.name var))
-        ~f:(fun x -> x.tags.constant)
+  let remove_arg_from_parent t ~parent ~idx ~from_block =
+    let new_ =
+      Ir.map_call_blocks parent.Block.terminal.ir ~f:(fun cb ->
+        if phys_equal cb.block from_block
+        then { cb with args = List.filteri cb.args ~f:(fun i _ -> i <> idx) }
+        else cb)
     in
-    defining_vars_for_block_arg ~block ~arg
-    |> List.filter_map ~f:constant
-    |> function
-    | [] -> ()
-    | constant :: xs ->
-      let constant =
-        List.fold xs ~init:constant ~f:(fun acc constant' ->
-          match acc, constant' with
-          | Some a, Some b when Int64.equal a b -> acc
-          | _ -> None)
-      in
-      var.tags <- { constant }
+    Ssa_state.set_terminal_ir t.ssa_state ~block:parent ~ir:new_
 
-  and refine_type_instr t ~var ~instr =
-    let new_ir = constant_fold t ~instr:instr.Ssa_instr.ir in
-    replace_defining_instruction t ~var ~new_ir;
-    match Ir.constant new_ir with
-    | None -> ()
-    | Some _ as constant ->
-      var.tags <- { constant };
-      let terminal_uses = Ir.uses var.loc.block.terminal.ir in
-      if List.exists terminal_uses ~f:(fun use ->
-           String.equal (Var.name use) var.id)
-      then refine_terminal t ~block:var.loc.block
+  let remove_arg t ~block ~arg =
+    let idx =
+      Vec.findi block.Block.args ~f:(fun i s ->
+        if Var.equal arg s then Some i else None)
+      |> Option.value_exn
+    in
+    let old_args = Vec.to_list block.Block.args in
+    block.args <- Vec.filter block.args ~f:(Fn.non (Var.equal arg));
+    let new_args = Vec.to_list block.Block.args in
+    Ssa_state.update_block_args t.ssa_state ~block ~old_args ~new_args;
+    Vec.iter block.parents ~f:(fun parent ->
+      remove_arg_from_parent t ~parent ~idx ~from_block:block)
 
-  and refine_terminal t ~block =
+  let kill_definition t var =
+    match value_opt t var with
+    | None -> false
+    | Some value ->
+      (match value.Ssa_value.def with
+       | Def_site.Instr instr_id ->
+         let block = block_of_instr t instr_id in
+         let instr = instr_exn t instr_id in
+         Ssa_state.remove_instr t.ssa_state ~block ~instr;
+         value.Ssa_value.def <- Def_site.Undefined;
+         value.Ssa_value.opt_tags <- Tags.empty;
+         true
+        | Def_site.Block_arg { block; _ } ->
+          remove_arg t ~block ~arg:var;
+         value.Ssa_value.def <- Def_site.Undefined;
+         value.Ssa_value.opt_tags <- Tags.empty;
+         true
+       | Def_site.Undefined -> false)
+
+  let rec refine_terminal t ~block =
     let terminal = block.Block.terminal in
     let new_ir = constant_fold t ~instr:terminal.ir in
     replace_terminal t ~block ~new_ir
-  ;;
 
-  let gvn t ~var =
-    let _ = t, var in
-    ()
-  ;;
+  and refine_type_instr t var value =
+    match value.Ssa_value.def with
+    | Def_site.Instr instr_id ->
+      let instr = instr_exn t instr_id in
+      let new_ir = constant_fold t ~instr:instr.Ssa_instr.ir in
+      replace_defining_instruction t ~value ~new_ir;
+      (match Ir.constant new_ir with
+       | None -> ()
+       | Some _ as constant ->
+         value.Ssa_value.opt_tags <- { constant };
+         let block = block_of_instr t instr_id in
+         let terminal_uses = Ir.uses block.Block.terminal.ir in
+         if List.exists terminal_uses ~f:(Var.equal var)
+         then refine_terminal t ~block)
+    | _ -> ()
+
+  and refine_type_block_arg t var value =
+    match value.Ssa_value.def with
+    | Def_site.Block_arg { block; _ } ->
+      defining_vars_for_block_arg ~block ~arg:var
+      |> List.filter_map ~f:(fun incoming ->
+           Option.bind (value_opt t incoming) ~f:(fun v -> v.Ssa_value.opt_tags.constant))
+      |> function
+      | [] -> ()
+      | constant :: xs ->
+        let constant =
+          List.fold xs ~init:(Some constant) ~f:(fun acc constant' ->
+            match acc with
+            | None -> None
+            | Some a when Int64.equal a constant' -> acc
+            | Some _ -> None)
+        in
+        value.Ssa_value.opt_tags <- { constant }
+    | _ -> ()
+
+  and refine_type t var value =
+    match value.Ssa_value.opt_tags.constant with
+    | Some _ -> ()
+    | None ->
+      (match value.Ssa_value.def with
+       | Def_site.Block_arg _ -> refine_type_block_arg t var value
+       | Def_site.Instr _ -> refine_type_instr t var value
+       | Def_site.Undefined -> ())
+
+  let rec dfs_vars t ~f =
+    let seen = Var.Hash_set.create () in
+    let rec go var =
+      if Hash_set.mem seen var
+      then ()
+      else (
+        Hash_set.add seen var;
+        (match value_opt t var with
+         | None -> ()
+         | Some value ->
+           (match value.Ssa_value.def with
+            | Def_site.Instr instr_id ->
+              let instr = instr_exn t instr_id in
+              List.iter (Ir.uses instr.Ssa_instr.ir) ~f:go
+            | Def_site.Block_arg { block; _ } ->
+              defining_vars_for_block_arg ~block ~arg:var |> List.iter ~f:go
+            | Def_site.Undefined -> ());
+           f var value))
+    in
+    Hash_set.iter t.vars ~f:go
+
+  let rec remove_unused t =
+    let removed =
+      Hash_set.fold t.vars ~init:false ~f:(fun removed var ->
+        kill_unused_var t var || removed)
+    in
+    if removed then remove_unused t
+
+  and kill_unused_var t var =
+    match value_opt t var with
+    | None -> false
+    | Some value ->
+      (match value.Ssa_value.def with
+       | Def_site.Undefined -> false
+       | _ ->
+         (match value.Ssa_value.uses with
+          | [] -> kill_definition t var
+          | [ use ] ->
+            (match value.Ssa_value.def with
+             | Def_site.Block_arg { block; arg } ->
+               let terminal_id = block.Block.terminal.id in
+               if Instr_id.equal use terminal_id
+                  && let arg_var = Vec.get block.Block.args arg in
+                     List.equal Var.equal [ arg_var ]
+                       (defining_vars_for_block_arg ~block ~arg:arg_var)
+               then kill_definition t var
+               else false
+             | _ -> false)
+          | _ -> false))
 
   let run t =
-    let on_terminal block =
-      if Opt_flags.constant_propagation t.opt_flags
-      then refine_terminal t ~block
-    in
-    dfs_vars ~on_terminal t ~f:(fun ~var ->
-      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~var;
-      if Opt_flags.unused_vars t.opt_flags
-      then try_kill_var t ~id:var.Opt_var.id;
-      if var.Opt_var.active && Opt_flags.gvn t.opt_flags then gvn t ~var)
-  ;;
+    if Opt_flags.constant_propagation t.opt_flags
+    then dfs_vars t ~f:(fun var value -> refine_type t var value);
+    if Opt_flags.constant_propagation t.opt_flags
+    then Block.iter t.ssa.def_uses.root ~f:(fun block -> refine_terminal t ~block);
+    if Opt_flags.unused_vars t.opt_flags then remove_unused t
 end
 
 let map_program_roots ~f program = Program.map_function_roots program ~f
