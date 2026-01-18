@@ -184,20 +184,25 @@ module Opt = struct
   and refine_type_block_arg t var value =
     match value.Ssa_value.def with
     | Def_site.Block_arg { block; _ } ->
-      defining_vars_for_block_arg ~block ~arg:var
-      |> List.filter_map ~f:(fun incoming ->
-           Option.bind (value_opt t incoming) ~f:(fun v -> v.Ssa_value.opt_tags.constant))
-      |> function
-      | [] -> ()
-      | constant :: xs ->
-        let constant =
-          List.fold xs ~init:(Some constant) ~f:(fun acc constant' ->
-            match acc with
-            | None -> None
-            | Some a when Int64.equal a constant' -> acc
-            | Some _ -> None)
-        in
-        value.Ssa_value.opt_tags <- { constant }
+      let incoming = defining_vars_for_block_arg ~block ~arg:var in
+      let constant =
+        List.fold incoming ~init:(Some None) ~f:(fun acc incoming_var ->
+          match acc with
+          | None -> None
+          | Some expected ->
+            (match value_opt t incoming_var with
+             | None -> None
+             | Some incoming_value ->
+               (match incoming_value.Ssa_value.opt_tags.constant with
+                | None -> None
+                | Some c ->
+                  (match expected with
+                   | None -> Some (Some c)
+                   | Some expected_c when Int64.equal expected_c c -> acc
+                   | Some _ -> None))))
+      in
+      let constant = Option.value_map constant ~default:None ~f:Fn.id in
+      value.Ssa_value.opt_tags <- { constant }
     | _ -> ()
 
   and refine_type t var value =
