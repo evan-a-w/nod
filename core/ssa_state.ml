@@ -119,7 +119,6 @@ let replace_defs_uses t ~instr_id ~old_defs ~old_uses ~new_defs ~new_uses =
   let removed_uses = Set.diff old_uses_set new_uses_set |> Set.to_list in
   let added_uses = Set.diff new_uses_set old_uses_set |> Set.to_list in
   let removed_defs = Set.diff old_defs_set new_defs_set |> Set.to_list in
-  let added_defs = Set.diff new_defs_set old_defs_set |> Set.to_list in
   List.iter removed_uses ~f:(fun var ->
     Option.iter (value_by_var t var) ~f:(fun value -> remove_use value instr_id));
   List.iter added_uses ~f:(fun var ->
@@ -131,7 +130,7 @@ let replace_defs_uses t ~instr_id ~old_defs ~old_uses ~new_defs ~new_uses =
       | Def_site.Instr id when Instr_id.equal id instr_id ->
         value.def <- Def_site.Undefined
       | _ -> ()));
-  List.iter added_defs ~f:(fun var ->
+  List.iter new_defs ~f:(fun var ->
     let value = ensure_value t ~var in
     value.def <- Def_site.Instr instr_id)
 ;;
