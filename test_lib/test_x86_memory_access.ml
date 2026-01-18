@@ -1,27 +1,30 @@
 open! Core
 open! Import
 
-let select_instructions fn =
+let select_instructions ~state fn =
   let functions = String.Map.of_alist_exn [ Function.name fn, fn ] in
-  let selected = X86_backend.For_testing.select_instructions functions in
+  let selected =
+    X86_backend.For_testing.select_instructions ~state functions
+  in
   Map.find_exn selected (Function.name fn)
 ;;
 
 let%expect_test "load/store select into x86 mem operands" =
-  State.reset ();
-  let state = State.ensure_function "root" in
+  let state = State.create () in
+  let fn_state = State.ensure_function state "root" in
   let slot = Ir.Mem.Stack_slot 0 in
   let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
   let terminal =
-    Ssa_state.alloc_instr state ~ir:(Ir.return (Ir.Lit_or_var.Var tmp))
+    Ssa_state.alloc_instr fn_state ~ir:(Ir.return (Ir.Lit_or_var.Var tmp))
   in
   let root = Block.create ~id_hum:"%root" ~terminal in
-  State.register_block ~block:root ~state;
+  State.register_block ~block:root ~state:fn_state;
   root.dfs_id <- Some 0;
-  ignore (Ssa_state.append_ir state ~block:root ~ir:(Ir.store (Ir.Lit_or_var.Lit 42L) slot));
-  ignore (Ssa_state.append_ir state ~block:root ~ir:(Ir.load tmp slot));
+  ignore
+    (Ssa_state.append_ir fn_state ~block:root ~ir:(Ir.store (Ir.Lit_or_var.Lit 42L) slot));
+  ignore (Ssa_state.append_ir fn_state ~block:root ~ir:(Ir.load tmp slot));
   let fn = Function.create ~name:"root" ~args:[] ~root in
-  select_instructions fn |> Function.print_verbose;
+  select_instructions ~state fn |> Function.print_verbose;
   [%expect
     {|
     ((call_conv Default)

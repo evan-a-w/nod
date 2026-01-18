@@ -60,8 +60,7 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
-let replace_true_terminal (x86_block : Block.t) new_true_terminal =
-  let state = State.state_for_block x86_block in
+let replace_true_terminal ~state (x86_block : Block.t) new_true_terminal =
   match x86_block.terminal.ir with
   | X86 _terminal ->
     Ssa_state.set_terminal_ir state ~block:x86_block ~ir:(X86 new_true_terminal)

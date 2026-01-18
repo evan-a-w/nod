@@ -928,7 +928,7 @@ end
 
 let check_types = Type_check.check
 
-let lower_aggregates ~root =
+let lower_aggregates ~state ~root =
   let add_var used var = Core.Hash_set.add used (Var.name var) in
   let blocks =
     let seen = Core.Hash_set.Poly.create () in
@@ -975,7 +975,6 @@ let lower_aggregates ~root =
             Ok ()
           | Error err -> Error (`Type_mismatch (Error.to_string_hum err)))
     in
-    let state = State.state_for_block block in
     Ssa_state.replace_block_instructions
       state
       ~block

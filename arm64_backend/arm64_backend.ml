@@ -13,32 +13,39 @@ open! Common
    and rbp points at the end of statically alloca'd memory
 *)
 
-let compile ?dump_crap (functions : Function.t String.Map.t) =
+let compile ?dump_crap ~state (functions : Function.t String.Map.t) =
   Map.map functions ~f:(fun fn ->
-    Instruction_selection.run fn |> Regalloc.run ?dump_crap)
-  |> Save_clobbers.process
+    let fn_state = State.state_for_function state fn.name in
+    Instruction_selection.run ~state:fn_state fn
+    |> Regalloc.run ?dump_crap ~state:fn_state)
+  |> Save_clobbers.process ~state
 ;;
 
-let compile_to_asm ~system ?dump_crap ?(globals = []) functions =
-  compile ?dump_crap functions |> Lower.run ~system ~globals
+let compile_to_asm ~system ~state ?dump_crap ?(globals = []) functions =
+  compile ?dump_crap ~state functions |> Lower.run ~system ~globals
 ;;
 
-let compile_to_items ~system ?dump_crap ?(globals = []) functions =
+let compile_to_items ~system ~state ?dump_crap ?(globals = []) functions =
   if not (List.is_empty globals)
   then failwith "globals are not supported in item lowering"
-  else compile ?dump_crap functions |> Lower.lower_to_items ~system
+  else compile ?dump_crap ~state functions |> Lower.lower_to_items ~system
 ;;
 
 module For_testing = struct
-  let select_instructions (functions : Function.t String.Map.t) =
-    Map.map functions ~f:(fun fn -> Instruction_selection.run fn)
+  let select_instructions ~state (functions : Function.t String.Map.t) =
+    Map.map functions ~f:(fun fn ->
+      let fn_state = State.state_for_function state fn.name in
+      Instruction_selection.run ~state:fn_state fn)
   ;;
 
   let print_selected_instructions_with_all_liveness_info
+    ~state
     (functions : Function.t String.Map.t)
     =
     (* select_instructions *)
-    Map.map functions ~f:Instruction_selection.For_testing.run_deebg
+    Map.map functions ~f:(fun fn ->
+      let fn_state = State.state_for_function state fn.name in
+      Instruction_selection.For_testing.run_deebg ~state:fn_state fn)
     |> Map.iteri ~f:(fun ~key:_name ~data:fn ->
       let reg_numbering = Reg_numbering.create fn.root in
       let (module Calc_liveness) =
@@ -98,9 +105,11 @@ module For_testing = struct
       |> Table.print_records)
   ;;
 
-  let print_selected_instructions (functions : Function.t String.Map.t) =
+  let print_selected_instructions ~state (functions : Function.t String.Map.t) =
     (* select_instructions *)
-    Map.map functions ~f:Instruction_selection.For_testing.run_deebg
+    Map.map functions ~f:(fun fn ->
+      let fn_state = State.state_for_function state fn.name in
+      Instruction_selection.For_testing.run_deebg ~state:fn_state fn)
     |> Map.iteri ~f:(fun ~key:_name ~data:fn ->
       let reg_numbering = Reg_numbering.create fn.root in
       let (module Calc_liveness) =
@@ -151,9 +160,10 @@ module For_testing = struct
     ~assignments, ~interference_graph
   ;;
 
-  let print_assignments (functions : Function.t String.Map.t) =
+  let print_assignments ~state (functions : Function.t String.Map.t) =
     Map.iteri functions ~f:(fun ~key:function_name ~data:fn ->
-      let fn = Instruction_selection.run fn in
+      let fn_state = State.state_for_function state fn.name in
+      let fn = Instruction_selection.run ~state:fn_state fn in
       let ~assignments:assignments_table, ~interference_graph =
         compute_assignments fn
       in

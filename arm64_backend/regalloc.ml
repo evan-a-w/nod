@@ -218,6 +218,7 @@ let replace_regs
   ~assignments
   ~reg_numbering
   ~class_of_var
+  ~state
   =
   let open Calc_liveness in
   let root = fn.Function.root in
@@ -370,7 +371,6 @@ let replace_regs
         update_slots ~which:`Close liveness;
         irs)
     in
-    let state = State.state_for_block block in
     Ssa_state.replace_block_instructions state ~block ~irs:new_instructions;
     update_slots ~which:`Both block_liveness.terminal;
     (match map_ir block.terminal.ir with
@@ -386,7 +386,7 @@ let replace_regs
   spill_slots_used
 ;;
 
-let run ?(dump_crap = false) (fn : Function.t) =
+let run ?(dump_crap = false) ~state (fn : Function.t) =
   let var_classes = collect_var_classes fn.root in
   let class_of_var var = Hashtbl.find_exn var_classes var in
   let reg_numbering = Reg_numbering.create fn.root in
@@ -420,6 +420,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
       ~liveness_state
       ~reg_numbering
       ~class_of_var
+      ~state
   in
   fn.bytes_for_spills <- spill_slots_used * 8;
   fn

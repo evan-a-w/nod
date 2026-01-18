@@ -6,20 +6,20 @@ let map_function_roots ~f program = Program.map_function_roots program ~f
 let create_block state ~id_hum ~terminal =
   let terminal = Ssa_state.alloc_instr state ~ir:terminal in
   let block = Block.create ~id_hum ~terminal in
-  State.register_block ~block ~state;
+  Ssa_state.register_instr state block.Block.terminal;
   block
 ;;
 
 let append_ir state block ir = ignore (Ssa_state.append_ir state ~block ~ir)
 
 let test_cfg s =
-  State.reset ();
+  let state = State.create () in
   s
   |> Parser.parse_string
   |> Result.map ~f:(fun program ->
     Program.map_function_roots_with_name program ~f:(fun ~name root ->
-      let state = State.ensure_function name in
-      Cfg.process ~state root))
+      let fn_state = State.ensure_function state name in
+      Cfg.process ~state:fn_state root))
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
@@ -36,14 +36,16 @@ let test_cfg s =
 let test_ssa ?don't_opt s =
   test_cfg s;
   print_endline "=================================";
-  State.reset ();
+  let state = State.create () in
   Parser.parse_string s
   |> Result.map ~f:(fun program ->
     Program.map_function_roots_with_name program ~f:(fun ~name root ->
-      let state = State.ensure_function name in
-      Cfg.process ~state root))
-  |> Result.map ~f:Eir.set_entry_block_args
-  |> Result.map ~f:(map_function_roots ~f:Ssa.create)
+      let fn_state = State.ensure_function state name in
+      Cfg.process ~state:fn_state root))
+  |> Result.map ~f:(Eir.set_entry_block_args ~state)
+  |> Result.map ~f:(Program.map_function_roots_with_name ~f:(fun ~name root ->
+         let fn_state = State.state_for_function state name in
+         Ssa.create ~state:fn_state root))
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
@@ -90,18 +92,19 @@ let%expect_test "temp alloca passed to child; child loads value" =
   let execute_functions
     ?(arch = `X86_64)
     ?(harness = Nod.make_harness_source ())
+    ~state
     functions
     =
     let asm =
-      Nod.compile_and_lower_functions ~arch ~system:host_system functions
+      Nod.compile_and_lower_functions ~arch ~system:host_system ~state functions
     in
     Nod.execute_asm ~arch ~system:host_system ~harness asm
   in
   let run_functions ?harness mk_functions expected =
     List.iter test_architectures ~f:(function
       | (`X86_64 | `Arm64) as arch ->
-        let functions = mk_functions arch in
-        let output = execute_functions ~arch ?harness functions in
+        let state, functions = mk_functions arch in
+        let output = execute_functions ~arch ?harness ~state functions in
         if not (String.equal output expected)
         then
           failwithf
@@ -112,9 +115,8 @@ let%expect_test "temp alloca passed to child; child loads value" =
             ()
       | `Other -> ())
   in
-  let make_fn ~name ~args ~root =
+  let make_fn ~state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    let state = State.state_for_block root in
     let old_args = Vec.to_list root.Block.args in
     List.iter args ~f:(Vec.push root.Block.args);
     Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
@@ -122,9 +124,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
     Function.create ~name ~args ~root
   in
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
-    State.reset ();
-    let child_state = State.ensure_function "child" in
-    let root_state = State.ensure_function "root" in
+    let state = State.create () in
+    let child_state = State.ensure_function state "child" in
+    let root_state = State.ensure_function state "root" in
     let p = Var.create ~name:"p" ~type_:Type.Ptr in
     let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
     let child_root =
@@ -137,7 +139,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
       child_state
       child_root
       (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child = make_fn ~state:child_state ~name:"child" ~args:[ p ] ~root:child_root in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
     let root_root =
@@ -160,8 +162,8 @@ let%expect_test "temp alloca passed to child; child loads value" =
       root_state
       root_root
       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
-    String.Map.of_alist_exn [ "root", root; "child", child ]
+    let root = make_fn ~state:root_state ~name:"root" ~args:[] ~root:root_root in
+    state, String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "41"
 ;;
@@ -271,18 +273,17 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (* ;; *)
 
 let%expect_test "print helper" =
-  let make_fn ~name ~args ~root =
+  let make_fn ~state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    let state = State.state_for_block root in
     let old_args = Vec.to_list root.Block.args in
     List.iter args ~f:(Vec.push root.Block.args);
     Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
     root.dfs_id <- Some 0;
     Function.create ~name ~args ~root
   in
-  State.reset ();
-  let child_state = State.ensure_function "child" in
-  let root_state = State.ensure_function "root" in
+  let state = State.create () in
+  let child_state = State.ensure_function state "child" in
+  let root_state = State.ensure_function state "root" in
   let p = Var.create ~name:"p" ~type_:Type.Ptr in
   let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
   let child_root =
@@ -295,7 +296,7 @@ let%expect_test "print helper" =
     child_state
     child_root
     (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)));
-  let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child = make_fn ~state:child_state ~name:"child" ~args:[ p ] ~root:child_root in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let res = Var.create ~name:"res" ~type_:Type.I64 in
   let root_root =
@@ -316,7 +317,7 @@ let%expect_test "print helper" =
     root_state
     root_root
     (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]);
-  let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+  let root = make_fn ~state:root_state ~name:"root" ~args:[] ~root:root_root in
   let functions = String.Map.of_alist_exn [ "root", root; "child", child ] in
   print_s [%sexp (functions : Function.t String.Map.t)];
   [%expect {|
@@ -433,15 +434,19 @@ let system = `Darwin
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     (match arch with
      | `X86_64 ->
-       let x86 = X86_backend.compile ?dump_crap program.Program.functions in
+       let x86 =
+         X86_backend.compile ?dump_crap ~state program.Program.functions
+       in
        print_s
          [%sexp
            (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
      | `Arm64 ->
-       let arm64 = Arm64_backend.compile ?dump_crap program.Program.functions in
+       let arm64 =
+         Arm64_backend.compile ?dump_crap ~state program.Program.functions
+       in
        print_s
          [%sexp
            (Map.data arm64 |> List.map ~f:Function.to_sexp_verbose
@@ -463,12 +468,16 @@ let%expect_test "run" =
 let%expect_test "borked regaloc" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     (match arch with
      | `X86_64 ->
-       X86_backend.For_testing.print_assignments program.Program.functions
+       X86_backend.For_testing.print_assignments
+         ~state
+         program.Program.functions
      | `Arm64 ->
-       Arm64_backend.For_testing.print_assignments program.Program.functions
+       Arm64_backend.For_testing.print_assignments
+         ~state
+         program.Program.functions
      | `Other -> failwith "unecpected arch");
     [%expect {|
       ((function_name root)
@@ -1026,13 +1035,15 @@ let%expect_test "debug borked opt x86" =
 let%expect_test "debug borked" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.no_opt borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     (match arch with
      | `X86_64 ->
        X86_backend.For_testing.print_selected_instructions
+         ~state
          program.Program.functions
      | `Arm64 ->
        Arm64_backend.For_testing.print_selected_instructions
+         ~state
          program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect {|
@@ -1160,13 +1171,15 @@ let%expect_test "debug borked" =
 let%expect_test "debug borked opt" =
   match Nod.compile ~opt_flags:Eir.Opt_flags.default borked with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     (match arch with
      | `X86_64 ->
        X86_backend.For_testing.print_selected_instructions
+         ~state
          program.Program.functions
      | `Arm64 ->
        Arm64_backend.For_testing.print_selected_instructions
+         ~state
          program.Program.functions
      | `Other -> failwith "unexpected arch");
     [%expect {|

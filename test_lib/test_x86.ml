@@ -4,13 +4,13 @@ open! Import
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     let functions = program.Program.functions in
     print_s
       [%sexp
         (Map.data functions |> List.map ~f:Function.to_sexp_verbose
          : Sexp.t list)];
-    let x86 = X86_backend.compile ?dump_crap functions in
+    let x86 = X86_backend.compile ?dump_crap ~state functions in
     print_s
       [%sexp
         (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
@@ -18,28 +18,33 @@ let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
 
 let test_program ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) fragments =
   let result =
-    List.fold fragments ~init:(Ok String.Map.empty) ~f:(fun acc fragment ->
-      match acc with
-      | Error _ as e -> e
-      | Ok functions ->
-        (match Eir.compile ~opt_flags fragment with
-         | Error _ as e -> e
-         | Ok new_program ->
-           let new_functions = new_program.Program.functions in
-           let merged =
-             Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
-               Map.set acc ~key ~data)
-           in
-           Ok merged))
+    List.fold
+      fragments
+      ~init:(Ok (State.create (), String.Map.empty))
+      ~f:(fun acc fragment ->
+        match acc with
+        | Error _ as e -> e
+        | Ok (state_acc, functions) ->
+          (match Eir.compile ~opt_flags fragment with
+           | Error _ as e -> e
+           | Ok { program = new_program; state } ->
+             Hashtbl.iteri (State.table state) ~f:(fun ~key ~data ->
+               Hashtbl.set state_acc ~key ~data);
+             let new_functions = new_program.Program.functions in
+             let merged =
+               Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
+                 Map.set acc ~key ~data)
+             in
+             Ok (state_acc, merged)))
   in
   match result with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok (state, functions) ->
     print_s
       [%sexp
         (Map.data functions |> List.map ~f:Function.to_sexp_verbose
          : Sexp.t list)];
-    let x86 = X86_backend.compile ?dump_crap functions in
+    let x86 = X86_backend.compile ?dump_crap ~state functions in
     print_s
       [%sexp
         (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
@@ -1259,113 +1264,406 @@ let%expect_test "fib_rec" =
 
 let%expect_test "call_chains" =
   test_program Examples.Textual.call_chains;
-  [%expect.unreachable]
-[@@expect.uncaught_exn {|
-  (* CR expect_test_collector: This test expectation appears to contain a backtrace.
-     This is strongly discouraged as backtraces are fragile.
-     Please change this test to not include a backtrace. *)
-  (Not_found_s
-    ("Hashtbl.find_exn: not found"
-      ((id_hum %root) (args (((name x) (type_ I64)))))))
-  Raised at Base__Hashtbl.find_exn.if_not_found in file "src/hashtbl.ml", lines 488-489, characters 4-111
-  Called from Base__Hashtbl.find_exn.find_exn in file "src/hashtbl.ml" (inlined), line 492, characters 4-83
-  Called from Nod_core__State.state_for_block in file "core/state.ml" (inlined), line 35, characters 28-59
-  Called from Nod_core__Ir.lower_aggregates.(fun) in file "core/ir.ml", line 975, characters 16-43
-  Called from Base__List0.fold_alloc.loop in file "src/list0.ml" (inlined), line 135, characters 22-31
-  Called from Base__List0.fold_alloc in file "src/list0.ml" (inlined), line 137, characters 3-14
-  Called from Nod_core__Ir.lower_aggregates in file "core/ir.ml", lines 961-991, characters 2-1168
-  Called from Nod_x86_backend__Instruction_selection.lower_aggregates_exn in file "x86_backend/instruction_selection.ml", line 55, characters 8-41
-  Called from Nod_x86_backend__Instruction_selection.run in file "x86_backend/instruction_selection.ml", line 917, characters 2-25
-  Called from Nod_x86_backend__X86_backend.compile.(fun) in file "x86_backend/x86_backend.ml", line 20, characters 4-32
-  Called from Base__Map.Tree0.map in file "src/map.ml", line 1083, characters 59-62
-  Called from Base__Map.Tree0.map in file "src/map.ml", line 1085, characters 15-23
-  Called from Base__Map.Tree0.map in file "src/map.ml", line 1085, characters 15-23
-  Called from Base__Map.Accessors.map in file "src/map.ml" (inlined), line 2522, characters 36-57
-  Called from Nod_x86_backend__X86_backend.compile in file "x86_backend/x86_backend.ml", lines 19-20, characters 2-94
-  Called from Nod_test__Test_x86.test_program in file "test_lib/test_x86.ml", line 42, characters 14-54
-  Called from Nod_test__Test_x86.test_program in file "test_lib/test_x86.ml" (inlined), lines 19-45, characters 17-968
-  Called from Nod_test__Test_x86.(fun) in file "test_lib/test_x86.ml", line 1261, characters 2-43
-  Called from Ppx_expect_runtime__Test_block.Configured.dump_backtrace in file "runtime/test_block.ml", line 358, characters 10-25
-
-  Trailing output
-  ---------------
-  (((call_conv Default)
-    (root
-     ((%root (args (((name x) (type_ I64))))
-       (instrs
-        ((Add
-          ((dest ((name one) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
-           (src2 (Lit 1))))
-         (Call (fn fourth) (results (((name fourth) (type_ I64))))
-          (args ((Var ((name one) (type_ I64))) (Var ((name x) (type_ I64))))))
-         (Return (Var ((name fourth) (type_ I64)))))))))
-    (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
-    (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
-    (bytes_statically_alloca'd 0))
-   ((call_conv Default)
-    (root
-     ((%root (args (((name p) (type_ I64)) ((name q) (type_ I64))))
-       (instrs
-        ((Add
-          ((dest ((name mix) (type_ I64))) (src1 (Var ((name p) (type_ I64))))
-           (src2 (Var ((name q) (type_ I64))))))
-         (Return (Var ((name mix) (type_ I64)))))))))
-    (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
-    (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
-    (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
-   ((call_conv Default)
-    (root
-     ((%root (args (((name h) (type_ I64))))
-       (instrs
-        ((Add
-          ((dest ((name res) (type_ I64))) (src1 (Var ((name h) (type_ I64))))
-           (src2 (Lit 3))))
-         (Return (Var ((name res) (type_ I64)))))))))
-    (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
-    (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
-    (bytes_statically_alloca'd 0))
-   ((call_conv Default)
-    (root
-     ((%root (args (((name init) (type_ I64))))
-       (instrs
-        ((Call (fn first) (results (((name first) (type_ I64))))
-          (args ((Var ((name init) (type_ I64))))))
-         (Call (fn second) (results (((name second) (type_ I64))))
-          (args ((Var ((name first) (type_ I64))))))
-         (Call (fn third) (results (((name third) (type_ I64))))
-          (args
-           ((Var ((name second) (type_ I64))) (Var ((name first) (type_ I64))))))
-         (Return (Var ((name third) (type_ I64)))))))))
-    (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
-    (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
-    (bytes_statically_alloca'd 0))
-   ((call_conv Default)
-    (root
-     ((%root (args (((name y) (type_ I64))))
-       (instrs
-        ((Call (fn third) (results (((name tmp) (type_ I64))))
-          (args ((Var ((name y) (type_ I64))) (Var ((name y) (type_ I64))))))
-         (Add
-          ((dest ((name res) (type_ I64)))
-           (src1 (Var ((name tmp) (type_ I64)))) (src2 (Lit 2))))
-         (Return (Var ((name res) (type_ I64)))))))))
-    (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
-    (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
-    (bytes_statically_alloca'd 0))
-   ((call_conv Default)
-    (root
-     ((%root (args (((name u) (type_ I64)) ((name v) (type_ I64))))
-       (instrs
-        ((Add
-          ((dest ((name sum) (type_ I64))) (src1 (Var ((name u) (type_ I64))))
-           (src2 (Var ((name v) (type_ I64))))))
-         (Call (fn helper) (results (((name helped) (type_ I64))))
-          (args ((Var ((name sum) (type_ I64))))))
-         (Return (Var ((name helped) (type_ I64)))))))))
-    (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
-    (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
-    (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
-  |}]
+  [%expect {|
+    (((call_conv Default)
+      (root
+       ((%root (args (((name x) (type_ I64))))
+         (instrs
+          ((Add
+            ((dest ((name one) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
+             (src2 (Lit 1))))
+           (Call (fn fourth) (results (((name fourth) (type_ I64))))
+            (args ((Var ((name one) (type_ I64))) (Var ((name x) (type_ I64))))))
+           (Return (Var ((name fourth) (type_ I64)))))))))
+      (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (((name p) (type_ I64)) ((name q) (type_ I64))))
+         (instrs
+          ((Add
+            ((dest ((name mix) (type_ I64))) (src1 (Var ((name p) (type_ I64))))
+             (src2 (Var ((name q) (type_ I64))))))
+           (Return (Var ((name mix) (type_ I64)))))))))
+      (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (((name h) (type_ I64))))
+         (instrs
+          ((Add
+            ((dest ((name res) (type_ I64))) (src1 (Var ((name h) (type_ I64))))
+             (src2 (Lit 3))))
+           (Return (Var ((name res) (type_ I64)))))))))
+      (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (((name init) (type_ I64))))
+         (instrs
+          ((Call (fn first) (results (((name first) (type_ I64))))
+            (args ((Var ((name init) (type_ I64))))))
+           (Call (fn second) (results (((name second) (type_ I64))))
+            (args ((Var ((name first) (type_ I64))))))
+           (Call (fn third) (results (((name third) (type_ I64))))
+            (args
+             ((Var ((name second) (type_ I64))) (Var ((name first) (type_ I64))))))
+           (Return (Var ((name third) (type_ I64)))))))))
+      (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (((name y) (type_ I64))))
+         (instrs
+          ((Call (fn third) (results (((name tmp) (type_ I64))))
+            (args ((Var ((name y) (type_ I64))) (Var ((name y) (type_ I64))))))
+           (Add
+            ((dest ((name res) (type_ I64)))
+             (src1 (Var ((name tmp) (type_ I64)))) (src2 (Lit 2))))
+           (Return (Var ((name res) (type_ I64)))))))))
+      (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((%root (args (((name u) (type_ I64)) ((name v) (type_ I64))))
+         (instrs
+          ((Add
+            ((dest ((name sum) (type_ I64))) (src1 (Var ((name u) (type_ I64))))
+             (src2 (Var ((name v) (type_ I64))))))
+           (Call (fn helper) (results (((name helped) (type_ I64))))
+            (args ((Var ((name sum) (type_ I64))))))
+           (Return (Var ((name helped) (type_ I64)))))))))
+      (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
+    (((call_conv Default)
+      (root
+       ((first__prologue (args (((name x2) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block ((id_hum %root) (args (((name x) (type_ I64)))))) (args ())))))))
+        (%root (args (((name x) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 1)))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (CALL (fn fourth) (results (((reg RAX) (class_ I64))))
+             (args
+              ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum first__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (first__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((fourth__prologue
+         (args (((name p0) (type_ I64)) ((name q0) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg RSI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RSI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block
+               ((id_hum %root)
+                (args (((name p) (type_ I64)) ((name q) (type_ I64))))))
+              (args ())))))))
+        (%root (args (((name p) (type_ I64)) ((name q) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum fourth__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (fourth__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 16)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((helper__prologue (args (((name h0) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block ((id_hum %root) (args (((name h) (type_ I64)))))) (args ())))))))
+        (%root (args (((name h) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 3)))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum helper__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (helper__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 8)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 8) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((root__prologue (args (((name init1) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block ((id_hum %root) (args (((name init) (type_ I64))))))
+              (args ())))))))
+        (%root (args (((name init) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (CALL (fn first) (results (((reg RAX) (class_ I64))))
+             (args ((Reg ((reg R15) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (CALL (fn second) (results (((reg RAX) (class_ I64))))
+             (args ((Reg ((reg R14) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (CALL (fn third) (results (((reg RAX) (class_ I64))))
+             (args
+              ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (root__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 16) (bytes_for_padding 0) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((second__prologue (args (((name y2) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RSP) (class_ I64))) (Imm 8)))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block ((id_hum %root) (args (((name y) (type_ I64)))))) (args ())))))))
+        (%root (args (((name y) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (CALL (fn third) (results (((reg RAX) (class_ I64))))
+             (args
+              ((Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86 (ADD (Reg ((reg R15) (class_ I64))) (Imm 2)))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum second__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (second__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 8)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
+      (bytes_for_clobber_saves 8) (bytes_for_padding 8) (bytes_for_spills 0)
+      (bytes_statically_alloca'd 0))
+     ((call_conv Default)
+      (root
+       ((third__prologue (args (((name u0) (type_ I64)) ((name v0) (type_ I64))))
+         (instrs
+          ((X86 (PUSH (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RBP) (class_ I64))) (Reg ((reg RSP) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R14) (class_ I64)))))
+           (X86 (PUSH (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RSI) (class_ I64))) (Reg ((reg RSI) (class_ I64)))))
+           (X86 (Tag_def NOOP (Reg ((reg RBP) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RDI) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg R14) (class_ I64))) (Reg ((reg RSI) (class_ I64)))))
+           (X86
+            (JMP
+             ((block
+               ((id_hum %root)
+                (args (((name u) (type_ I64)) ((name v) (type_ I64))))))
+              (args ())))))))
+        (%root (args (((name u) (type_ I64)) ((name v) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (ADD (Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RDI) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86
+            (CALL (fn helper) (results (((reg RAX) (class_ I64))))
+             (args ((Reg ((reg R15) (class_ I64)))))))
+           (X86
+            (MOV (Reg ((reg R15) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg R15) (class_ I64)))))
+           (X86_terminal
+            ((JMP
+              ((block
+                ((id_hum third__epilogue) (args (((name res__0) (type_ I64))))))
+               (args ()))))))))
+        (third__epilogue (args (((name res__0) (type_ I64))))
+         (instrs
+          ((X86
+            (MOV (Reg ((reg RAX) (class_ I64))) (Reg ((reg RAX) (class_ I64)))))
+           (X86 (SUB (Reg ((reg RBP) (class_ I64))) (Imm 16)))
+           (X86
+            (MOV (Reg ((reg RSP) (class_ I64))) (Reg ((reg RBP) (class_ I64)))))
+           (X86 (POP ((reg R15) (class_ I64))))
+           (X86 (POP ((reg R14) (class_ I64))))
+           (X86 (POP ((reg RBP) (class_ I64))))
+           (X86 (RET ((Reg ((reg RAX) (class_ I64)))))))))))
+      (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
+      (prologue ()) (epilogue ()) (bytes_for_clobber_saves 16)
+      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
+    |}]
 ;;
 
 let%expect_test "fib" =

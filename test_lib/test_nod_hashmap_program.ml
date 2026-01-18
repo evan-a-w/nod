@@ -40,12 +40,12 @@ let hashmap_program =
 ;;
 
 let%expect_test "nod hashmap program compiles" =
-  let program = Dsl.compile_program_exn hashmap_program in
-  let names = Map.keys program.Program.functions in
+  let compiled = Dsl.compile_program_exn hashmap_program in
+  let names = Map.keys compiled.program.Program.functions in
   print_s [%sexp (names : string list)];
-  let root_fn = Map.find_exn program.Program.functions "root" in
+  let root_fn = Map.find_exn compiled.program.Program.functions "root" in
   print_s (Function.to_sexp_verbose root_fn);
-  let put_fn = Map.find_exn program.Program.functions "hashmap_put" in
+  let put_fn = Map.find_exn compiled.program.Program.functions "hashmap_put" in
   print_s (Function.to_sexp_verbose put_fn);
   [%expect
     {|
@@ -232,8 +232,9 @@ let compile_and_execute_program_exn program expected =
       compile_and_lower_functions
         ~arch
         ~system:host_system
-        ~globals:compiled.Program.globals
-        compiled.Program.functions
+        ~state:compiled.state
+        ~globals:compiled.program.Program.globals
+        compiled.program.Program.functions
     in
     let output =
       execute_asm ~arch ~system:host_system ~harness:harness_source asm

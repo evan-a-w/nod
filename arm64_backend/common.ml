@@ -62,8 +62,7 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
-let replace_true_terminal (block : Block.t) new_true_terminal =
-  let state = State.state_for_block block in
+let replace_true_terminal ~state (block : Block.t) new_true_terminal =
   match block.terminal.ir with
   | Arm64 _terminal ->
     Ssa_state.set_terminal_ir state ~block ~ir:(Arm64 new_true_terminal)
