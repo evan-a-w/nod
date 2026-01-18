@@ -255,7 +255,7 @@ module Opt = struct
   ;;
 
   let rec remove_instr t ~block ~instr =
-    let state = State.state_for_block block in
+    let state = t.ssa.state in
     List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun var ->
       let id = Var.name var in
       match active_var t id with
@@ -292,7 +292,7 @@ module Opt = struct
                   false)
           })
     in
-    let state = State.state_for_block parent in
+    let state = t.ssa.state in
     Ssa_state.set_terminal_ir state ~block:parent ~ir:new_;
     let loc = { Loc.where = Instr parent.terminal; block = parent } in
     Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
@@ -306,7 +306,7 @@ module Opt = struct
         if Var.equal arg s then Some i else None)
       |> Option.value_exn
     in
-    let state = State.state_for_block block in
+    let state = t.ssa.state in
     let old_args = Vec.to_list block.Block.args in
     block.args <- Vec.filter block.args ~f:(Fn.non (Var.equal arg));
     let new_args = Vec.to_list block.Block.args in
@@ -430,7 +430,7 @@ module Opt = struct
       | Block_arg _ -> failwith "Can't replace defining instr for block arg"
       | Instr instr -> instr
     in
-    let state = State.state_for_block var.loc.block in
+    let state = t.ssa.state in
     let old_ir = instr.Ssa_instr.ir in
     Ssa_state.replace_instr_ir state instr ~ir:new_ir;
     update_uses t ~old_ir ~new_ir ~loc:var.loc
@@ -438,7 +438,7 @@ module Opt = struct
 
   (* must be strict subset of uses and such *)
   let replace_terminal t ~block ~new_ir =
-    let state = State.state_for_block block in
+    let state = t.ssa.state in
     let old_terminal = block.Block.terminal in
     let old_ir = old_terminal.ir in
     let old_blocks = Ir.blocks old_ir in
@@ -523,16 +523,16 @@ end
 
 let map_program_roots ~f program = Program.map_function_roots program ~f
 
-let set_entry_block_args program =
-  Map.iter
+let set_entry_block_args ~state program =
+  Map.iteri
     program.Program.functions
-    ~f:(fun { Function.root = root_data; args; _ } ->
+    ~f:(fun ~key:name ~data:{ Function.root = root_data; args; _ } ->
       let ~root:block, ~blocks:_, ~in_order:_ = root_data in
-      let state = State.state_for_block block in
+      let function_state = State.state_for_function state name in
       let old_args = Vec.to_list block.Block.args in
       List.iter args ~f:(Vec.push block.Block.args);
       let new_args = Vec.to_list block.Block.args in
-      Ssa_state.update_block_args state ~block ~old_args ~new_args);
+      Ssa_state.update_block_args function_state ~block ~old_args ~new_args);
   program
 ;;
 
@@ -572,15 +572,16 @@ let type_check_program program =
       type_check_cfg fn.Function.root)
 ;;
 
-let lower_aggregate_program program =
+let lower_aggregate_program ~state program =
   Map.fold
     program.Program.functions
     ~init:(Ok ())
-    ~f:(fun ~key:_ ~data:fn acc ->
+    ~f:(fun ~key:name ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
       let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
-      Ir.lower_aggregates ~root:block)
+      let function_state = State.state_for_function state name in
+      Ir.lower_aggregates ~state:function_state ~root:block)
   |> Result.map ~f:(fun () -> program)
 ;;
 
@@ -595,18 +596,21 @@ let optimize ?opt_flags program =
     program.Program.functions
 ;;
 
-let compile ?opt_flags (input : input) =
-  State.reset ();
+let compile ?opt_flags ~state (input : input) =
+  State.reset state;
   match
     Result.map input ~f:(fun program ->
       Program.map_function_roots_with_name program ~f:(fun ~name root ->
-        let state = State.ensure_function name in
-        Cfg.process ~state root))
-    |> Result.map ~f:set_entry_block_args
+        let function_state = State.ensure_function state name in
+        Cfg.process ~state:function_state root))
+    |> Result.map ~f:(set_entry_block_args ~state)
     |> Result.bind ~f:(fun program ->
       type_check_program program |> Result.map ~f:(fun () -> program))
-    |> Result.bind ~f:lower_aggregate_program
-    |> Result.map ~f:(map_program_roots ~f:Ssa.create)
+    |> Result.bind ~f:(lower_aggregate_program ~state)
+    |> Result.map ~f:(fun program ->
+      Program.map_function_roots_with_name program ~f:(fun ~name root ->
+        let function_state = State.state_for_function state name in
+        Ssa.create ~state:function_state root))
   with
   | Error _ as e -> e
   | Ok program ->

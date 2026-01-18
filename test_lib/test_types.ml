@@ -2,13 +2,13 @@ open! Core
 open! Import
 
 let test s =
-  State.reset ();
+  let state = State.create () in
   s
   |> Parser.parse_string
   |> Result.map ~f:(fun program ->
     Program.map_function_roots_with_name program ~f:(fun ~name root ->
-      let state = State.ensure_function name in
-      Cfg.process ~state root))
+      let fn_state = State.ensure_function state name in
+      Cfg.process ~state:fn_state root))
   |> Result.bind ~f:(fun program ->
     Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
       let%bind.Result () = acc in

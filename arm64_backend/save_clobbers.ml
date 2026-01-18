@@ -99,19 +99,21 @@ let load_reg_from_sp reg offset =
 ;;
 
 let save_and_restore_in_prologue_and_epilogue
-  ~(state : Calc_clobbers.t String.Map.t)
+  ~(clobbers : Calc_clobbers.t String.Map.t)
+  ~(ssa_states : State.t)
   (functions : Function.t String.Map.t)
   =
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
-  Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
+  Map.iteri clobbers ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
     let to_restore = Set.to_list to_restore in
     let bytes_for_clobber_saves, save_slots = layout_reg_saves to_restore in
     fn.bytes_for_clobber_saves <- bytes_for_clobber_saves;
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
-    let prologue_state = State.state_for_block prologue in
-    let epilogue_state = State.state_for_block epilogue in
+    let function_state = State.state_for_function ssa_states name in
+    let prologue_state = function_state in
+    let epilogue_state = function_state in
     let header_bytes_excl_clobber_saves =
       fn.bytes_statically_alloca'd + fn.bytes_for_spills
     in
@@ -179,6 +181,7 @@ let save_and_restore_around_calls
      and type Arg.t = Reg.t)
   ~state
   ~(liveness_state : a)
+  ~(ssa_state : Ssa_state.t)
   (block : Block.t)
   =
   let open Calc_liveness in
@@ -227,9 +230,8 @@ let save_and_restore_around_calls
   loop 0;
   if not (Stack.is_empty pending)
   then failwith "Unbalanced Save_clobbers markers";
-  let state = State.state_for_block block in
   Ssa_state.replace_block_instructions
-    state
+    ssa_state
     ~block
     ~irs:(Vec.to_list new_instructions);
   match block.terminal.ir with
@@ -238,20 +240,25 @@ let save_and_restore_around_calls
   | _ -> ()
 ;;
 
-let process (functions : Function.t String.Map.t) =
-  let state = Calc_clobbers.init_state functions in
-  save_and_restore_in_prologue_and_epilogue ~state functions;
+let process ~state (functions : Function.t String.Map.t) =
+  let clobbers_state = Calc_clobbers.init_state functions in
+  save_and_restore_in_prologue_and_epilogue
+    ~clobbers:clobbers_state
+    ~ssa_states:state
+    functions;
   Map.iter functions ~f:(fun fn ->
     let reg_numbering = Reg_numbering.create fn.root in
     let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
     let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
+    let function_state = State.state_for_function state fn.name in
     Block.iter
       fn.root
       ~f:
         (save_and_restore_around_calls
            (module Calc_liveness)
-           ~state
-           ~liveness_state);
+           ~state:clobbers_state
+           ~liveness_state
+           ~ssa_state:function_state);
     let alloca_offset = ref 0 in
     Block.iter fn.root ~f:(fun block ->
       let map_ir (ir : Ir.t) =
@@ -278,9 +285,8 @@ let process (functions : Function.t String.Map.t) =
             Mem (Reg.fp, offset)
           | x -> x)
       in
-      let state = State.state_for_block block in
       let instrs = Block.instrs_to_ir_list block |> List.map ~f:map_ir in
-      Ssa_state.replace_block_instructions state ~block ~irs:instrs;
-      Ssa_state.set_terminal_ir state ~block ~ir:(map_ir block.terminal.ir)));
+      Ssa_state.replace_block_instructions function_state ~block ~irs:instrs;
+      Ssa_state.set_terminal_ir function_state ~block ~ir:(map_ir block.terminal.ir)));
   functions
 ;;

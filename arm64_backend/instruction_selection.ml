@@ -10,11 +10,12 @@ type t =
   ; var_names : int String.Table.t
   ; var_classes : Class.t Var.Table.t
   ; fn : Function.t
+  ; ssa_state : Ssa_state.t
   }
 [@@deriving fields]
 
-let state_for t = State.state_for_function t.fn.name
-let register_block t block = State.register_block ~block ~state:(state_for t)
+let register_block t block =
+  Ssa_state.register_instr t.ssa_state block.Block.terminal
 
 let require_class t var class_ =
   match Hashtbl.find t.var_classes var with
@@ -64,8 +65,8 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
-let lower_aggregates_exn (fn : Function.t) =
-  match Ir.lower_aggregates ~root:fn.root with
+let lower_aggregates_exn ~state (fn : Function.t) =
+  match Ir.lower_aggregates ~state ~root:fn.root with
   | Ok () -> ()
   | Error err -> failwith (Nod_error.to_string err)
 ;;
@@ -169,7 +170,7 @@ let expand_atomic_rmw t =
     | Some (idx, Atomic_rmw atomic) ->
       let before = List.take instrs idx in
       let after = List.drop instrs (idx + 1) in
-      let state = state_for t in
+      let state = t.ssa_state in
       let original_terminal = block.Block.terminal.ir in
       let cont_block =
         let terminal = Ssa_state.alloc_instr state ~ir:original_terminal in
@@ -515,11 +516,12 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
 
 let get_fn = fn
 
-let create fn =
+let create ~state fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
   ; var_classes = Var.Table.create ()
   ; fn
+  ; ssa_state = state
   }
 ;;
 
@@ -538,7 +540,7 @@ let mint_intermediate
     "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
     |> Util.new_name t.block_names
   in
-  let state = state_for t in
+  let state = t.ssa_state in
   let terminal = Ssa_state.alloc_instr state ~ir:(Arm64 (jump to_call_block)) in
   let block = Block.create ~id_hum ~terminal in
   register_block t block;
@@ -577,7 +579,7 @@ let make_prologue t =
       let reg = take_arg_reg class_ in
       Move { dst = Reg.allocated ~class_ arg (Some reg); src = Reg reg })
   in
-  let state = state_for t in
+  let state = t.ssa_state in
   let terminal =
     Ssa_state.alloc_instr state ~ir:(Arm64 (Jump { block = t.fn.root; args }))
   in
@@ -626,7 +628,7 @@ let make_epilogue t ~ret_shape =
       Move { dst = reg; src = Reg forced }, Reg forced)
     |> List.unzip
   in
-  let state = state_for t in
+  let state = t.ssa_state in
   let terminal = Ssa_state.alloc_instr state ~ir:(Arm64 (Ret args')) in
   let block = Block.create ~id_hum ~terminal in
   register_block t block;
@@ -667,7 +669,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    let state = State.state_for_block block in
+    let state = t.ssa_state in
     let instrs =
       Block.instrs_to_ir_list block
       |> List.map ~f:(fun ir ->
@@ -688,7 +690,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
     | None -> ()
     | Some true_terminal ->
       let epilogue_jmp operands_to_ret =
-        let state = State.state_for_block block in
+        let state = t.ssa_state in
         let args =
           List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
           |> List.map ~f:(fun (operand, arg) ->
@@ -717,10 +719,11 @@ let split_blocks_and_add_prologue_and_epilogue t =
       in
       (match true_terminal with
        | Ret l when not (phys_equal block epilogue) ->
-         replace_true_terminal block (epilogue_jmp l)
+         replace_true_terminal ~state:t.ssa_state block (epilogue_jmp l)
        | Ret _ | Jump _ -> ()
        | Conditional_branch { condition; then_; else_ = None } ->
          replace_true_terminal
+           ~state:t.ssa_state
            block
            (Conditional_branch { condition; then_; else_ = None })
        | Conditional_branch { condition; then_; else_ = Some else_ } ->
@@ -732,6 +735,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
          in
          block.insert_phi_moves <- false;
          replace_true_terminal
+           ~state:t.ssa_state
            block
            (Conditional_branch { condition; then_; else_ = Some else_ })
        | Tag_use _
@@ -821,7 +825,7 @@ let insert_par_moves t =
         (match true_terminal with
          | Jump cb ->
            let dst_to_src = List.zip_exn (Vec.to_list cb.block.args) cb.args in
-           let state = State.state_for_block block in
+           let state = t.ssa_state in
            Vec.iter (par_moves t ~dst_to_src) ~f:(fun ir ->
              ignore (Ssa_state.append_ir state ~block ~ir))
          | Ret _ -> ()
@@ -855,7 +859,7 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    let state = State.state_for_block block in
+    let state = t.ssa_state in
     Ssa_state.set_terminal_ir
       state
       ~block
@@ -874,7 +878,7 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
   in
   Block.iter t.fn.root ~f:(fun block ->
     add_count t.block_names block.id_hum;
-    let state = State.state_for_block block in
+    let state = t.ssa_state in
     let instrs =
       Block.instrs_to_ir_list block
       |> List.concat_map ~f:(fun ir ->
@@ -888,10 +892,10 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
   t
 ;;
 
-let run (fn : Function.t) =
-  lower_aggregates_exn fn;
+let run ~state (fn : Function.t) =
+  lower_aggregates_exn ~state fn;
   fn
-  |> create
+  |> create ~state
   |> expand_atomic_rmw
   |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
   |> split_blocks_and_add_prologue_and_epilogue
@@ -904,10 +908,10 @@ let run (fn : Function.t) =
 ;;
 
 module For_testing = struct
-  let run_deebg (fn : Function.t) =
-    lower_aggregates_exn fn;
+  let run_deebg ~state (fn : Function.t) =
+    lower_aggregates_exn ~state fn;
     fn
-    |> create
+    |> create ~state
     |> expand_atomic_rmw
     |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
     |> split_blocks_and_add_prologue_and_epilogue

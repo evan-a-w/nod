@@ -4,14 +4,14 @@ open! Import
 let helper name arg = Dsl.mov name arg
 
 let block_of_instrs instrs =
-  State.reset ();
-  let state = State.ensure_function "root" in
+  let state = State.create () in
+  let fn_state = State.ensure_function state "root" in
   instrs
   |> Dsl.Instr.process
   |> (function
         | Ok raw -> raw
         | Error err -> Nod_error.to_string err |> failwith)
-  |> Cfg.process ~state
+  |> Cfg.process ~state:fn_state
   |> fun (~root, ~blocks:_, ~in_order) ->
   Vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
   root

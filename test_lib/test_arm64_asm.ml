@@ -4,22 +4,22 @@ open! Import
 let compile_and_lower ?(opt_flags = Eir.Opt_flags.no_opt) program =
   match Nod.compile ~opt_flags program with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     let asm =
       Arm64_backend.compile_to_asm
         ~system:`Linux
+        ~state
         ~globals:program.Program.globals
         program.Program.functions
     in
     print_endline asm
 ;;
 
-let compile_and_lower_functions functions =
-  Arm64_backend.compile_to_asm ~system:`Linux functions
+let compile_and_lower_functions ~state functions =
+  Arm64_backend.compile_to_asm ~system:`Linux ~state functions
 ;;
 
-let make_fn ~name ~args ~root =
-  let state = State.state_for_block root in
+let make_fn ~state ~name ~args ~root =
   let old_args = Vec.to_list root.Block.args in
   List.iter args ~f:(Vec.push root.Block.args);
   Ssa_state.update_block_args state ~block:root ~old_args ~new_args:args;
@@ -516,19 +516,19 @@ root() {
 ;;
 
 let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
-  State.reset ();
-  let state = State.ensure_function "root" in
+  let state = State.create () in
+  let fn_state = State.ensure_function state "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
   let root =
     create_block
-      state
+      fn_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
   in
-  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir fn_state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   append_ir
-    state
+    fn_state
     root
     (Ir.atomic_store
        { addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
@@ -536,15 +536,19 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
        ; order = Ir.Memory_order.Seq_cst
        });
   append_ir
-    state
+    fn_state
     root
     (Ir.atomic_load
        { dest = loaded
        ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
        ; order = Ir.Memory_order.Seq_cst
        });
-  let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let fn = make_fn ~state:fn_state ~name:"root" ~args:[] ~root in
+  let asm =
+    compile_and_lower_functions
+      ~state
+      (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
   [%expect
     {|
@@ -558,20 +562,20 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
 ;;
 
 let%expect_test "atomic cmpxchg lowers to casal and success masking" =
-  State.reset ();
-  let state = State.ensure_function "root" in
+  let state = State.create () in
+  let fn_state = State.ensure_function state "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
   let ok = Var.create ~name:"ok" ~type_:Type.I64 in
   let root =
     create_block
-      state
+      fn_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
   in
-  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir fn_state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   append_ir
-    state
+    fn_state
     root
     (Ir.atomic_cmpxchg
        { dest = old
@@ -582,8 +586,12 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
        ; success_order = Ir.Memory_order.Acq_rel
        ; failure_order = Ir.Memory_order.Acquire
        });
-  let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let fn = make_fn ~state:fn_state ~name:"root" ~args:[] ~root in
+  let asm =
+    compile_and_lower_functions
+      ~state
+      (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes
     [ "casal"; "eor x"; "sub x"; "orr x"; "asr x"; "and x" ]
     asm;
@@ -600,19 +608,19 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
 ;;
 
 let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
-  State.reset ();
-  let state = State.ensure_function "root" in
+  let state = State.create () in
+  let fn_state = State.ensure_function state "root" in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
   let root =
     create_block
-      state
+      fn_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
   in
-  append_ir state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
+  append_ir fn_state root (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
   append_ir
-    state
+    fn_state
     root
     (Ir.atomic_rmw
        { dest = old
@@ -621,8 +629,12 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
        ; op = Ir.Rmw_op.Add
        ; order = Ir.Memory_order.Relaxed
        });
-  let fn = make_fn ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let fn = make_fn ~state:fn_state ~name:"root" ~args:[] ~root in
+  let asm =
+    compile_and_lower_functions
+      ~state
+      (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;
   [%expect
     {|

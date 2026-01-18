@@ -12,7 +12,7 @@ let process ~state (~instrs_by_label, ~labels) =
     Vec.map labels ~f:(fun label ->
       let terminal = Ssa_state.alloc_instr state ~ir:Ir.unreachable in
       let block = Block.create ~id_hum:label ~terminal in
-      State.register_block ~block ~state;
+      Ssa_state.register_instr state block.Block.terminal;
       label, block)
     |> Vec.to_list
     |> String.Map.of_alist_exn

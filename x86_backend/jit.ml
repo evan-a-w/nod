@@ -66,8 +66,8 @@ let compile_items ?externals (program : X86_asm.program) =
   { region; size = Bytes.length bytes; symbols }
 ;;
 
-let compile ?dump_crap ?externals ?(system = `Linux) functions =
-  let items = X86_backend.compile_to_items ?dump_crap ~system functions in
+let compile ?dump_crap ?externals ?(system = `Linux) ~state functions =
+  let items = X86_backend.compile_to_items ?dump_crap ~system ~state functions in
   compile_items ?externals items
 ;;
 

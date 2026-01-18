@@ -204,8 +204,9 @@ let compile_and_print_x86_program program =
     compile_and_lower_functions
       ~arch:`X86_64
       ~system:`Linux
-      ~globals:compiled.Program.globals
-      compiled.Program.functions
+      ~state:compiled.state
+      ~globals:compiled.program.Program.globals
+      compiled.program.Program.functions
   in
   print_endline asm
 ;;
@@ -218,8 +219,9 @@ let compile_and_execute_program_exn program expected =
       compile_and_lower_functions
         ~arch
         ~system:host_system
-        ~globals:compiled.Program.globals
-        compiled.Program.functions
+        ~state:compiled.state
+        ~globals:compiled.program.Program.globals
+        compiled.program.Program.functions
     in
     let output =
       execute_asm ~arch ~system:host_system ~harness:harness_source asm

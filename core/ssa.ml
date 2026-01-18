@@ -198,6 +198,7 @@ type t =
   ; numbers : int String.Table.t
   ; immediate_dominees : Block.Hash_set.t Block.Table.t
   ; dominate_queries : bool Block.Pair.Table.t
+  ; state : Ssa_state.t
   }
 
 let calculate_dominator_tree t =
@@ -276,7 +277,7 @@ let insert_args t =
             Vec.push block.args var);
           Hash_set.add defs block)));
   Hashtbl.iteri changed ~f:(fun ~key:block ~data:old_args ->
-    let state = State.state_for_block block in
+    let state = t.state in
     let new_args = Vec.to_list block.Block.args in
     Ssa_state.update_block_args state ~block ~old_args ~new_args);
   t
@@ -284,8 +285,8 @@ let insert_args t =
 
 let add_args_to_calls t =
   let rec go block =
-    let state = State.state_for_block block in
-    let ir = Ir.add_block_args block.terminal.ir in
+    let state = t.state in
+    let ir = Ir.add_block_args block.Block.terminal.ir in
     Ssa_state.set_terminal_ir state ~block ~ir;
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
@@ -309,7 +310,7 @@ let uses_in_block_ex_calls ~block =
       ~init:(Var.Set.empty, Var.Set.empty)
       ~f
   in
-  let _defs, uses = f acc block.terminal.ir in
+  let _defs, uses = f acc block.Block.terminal.ir in
   uses
 ;;
 
@@ -325,7 +326,7 @@ let prune_args t =
   in
   let uses = go Var.Set.empty t.def_uses.root in
   let rec go' block =
-    let state = State.state_for_block block in
+    let state = t.state in
     let pre_len = Vec.length block.Block.args in
     let old_args = Vec.to_list block.Block.args in
     Vec.filter_inplace block.args ~f:(Set.mem uses);
@@ -334,7 +335,7 @@ let prune_args t =
     if Vec.length block.args <> pre_len
     then
       Vec.iter block.parents ~f:(fun block' ->
-        let parent_state = State.state_for_block block' in
+        let parent_state = t.state in
         let ir = Ir.add_block_args block'.terminal.ir in
         Ssa_state.set_terminal_ir parent_state ~block:block' ~ir);
     Option.iter
@@ -368,7 +369,7 @@ let rename t =
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
-    let state = State.state_for_block block in
+    let state = t.state in
     let old_args = Vec.to_list block.Block.args in
     block.Block.args <- Vec.map block.Block.args ~f:replace_def;
     let new_args = Vec.to_list block.Block.args in
@@ -376,7 +377,7 @@ let rename t =
     Block.iter_instrs block ~f:(fun instr ->
       let ir = instr.ir |> replace_uses |> replace_defs in
       Ssa_state.replace_instr_ir state instr ~ir);
-    let terminal_ir = block.terminal.ir |> replace_uses in
+    let terminal_ir = block.Block.terminal.ir |> replace_uses in
     Ssa_state.set_terminal_ir state ~block ~ir:terminal_ir;
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
@@ -391,12 +392,12 @@ let rename t =
 
 let register_block_args t =
   Block.iter t.def_uses.root ~f:(fun block ->
-    let state = State.state_for_block block in
+    let state = t.state in
     Ssa_state.register_block_args state ~block);
   t
 ;;
 
-let create_uninit ~in_order def_uses =
+let create_uninit ~state ~in_order def_uses =
   { def_uses
   ; in_order
   ; immediate_dominees = Block.Table.create ()
@@ -404,12 +405,13 @@ let create_uninit ~in_order def_uses =
   ; definition = String.Table.create ()
   ; numbers = String.Table.create ()
   ; dominate_queries = Block.Pair.Table.create ()
+  ; state
   }
 ;;
 
-let create (~root, ~blocks:_, ~in_order) =
+let create ~state (~root, ~blocks:_, ~in_order) =
   Def_uses.create root
-  |> create_uninit ~in_order
+  |> create_uninit ~state ~in_order
   |> calculate_dominator_tree
   |> insert_args
   |> add_args_to_calls
