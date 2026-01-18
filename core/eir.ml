@@ -1,53 +1,6 @@
 open! Ssa
 open! Core
 open! Import
-(* Planned opts/changes:
- 
-  8 opts: inline, unroll (& vectorise), cse, dce, code motion, constant fold, peephole
-
-  Memory:
-
-  First write in tags on ir to keep track of memory regions and stuff like reading and mutating which regions.
-  Make sure these tags can be inserted in the frontend stage (at least make it possible, and later extend the parser to parse annotations)
-
-   IR ops: alloca, gep/addr_of, load, store, and calls that may read/write memory.
-
-   Only values are in SSA; memory is implicit shared state.
-
-   Add metadata/flags to ops about effects: readonly, writeonly, argmemonly, noalias, nocapture, invariant.load, alignment, TBAA, etc.
-
-   You need a notion of disjointness to optimize safely.
-
-   Stack slots (alloca v): treat each alloca as its own location; quickly disjoint.
-
-   Fields of aggregates: use field sensitivity. Treat p->x and p->y as different alias classes (use GEP indices/offsets).
-
-   Globals: distinct by symbol + section (and possibly constant vs mutable).
-
-   Heap objects: introduce object identity via allocation sites (context-sensitive if you like). A pointer’s “points-to set” is a set of alloc-sites.
-
-   Address spaces/regions: sometimes you’ll model distinct regions (e.g., stack vs heap vs GPU local) as never-aliasing.
-
-   This granularity is the backbone for AA and DSE.
-
-  reg2mem
-
-  SROA / mem2reg (promote allocas, split aggregates)
-
-  GVN/CSE (values + loads)
-
-  DSE (kills earlier stores)
-
-  LICM (hoist invariant loads; sink dead stores)
-
-  Loop vectorization / store & load widening (if you have it)
-
-  DCE (clean up)
-
-  Repeat (2–6) once; interleave with inlining and AA rebuild as needed.
-
-  Run MemorySSA rebuild when necessary (cheap if incremental).
-*)
 
 module Tags = struct
   type t = { constant : Int64.t option } [@@deriving sexp]
@@ -63,14 +16,55 @@ type input = (raw_block Program.t, Nod_error.t) Result.t
 module Loc = struct
   type where =
     | Block_arg of Var.t
-    | Instr of Ir.t
-  [@@deriving sexp, compare, hash]
+    | Instr of Block.t Ssa_instr.t
 
   type t =
     { block : Block.t
     ; where : where
     }
-  [@@deriving sexp, compare, hash, fields]
+  [@@deriving fields]
+
+  let sexp_of_where = function
+    | Block_arg var -> [%sexp (var : Var.t)]
+    | Instr instr -> [%sexp (instr.Ssa_instr.id : Instr_id.t)]
+  ;;
+
+  let compare_where a b =
+    match a, b with
+    | Block_arg a, Block_arg b -> Var.compare a b
+    | Instr a, Instr b -> Instr_id.compare a.Ssa_instr.id b.Ssa_instr.id
+    | Block_arg _, Instr _ -> -1
+    | Instr _, Block_arg _ -> 1
+  ;;
+
+  let hash_where = function
+    | Block_arg var -> Var.hash var
+    | Instr instr -> Instr_id.hash instr.Ssa_instr.id
+  ;;
+
+  let sexp_of_t t =
+    [%sexp { block = (t.block : Block.t); where = (t.where : where) }]
+  ;;
+
+  let t_of_sexp _ = failwith "Loc.t_of_sexp"
+
+  let compare a b =
+    match Block.compare a.block b.block with
+    | 0 -> compare_where a.where b.where
+    | diff -> diff
+  ;;
+
+  let hash t = Hashtbl.hash (Block.hash t.block, hash_where t.where)
+
+  let hash_fold_where state = function
+    | Block_arg var -> Var.hash_fold_t state var
+    | Instr instr -> Instr_id.hash_fold_t state instr.Ssa_instr.id
+  ;;
+
+  let hash_fold_t state t =
+    let state = Block.hash_fold_t state t.block in
+    hash_fold_where state t.where
+  ;;
 
   let is_terminal_for_block t ~block =
     match t.where with
@@ -180,7 +174,7 @@ module Opt = struct
       let t = { needed = Block.Map.empty; once_ready } in
       iter opt ~f:(fun block ->
         let data =
-          Ir.uses block.terminal
+          Ir.uses block.terminal.ir
           |> List.filter_map ~f:(fun var -> active_var opt (Var.name var))
           |> Opt_var.Set.of_list
         in
@@ -221,15 +215,15 @@ module Opt = struct
     iter t ~f:(fun block ->
       Vec.iter block.Block.args ~f:(fun arg ->
         define ~loc:{ Loc.block; where = Loc.Block_arg arg } arg);
-      Vec.iter block.instructions ~f:(fun instr ->
+      Block.iter_instrs block ~f:(fun instr ->
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.defs instr) ~f:(define ~loc)));
+        List.iter (Ir.defs instr.Ssa_instr.ir) ~f:(define ~loc)));
     iter t ~f:(fun block ->
       let use instr =
         let loc = { Loc.block; where = Loc.Instr instr } in
-        List.iter (Ir.uses instr) ~f:(use ~loc)
+        List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(use ~loc)
       in
-      Vec.iter block.instructions ~f:use;
+      Block.iter_instrs block ~f:use;
       use block.terminal);
     t
   ;;
@@ -248,7 +242,7 @@ module Opt = struct
     Vec.filter_map block.parents ~f:(fun parent ->
       match
         Ir.filter_map_call_blocks
-          parent.terminal
+          parent.terminal.ir
           ~f:(fun { Ir.Call_block.block = block'; args } ->
             if phys_equal block' block
             then Some (List.nth_exn args idx)
@@ -261,7 +255,8 @@ module Opt = struct
   ;;
 
   let rec remove_instr t ~block ~instr =
-    List.iter (Ir.uses instr) ~f:(fun var ->
+    let state = t.ssa.state in
+    List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun var ->
       let id = Var.name var in
       match active_var t id with
       | None -> ()
@@ -271,13 +266,12 @@ module Opt = struct
           | Loc.Block_arg _ -> true
           | Instr i -> not (phys_equal i instr));
         try_kill_var t ~id);
-    block.Block.instructions
-    <- Vec.filter block.Block.instructions ~f:(Fn.non (phys_equal instr))
+    Ssa_state.remove_instr state ~block ~instr
 
   and remove_arg_from_parent t ~parent ~idx ~from_block =
     let found = Queue.create () in
     let new_ =
-      Ir.map_call_blocks parent.Block.terminal ~f:(fun cb ->
+      Ir.map_call_blocks parent.Block.terminal.ir ~f:(fun cb ->
         if not (phys_equal cb.block from_block)
         then cb
         else
@@ -298,8 +292,9 @@ module Opt = struct
                   false)
           })
     in
-    parent.Block.terminal <- new_;
-    let loc = { Loc.where = Instr new_; block = parent } in
+    let state = t.ssa.state in
+    Ssa_state.set_terminal_ir state ~block:parent ~ir:new_;
+    let loc = { Loc.where = Instr parent.terminal; block = parent } in
     Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
       Hash_set.add opt_var.uses loc);
     Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
@@ -311,7 +306,11 @@ module Opt = struct
         if Var.equal arg s then Some i else None)
       |> Option.value_exn
     in
+    let state = t.ssa.state in
+    let old_args = Vec.to_list block.Block.args in
     block.args <- Vec.filter block.args ~f:(Fn.non (Var.equal arg));
+    let new_args = Vec.to_list block.Block.args in
+    Ssa_state.update_block_args state ~block ~old_args ~new_args;
     Vec.iter block.parents ~f:(fun parent ->
       remove_arg_from_parent t ~parent ~idx ~from_block:block)
 
@@ -370,7 +369,7 @@ module Opt = struct
           (match Loc.where var.loc with
            | Block_arg _ -> f ~var
            | Instr instr ->
-             List.iter (Ir.uses instr) ~f:(fun use -> go (Var.name use));
+             List.iter (Ir.uses instr.Ssa_instr.ir) ~f:(fun use -> go (Var.name use));
              f ~var);
           Option.iter t.block_tracker ~f:(Block_tracker.ready ~var))
     in
@@ -396,9 +395,14 @@ module Opt = struct
     Ir.constant_fold instr
   ;;
 
-  let update_uses t ~old_instr ~new_instr ~loc =
-    let old_uses = Ir.uses old_instr in
-    let new_uses = Ir.uses new_instr in
+  let update_uses t ~old_ir ~new_ir ~loc =
+    let instr =
+      match loc.Loc.where with
+      | Loc.Instr instr -> instr
+      | Loc.Block_arg _ -> failwith "Expected instruction loc"
+    in
+    let old_uses = Ir.uses old_ir in
+    let new_uses = Ir.uses new_ir in
     let old_ids = List.map old_uses ~f:Var.name in
     let new_ids = List.map new_uses ~f:Var.name in
     List.iter old_ids ~f:(fun id ->
@@ -408,7 +412,7 @@ module Opt = struct
         Hash_set.filter_inplace var.uses ~f:(fun loc ->
           match loc.Loc.where with
           | Loc.Block_arg _ -> true
-          | Instr i -> not (phys_equal i old_instr)));
+          | Instr i -> not (phys_equal i instr)));
     List.iter new_ids ~f:(fun id ->
       match active_var t id with
       | None -> ()
@@ -420,23 +424,25 @@ module Opt = struct
   ;;
 
   (* must be strict subset of uses and such *)
-  let replace_defining_instruction t ~var ~new_instr =
-    let old_instr =
+  let replace_defining_instruction t ~var ~new_ir =
+    let instr =
       match var.Opt_var.loc.where with
       | Block_arg _ -> failwith "Can't replace defining instr for block arg"
       | Instr instr -> instr
     in
-    var.loc <- { var.loc with where = Instr new_instr };
-    Vec.map_inplace var.loc.block.Block.instructions ~f:(fun instr ->
-      if phys_equal old_instr instr then new_instr else instr);
-    update_uses t ~old_instr ~new_instr ~loc:var.loc
+    let state = t.ssa.state in
+    let old_ir = instr.Ssa_instr.ir in
+    Ssa_state.replace_instr_ir state instr ~ir:new_ir;
+    update_uses t ~old_ir ~new_ir ~loc:var.loc
   ;;
 
   (* must be strict subset of uses and such *)
-  let replace_terminal t ~block ~new_terminal =
+  let replace_terminal t ~block ~new_ir =
+    let state = t.ssa.state in
     let old_terminal = block.Block.terminal in
-    let old_blocks = Ir.blocks old_terminal in
-    let new_blocks = Ir.blocks old_terminal in
+    let old_ir = old_terminal.ir in
+    let old_blocks = Ir.blocks old_ir in
+    let new_blocks = Ir.blocks new_ir in
     let diff =
       List.filter old_blocks ~f:(fun block' ->
         not (List.mem new_blocks block' ~equal:phys_equal))
@@ -446,9 +452,9 @@ module Opt = struct
       Vec.switch
         block'.parents
         (Vec.filter block'.parents ~f:(Fn.non (phys_equal block))));
-    let loc = { Loc.block; where = Instr new_terminal } in
-    update_uses t ~old_instr:old_terminal ~new_instr:new_terminal ~loc;
-    block.terminal <- new_terminal
+    let loc = { Loc.block; where = Instr old_terminal } in
+    Ssa_state.set_terminal_ir state ~block ~ir:new_ir;
+    update_uses t ~old_ir ~new_ir ~loc
   ;;
 
   let rec refine_type t ~var =
@@ -480,21 +486,21 @@ module Opt = struct
       var.tags <- { constant }
 
   and refine_type_instr t ~var ~instr =
-    let instr = constant_fold t ~instr in
-    replace_defining_instruction t ~var ~new_instr:instr;
-    match Ir.constant instr with
+    let new_ir = constant_fold t ~instr:instr.Ssa_instr.ir in
+    replace_defining_instruction t ~var ~new_ir;
+    match Ir.constant new_ir with
     | None -> ()
     | Some _ as constant ->
       var.tags <- { constant };
-      let terminal_uses = Ir.uses var.loc.block.terminal in
+      let terminal_uses = Ir.uses var.loc.block.terminal.ir in
       if List.exists terminal_uses ~f:(fun use ->
            String.equal (Var.name use) var.id)
       then refine_terminal t ~block:var.loc.block
 
   and refine_terminal t ~block =
     let terminal = block.Block.terminal in
-    let new_terminal = constant_fold t ~instr:terminal in
-    replace_terminal t ~block ~new_terminal
+    let new_ir = constant_fold t ~instr:terminal.ir in
+    replace_terminal t ~block ~new_ir
   ;;
 
   let gvn t ~var =
@@ -517,23 +523,27 @@ end
 
 let map_program_roots ~f program = Program.map_function_roots program ~f
 
-let set_entry_block_args program =
-  Map.iter
+let set_entry_block_args ~state program =
+  Map.iteri
     program.Program.functions
-    ~f:(fun { Function.root = root_data; args; _ } ->
+    ~f:(fun ~key:name ~data:{ Function.root = root_data; args; _ } ->
       let ~root:block, ~blocks:_, ~in_order:_ = root_data in
-      List.iter args ~f:(Vec.push block.Block.args));
+      let function_state = State.state_for_function state name in
+      let old_args = Vec.to_list block.Block.args in
+      List.iter args ~f:(Vec.push block.Block.args);
+      let new_args = Vec.to_list block.Block.args in
+      Ssa_state.update_block_args function_state ~block ~old_args ~new_args);
   program
 ;;
 
 let type_check_block block =
   let open Result.Let_syntax in
   let%bind () =
-    Vec.fold block.Block.instructions ~init:(Ok ()) ~f:(fun acc instr ->
+    List.fold (Block.instrs_to_ir_list block) ~init:(Ok ()) ~f:(fun acc instr ->
       let%bind () = acc in
       Ir.check_types instr)
   in
-  Ir.check_types block.Block.terminal
+  Ir.check_types block.Block.terminal.ir
 ;;
 
 let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
@@ -562,15 +572,16 @@ let type_check_program program =
       type_check_cfg fn.Function.root)
 ;;
 
-let lower_aggregate_program program =
+let lower_aggregate_program ~state program =
   Map.fold
     program.Program.functions
     ~init:(Ok ())
-    ~f:(fun ~key:_ ~data:fn acc ->
+    ~f:(fun ~key:name ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
       let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
-      Ir.lower_aggregates ~root:block)
+      let function_state = State.state_for_function state name in
+      Ir.lower_aggregates ~state:function_state ~root:block)
   |> Result.map ~f:(fun () -> program)
 ;;
 
@@ -585,14 +596,21 @@ let optimize ?opt_flags program =
     program.Program.functions
 ;;
 
-let compile ?opt_flags (input : input) =
+let compile ?opt_flags ~state (input : input) =
+  State.reset state;
   match
-    Result.map input ~f:(map_program_roots ~f:Cfg.process)
-    |> Result.map ~f:set_entry_block_args
+    Result.map input ~f:(fun program ->
+      Program.map_function_roots_with_name program ~f:(fun ~name root ->
+        let function_state = State.ensure_function state name in
+        Cfg.process ~state:function_state root))
+    |> Result.map ~f:(set_entry_block_args ~state)
     |> Result.bind ~f:(fun program ->
       type_check_program program |> Result.map ~f:(fun () -> program))
-    |> Result.bind ~f:lower_aggregate_program
-    |> Result.map ~f:(map_program_roots ~f:Ssa.create)
+    |> Result.bind ~f:(lower_aggregate_program ~state)
+    |> Result.map ~f:(fun program ->
+      Program.map_function_roots_with_name program ~f:(fun ~name root ->
+        let function_state = State.state_for_function state name in
+        Ssa.create ~state:function_state root))
   with
   | Error _ as e -> e
   | Ok program ->

@@ -49,19 +49,16 @@ module Memory_order = struct
     | Seq_cst
   [@@deriving sexp, compare, equal, hash]
 
-  (* For x86_64 TSO: many orderings collapse to simpler operations *)
   let x86_needs_fence = function
     | Relaxed | Acquire -> false
     | Release | Acq_rel | Seq_cst -> true
   ;;
 
-  (* Check if a load ordering requires special handling on x86 *)
   let x86_load_needs_fence = function
     | Relaxed | Acquire -> false
     | Release | Acq_rel | Seq_cst -> true
   ;;
 
-  (* Check if a store ordering requires special handling on x86 *)
   let x86_store_needs_fence = function
     | Relaxed -> false
     | Acquire | Release | Acq_rel | Seq_cst -> true
@@ -264,13 +261,13 @@ let map_memcpy_lit_or_vars (t : memcpy) ~f =
 ;;
 
 let map_atomic_load_defs (t : atomic_load) ~f = { t with dest = f t.dest }
-let map_atomic_load_uses (t : atomic_load) ~f = { t with addr = Mem.map_vars t.addr ~f }
+
+let map_atomic_load_uses (t : atomic_load) ~f =
+  { t with addr = Mem.map_vars t.addr ~f }
+;;
 
 let map_atomic_store_uses (t : atomic_store) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
+  { t with addr = Mem.map_vars t.addr ~f; src = Lit_or_var.map_vars t.src ~f }
 ;;
 
 let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
@@ -280,10 +277,7 @@ let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
 let map_atomic_rmw_defs (t : atomic_rmw) ~f = { t with dest = f t.dest }
 
 let map_atomic_rmw_uses (t : atomic_rmw) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
+  { t with addr = Mem.map_vars t.addr ~f; src = Lit_or_var.map_vars t.src ~f }
 ;;
 
 let map_atomic_rmw_lit_or_vars (t : atomic_rmw) ~f =

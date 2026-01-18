@@ -114,9 +114,12 @@ module M (A : Arch.S) = struct
             |> Int.Set.of_list
         in
         let acc =
-          Vec.fold block.instructions ~init:(~defs, ~uses:Int.Set.empty) ~f
+          List.fold
+            (Block.instrs_to_ir_list block)
+            ~init:(~defs, ~uses:Int.Set.empty)
+            ~f
         in
-        f acc block.terminal
+        f acc block.terminal.ir
       ;;
 
       let calculate_intra_block_liveness t root =
@@ -133,14 +136,14 @@ module M (A : Arch.S) = struct
             ; live_out = block_liveness.overall.live_out
             }
           in
-          block_liveness.terminal <- f after_terminal block.terminal;
+          block_liveness.terminal <- f after_terminal block.terminal.ir;
           (* prob unnecessary *)
           Vec.clear block_liveness.instructions;
           let (_ : Liveness.t) =
-            Vec.foldr
-              block.instructions
+            List.fold_right
+              (Block.instrs_to_ir_list block)
               ~init:block_liveness.terminal
-              ~f:(fun liveness ir ->
+              ~f:(fun ir liveness ->
                 let liveness = f liveness ir in
                 Vec.push block_liveness.instructions liveness;
                 liveness)
@@ -204,10 +207,10 @@ module M (A : Arch.S) = struct
         let block_liveness = block_liveness t block in
         let instructions =
           List.zip_exn
-            (Vec.to_list block.instructions)
+            (Block.instrs_to_ir_list block)
             (Vec.to_list block_liveness.instructions)
         in
-        let terminal = block.terminal, block_liveness.terminal in
+        let terminal = block.terminal.ir, block_liveness.terminal in
         ~instructions, ~terminal
       ;;
     end

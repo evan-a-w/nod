@@ -11,3 +11,10 @@ let map_functions t ~f = { t with functions = Map.map t.functions ~f }
 
 let map_function_roots t ~f =
   { t with functions = Map.map t.functions ~f:(Function0.map_root ~f) }
+
+let map_function_roots_with_name t ~f =
+  { t with
+    functions =
+      Map.mapi t.functions ~f:(fun ~key:name ~data:fn ->
+        Function0.map_root fn ~f:(f ~name))
+  }

@@ -4,13 +4,13 @@ open! Import
 let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
   match Eir.compile ~opt_flags s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok { program; state } ->
     let functions = program.Program.functions in
     print_s
       [%sexp
         (Map.data functions |> List.map ~f:Function.to_sexp_verbose
          : Sexp.t list)];
-    let x86 = X86_backend.compile ?dump_crap functions in
+    let x86 = X86_backend.compile ?dump_crap ~state functions in
     print_s
       [%sexp
         (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
@@ -18,28 +18,33 @@ let test ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) s =
 
 let test_program ?dump_crap ?(opt_flags = Eir.Opt_flags.no_opt) fragments =
   let result =
-    List.fold fragments ~init:(Ok String.Map.empty) ~f:(fun acc fragment ->
-      match acc with
-      | Error _ as e -> e
-      | Ok functions ->
-        (match Eir.compile ~opt_flags fragment with
-         | Error _ as e -> e
-         | Ok new_program ->
-           let new_functions = new_program.Program.functions in
-           let merged =
-             Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
-               Map.set acc ~key ~data)
-           in
-           Ok merged))
+    List.fold
+      fragments
+      ~init:(Ok (State.create (), String.Map.empty))
+      ~f:(fun acc fragment ->
+        match acc with
+        | Error _ as e -> e
+        | Ok (state_acc, functions) ->
+          (match Eir.compile ~opt_flags fragment with
+           | Error _ as e -> e
+           | Ok { program = new_program; state } ->
+             Hashtbl.iteri (State.table state) ~f:(fun ~key ~data ->
+               Hashtbl.set state_acc ~key ~data);
+             let new_functions = new_program.Program.functions in
+             let merged =
+               Map.fold new_functions ~init:functions ~f:(fun ~key ~data acc ->
+                 Map.set acc ~key ~data)
+             in
+             Ok (state_acc, merged)))
   in
   match result with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok functions ->
+  | Ok (state, functions) ->
     print_s
       [%sexp
         (Map.data functions |> List.map ~f:Function.to_sexp_verbose
          : Sexp.t list)];
-    let x86 = X86_backend.compile ?dump_crap functions in
+    let x86 = X86_backend.compile ?dump_crap ~state functions in
     print_s
       [%sexp
         (Map.data x86 |> List.map ~f:Function.to_sexp_verbose : Sexp.t list)]
@@ -1259,8 +1264,7 @@ let%expect_test "fib_rec" =
 
 let%expect_test "call_chains" =
   test_program Examples.Textual.call_chains;
-  [%expect
-    {|
+  [%expect {|
     (((call_conv Default)
       (root
        ((%root (args (((name x) (type_ I64))))

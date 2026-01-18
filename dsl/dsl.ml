@@ -2,6 +2,7 @@ open! Core
 open! Dsl_import
 include Dsl_types
 module Type_repr = Type_repr_gen
+module Core_state = Nod_core.State
 
 module Atom = struct
   type _ t = Ir.Lit_or_var.t
@@ -288,9 +289,15 @@ let branch_to cond ~if_true ~if_false =
 
 let jump_to label = Instr.ir (Ir0.jump_to label)
 
-let compile_program_exn program =
-  match Eir.compile ~opt_flags:Eir.Opt_flags.no_opt program with
-  | Ok program -> program
+type compiled_program =
+  { program : Block.t Program.t
+  ; state : Core_state.t
+  }
+
+let compile_program_exn input =
+  let state = Core_state.create () in
+  match Nod_core.Eir.compile ~opt_flags:Eir.Opt_flags.no_opt ~state input with
+  | Ok program -> { program; state }
   | Error err -> Nod_error.to_string err |> failwith
 ;;
 

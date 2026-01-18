@@ -6,9 +6,13 @@ let map_function_roots ~f program =
 ;;
 
 let test s =
+  let state = State.create () in
   s
   |> Parser.parse_string
-  |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    Program.map_function_roots_with_name program ~f:(fun ~name root ->
+      let fn_state = State.ensure_function state name in
+      Cfg.process ~state:fn_state root))
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
@@ -17,7 +21,7 @@ let test s =
       ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
-            Vec.to_list block.Block.instructions @ [ block.terminal ]
+            Block.instrs_to_ir_list block @ [ block.terminal.ir ]
           in
           print_s [%message block.id_hum (instrs : Ir.t list)]))
 ;;
