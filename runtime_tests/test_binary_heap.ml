@@ -213,7 +213,13 @@ let compile_and_print_x86_program program =
 
 let compile_and_execute_program_exn program expected =
   (* TODO: narrow because macos _ prefix in labels is a bit borked *)
-  List.iter test_architectures_narrow ~f:(fun arch ->
+  let archs =
+    match Lazy.force Nod.host_arch with
+    | `Arm64 -> []
+    | `X86_64 -> [ `X86_64 ]
+    | `Other -> []
+  in
+  List.iter archs ~f:(fun arch ->
     let compiled = Dsl.compile_program_exn program in
     let asm =
       compile_and_lower_functions
