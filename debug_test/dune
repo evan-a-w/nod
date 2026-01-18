@@ -1,8 +1,0 @@
-(library
- (name nod_debug_test)
- (preprocess
-  (pps ppx_jane))
- (inline_tests)
- (libraries core core_unix vec nod nod_core nod_test)
- (flags
-  (:standard -extension-universe beta)))
