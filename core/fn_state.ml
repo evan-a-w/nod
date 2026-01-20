@@ -2,9 +2,9 @@ open! Core
 
 (** per function ssa state to map between values and instrs etc. *)
 type t =
-  { values : Ssa_value.t option Vec.t
+  { values : Value_state.t option Vec.t
   ; free_values : int Vec.t
-  ; instrs : Block.t Ssa_instr.t option Vec.t
+  ; instrs : Block.t Instr_state.t option Vec.t
   ; free_instrs : int Vec.t
   ; value_id_by_var : Value_id.t Var.Table.t
   }
@@ -31,7 +31,7 @@ let value_by_var t var =
 ;;
 
 let alloc_value t ~type_ ~var =
-  let res id : Ssa_value.t =
+  let res id : Value_state.t =
     Hashtbl.set t.value_id_by_var ~key:var ~data:(Value_id id);
     { id = Value_id id
     ; var
@@ -52,14 +52,14 @@ let alloc_value t ~type_ ~var =
     res
 ;;
 
-let free_value t ({ id = Value_id id; _ } : Ssa_value.t) =
+let free_value t ({ id = Value_id id; _ } : Value_state.t) =
   Hashtbl.remove t.value_id_by_var (Option.value_exn (Vec.get t.values id)).var;
   Vec.set t.values id None;
   Vec.push t.free_values id
 ;;
 
 let alloc_instr ?prev ?next t ~ir =
-  let res id : Block.t Ssa_instr.t = { id = Instr_id id; ir; prev; next } in
+  let res id : Block.t Instr_state.t = { id = Instr_id id; ir; prev; next } in
   match Vec.pop t.free_instrs with
   | Some id ->
     let res = res id in
@@ -71,7 +71,7 @@ let alloc_instr ?prev ?next t ~ir =
     res
 ;;
 
-let free_instr t ({ id = Instr_id id; _ } : Block.t Ssa_instr.t) =
+let free_instr t ({ id = Instr_id id; _ } : Block.t Instr_state.t) =
   Vec.set t.instrs id None;
   Vec.push t.free_instrs id
 ;;
@@ -82,12 +82,12 @@ let ensure_value t ~var =
   | None -> alloc_value t ~type_:(Var.type_ var) ~var
 ;;
 
-let add_use (value : Ssa_value.t) instr_id =
+let add_use (value : Value_state.t) instr_id =
   if not (List.mem value.uses instr_id ~equal:Instr_id.equal)
   then value.uses <- instr_id :: value.uses
 ;;
 
-let remove_use (value : Ssa_value.t) instr_id =
+let remove_use (value : Value_state.t) instr_id =
   value.uses <- List.filter value.uses ~f:(Fn.non (Instr_id.equal instr_id))
 ;;
 
@@ -136,7 +136,7 @@ let replace_defs_uses t ~instr_id ~old_defs ~old_uses ~new_defs ~new_uses =
     value.def <- Def_site.Instr instr_id)
 ;;
 
-let register_instr t (instr : Block.t Ssa_instr.t) =
+let register_instr t (instr : Block.t Instr_state.t) =
   register_defs_uses
     t
     ~instr_id:instr.id
@@ -144,7 +144,7 @@ let register_instr t (instr : Block.t Ssa_instr.t) =
     ~uses:(Ir0.uses instr.ir)
 ;;
 
-let unregister_instr t (instr : Block.t Ssa_instr.t) =
+let unregister_instr t (instr : Block.t Instr_state.t) =
   unregister_defs_uses
     t
     ~instr_id:instr.id
@@ -152,7 +152,7 @@ let unregister_instr t (instr : Block.t Ssa_instr.t) =
     ~uses:(Ir0.uses instr.ir)
 ;;
 
-let replace_instr_ir t (instr : Block.t Ssa_instr.t) ~ir =
+let replace_instr_ir t (instr : Block.t Instr_state.t) ~ir =
   replace_defs_uses
     t
     ~instr_id:instr.id
@@ -179,11 +179,11 @@ let replace_block_instructions t ~block ~irs =
   List.iter irs ~f:(fun ir ->
     let instr = alloc_instr t ~ir in
     register_instr t instr;
-    instr.Ssa_instr.prev <- !last;
-    instr.Ssa_instr.next <- None;
+    instr.Instr_state.prev <- !last;
+    instr.Instr_state.next <- None;
     (match !last with
      | None -> block.Block.instructions <- Some instr
-     | Some prev -> prev.Ssa_instr.next <- Some instr);
+     | Some prev -> prev.Instr_state.next <- Some instr);
     last := Some instr)
 ;;
 
