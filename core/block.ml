@@ -14,8 +14,8 @@ type t =
   ; mutable args : Var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
-  ; mutable instructions : t Ssa_instr.t option
-  ; mutable terminal : t Ssa_instr.t
+  ; mutable instructions : t Instr_state.t option
+  ; mutable terminal : t Instr_state.t
   ; mutable dfs_id : int option
   ; mutable insert_phi_moves : bool
   }
@@ -104,8 +104,8 @@ let iter_instructions t ~f =
     let rec go = function
       | None -> ()
       | Some instr ->
-        f instr.Ssa_instr.ir;
-        go instr.Ssa_instr.next
+        f instr.Instr_state.ir;
+        go instr.Instr_state.next
     in
     go block.instructions;
     f block.terminal.ir)
@@ -117,7 +117,7 @@ let to_sexp_verbose root =
     let instrs =
       let rec go acc = function
         | None -> List.rev acc
-        | Some instr -> go (instr.Ssa_instr.ir :: acc) instr.Ssa_instr.next
+        | Some instr -> go (instr.Instr_state.ir :: acc) instr.Instr_state.next
       in
       go [] t.instructions @ [ t.terminal.ir ]
     in
@@ -130,7 +130,7 @@ let to_sexp_verbose root =
 let instrs_to_list t =
   let rec go acc = function
     | None -> List.rev acc
-    | Some instr -> go (instr :: acc) instr.Ssa_instr.next
+    | Some instr -> go (instr :: acc) instr.Instr_state.next
   in
   go [] t.instructions
 ;;
@@ -138,7 +138,7 @@ let instrs_to_list t =
 let instrs_to_ir_list t =
   let rec go acc = function
     | None -> List.rev acc
-    | Some instr -> go (instr.Ssa_instr.ir :: acc) instr.Ssa_instr.next
+    | Some instr -> go (instr.Instr_state.ir :: acc) instr.Instr_state.next
   in
   go [] t.instructions
 ;;
@@ -148,36 +148,36 @@ let iter_instrs t ~f =
     | None -> ()
     | Some instr ->
       f instr;
-      go instr.Ssa_instr.next
+      go instr.Instr_state.next
   in
   go t.instructions
 ;;
 
 let append_instr t instr =
-  instr.Ssa_instr.prev <- None;
-  instr.Ssa_instr.next <- None;
+  instr.Instr_state.prev <- None;
+  instr.Instr_state.next <- None;
   match t.instructions with
   | None -> t.instructions <- Some instr
   | Some head ->
     let rec last curr =
-      match curr.Ssa_instr.next with
+      match curr.Instr_state.next with
       | None -> curr
       | Some next -> last next
     in
     let tail = last head in
-    tail.Ssa_instr.next <- Some instr;
-    instr.Ssa_instr.prev <- Some tail
+    tail.Instr_state.next <- Some instr;
+    instr.Instr_state.prev <- Some tail
 ;;
 
 let unlink_instr t instr =
-  (match instr.Ssa_instr.prev with
-   | None -> t.instructions <- instr.Ssa_instr.next
-   | Some prev -> prev.Ssa_instr.next <- instr.Ssa_instr.next);
-  (match instr.Ssa_instr.next with
+  (match instr.Instr_state.prev with
+   | None -> t.instructions <- instr.Instr_state.next
+   | Some prev -> prev.Instr_state.next <- instr.Instr_state.next);
+  (match instr.Instr_state.next with
    | None -> ()
-   | Some next -> next.Ssa_instr.prev <- instr.Ssa_instr.prev);
-  instr.Ssa_instr.prev <- None;
-  instr.Ssa_instr.next <- None
+   | Some next -> next.Instr_state.prev <- instr.Instr_state.prev);
+  instr.Instr_state.prev <- None;
+  instr.Instr_state.next <- None
 ;;
 
 module Pair = struct
