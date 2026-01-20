@@ -39,6 +39,14 @@ let pop_exn t =
     t.arr.(t.length))
 ;;
 
+let pop t =
+  if t.length = 0
+  then None
+  else (
+    t.length <- t.length - 1;
+    Some t.arr.(t.length))
+;;
+
 let get t i =
   if i < 0 || i >= t.length
   then raise (Invalid_argument [%string "Index %{i#Int} out of bounds"])
