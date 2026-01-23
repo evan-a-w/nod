@@ -38,7 +38,7 @@ let alloc_value t ~type_ ~var =
     ; type_
     ; def = Undefined
     ; opt_tags = Opt_tags.empty
-    ; uses = []
+    ; uses = Instr_id.Set.empty
     }
   in
   match Vec.pop t.free_values with
@@ -83,10 +83,54 @@ let ensure_value t ~var =
 ;;
 
 let add_use (value : Value_state.t) instr_id =
-  if not (List.mem value.uses instr_id ~equal:Instr_id.equal)
-  then value.uses <- instr_id :: value.uses
+  value.uses <- Set.add value.uses instr_id
 ;;
 
 let remove_use (value : Value_state.t) instr_id =
-  value.uses <- List.filter value.uses ~f:(Fn.non (Instr_id.equal instr_id))
+  value.uses <- Set.remove value.uses instr_id
+;;
+
+let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
+  Ir0.defs instr.ir
+  |> List.iter ~f:(fun var ->
+    match value_by_var t var with
+    | None -> ()
+    | Some var -> var.def <- Undefined);
+  Ir0.uses instr.ir
+  |> List.iter ~f:(fun var ->
+    match value_by_var t var with
+    | None -> ()
+    | Some var -> remove_use var instr.id)
+;;
+
+let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
+  Ir0.defs instr.ir
+  |> List.iter ~f:(fun var -> (ensure_value t ~var).def <- Instr instr.id);
+  Ir0.uses instr.ir
+  |> List.iter ~f:(fun var -> add_use (ensure_value t ~var) instr.id)
+;;
+
+let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
+  clear_instr_value_relationships t ~instr;
+  List.iter with_instrs ~f:(fun instr -> add_instr_value_relationships t ~instr);
+  let rec go (prev : _ Instr_state.t option) l =
+    match l with
+    | [] -> ()
+    | x :: xs ->
+      (match prev with
+       | None -> ()
+       | Some prev -> prev.next <- Some x);
+      x.next <- instr.next;
+      go (Some x) xs
+  in
+  go instr.prev with_instrs;
+  match instr.prev, List.hd with_instrs with
+  | None, head -> block.instructions <- head
+  | Some prev, head -> prev.next <- head
+;;
+
+let replace_terminal t ~(block : Block.t) ~with_ =
+  clear_instr_value_relationships t ~instr:block.terminal;
+  add_instr_value_relationships t ~instr:with_;
+  block.terminal <- with_
 ;;

@@ -7,3 +7,27 @@ type 'block t =
   ; mutable next : 'block t option
   ; mutable prev : 'block t option
   }
+
+let sexp_of_t sexp_of_block { id; ir; next = _; prev = _ } =
+  [%message (id : Instr_id.t) (ir : block Ir0.t)]
+;;
+
+let rec iter t ~(local_ f) =
+  match t with
+  | None -> ()
+  | Some t ->
+    f t;
+    iter t.next ~f
+;;
+
+let rec to_list t =
+  match t with
+  | None -> []
+  | Some x -> x :: to_list x.next
+;;
+
+let rec fold t ~init ~f =
+  match t with
+  | None -> init
+  | Some t -> fold t.next ~init:(f init t) ~f
+;;
