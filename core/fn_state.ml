@@ -6,6 +6,7 @@ type t =
   ; free_values : int Vec.t
   ; instrs : Block.t Instr_state.t option Vec.t
   ; free_instrs : int Vec.t
+  ; instr_block_by_id : Block.t option Vec.t
   ; value_id_by_var : Value_id.t Var.Table.t
   }
 
@@ -14,6 +15,7 @@ let create () =
   ; free_values = Vec.create ()
   ; instrs = Vec.create ()
   ; free_instrs = Vec.create ()
+  ; instr_block_by_id = Vec.create ()
   ; value_id_by_var = Var.Table.create ()
   }
 ;;
@@ -24,6 +26,10 @@ let value t (Value_id idx : Value_id.t) =
 
 let instr t (Instr_id idx : Instr_id.t) =
   Vec.get_opt t.instrs idx |> Option.join
+;;
+
+let instr_block t (Instr_id idx : Instr_id.t) =
+  Vec.get_opt t.instr_block_by_id idx |> Option.join
 ;;
 
 let value_by_var t var =
@@ -39,6 +45,7 @@ let alloc_value t ~type_ ~var =
     ; def = Undefined
     ; opt_tags = Opt_tags.empty
     ; uses = Instr_id.Set.empty
+    ; active = true
     }
   in
   match Vec.pop t.free_values with
@@ -64,15 +71,22 @@ let alloc_instr ?prev ?next t ~ir =
   | Some id ->
     let res = res id in
     Vec.set t.instrs id (Some res);
+    Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
     res
   | None ->
     let res = res (Vec.length t.instrs) in
     Vec.push t.instrs (Some res);
+    Vec.fill_to_length
+      t.instr_block_by_id
+      ~length:(Vec.length t.instrs)
+      ~f:(fun _ -> None);
     res
 ;;
 
 let free_instr t ({ id = Instr_id id; _ } : Block.t Instr_state.t) =
   Vec.set t.instrs id None;
+  Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+  Vec.set t.instr_block_by_id id None;
   Vec.push t.free_instrs id
 ;;
 
@@ -119,12 +133,16 @@ let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
 
 let of_cfg ~root =
   let t = create () in
-  let register_instr instr =
+  let register_instr ~block instr =
     let (Instr_id id) = instr.Instr_state.id in
     Vec.fill_to_length t.instrs ~length:(id + 1) ~f:(fun _ -> None);
-    Vec.set t.instrs id (Some instr)
+    Vec.set t.instrs id (Some instr);
+    Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+    Vec.set t.instr_block_by_id id (Some block)
   in
-  Block.iter_instructions root ~f:register_instr;
+  Block.iter root ~f:(fun block ->
+    Instr_state.iter (Block.instructions block) ~f:(register_instr ~block);
+    register_instr ~block (Block.terminal block));
   Block.iter root ~f:(fun block ->
     Vec.iteri (Block.args block) ~f:(fun arg var ->
       let value = ensure_value t ~var in
@@ -132,6 +150,12 @@ let of_cfg ~root =
   Block.iter_instructions root ~f:(fun instr ->
     add_instr_value_relationships t ~instr);
   t
+;;
+
+let set_instr_block t ~(block : Block.t) ~(instr : _ Instr_state.t) =
+  let (Instr_id id) = instr.Instr_state.id in
+  Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+  Vec.set t.instr_block_by_id id (Some block)
 ;;
 
 let set_block_args t ~(block : Block.t) ~(args : Var.t Vec.t) =
@@ -152,7 +176,9 @@ let set_block_args t ~(block : Block.t) ~(args : Var.t Vec.t) =
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   clear_instr_value_relationships t ~instr;
   free_instr t instr;
-  List.iter with_instrs ~f:(fun instr -> add_instr_value_relationships t ~instr);
+  List.iter with_instrs ~f:(fun instr ->
+    add_instr_value_relationships t ~instr;
+    set_instr_block t ~block ~instr);
   let rec link prev l =
     match l with
     | [] -> prev
@@ -180,6 +206,7 @@ let replace_terminal t ~(block : Block.t) ~with_ =
   clear_instr_value_relationships t ~instr:(Block.terminal block);
   free_instr t (Block.terminal block);
   add_instr_value_relationships t ~instr:with_;
+  set_instr_block t ~block ~instr:with_;
   Block.Expert.set_terminal block with_
 ;;
 
@@ -187,6 +214,7 @@ let replace_terminal_ir t ~(block : Block.t) ~with_ =
   let with_ = alloc_instr t ~ir:with_ in
   clear_instr_value_relationships t ~instr:(Block.terminal block);
   add_instr_value_relationships t ~instr:with_;
+  set_instr_block t ~block ~instr:with_;
   Block.Expert.set_terminal block with_
 ;;
 
@@ -201,6 +229,7 @@ let remove_instr t ~(block : Block.t) ~(instr : _ Instr_state.t) =
 ;;
 
 let append_instr t ~(block : Block.t) ~instr =
+  set_instr_block t ~block ~instr;
   let rec go (curr : _ Instr_state.t) =
     match curr.Instr_state.next with
     | None ->
