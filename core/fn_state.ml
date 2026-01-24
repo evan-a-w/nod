@@ -133,7 +133,7 @@ let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   in
   go instr.prev with_instrs;
   match instr.prev, List.hd with_instrs with
-  | None, head -> block.instructions <- head
+  | None, head -> Block.Expert.set_instructions block head
   | Some prev, head -> prev.next <- head
 ;;
 
@@ -143,17 +143,17 @@ let replace_instr_with_irs t ~block ~instr ~with_irs =
 ;;
 
 let replace_terminal t ~(block : Block.t) ~with_ =
-  clear_instr_value_relationships t ~instr:block.terminal;
-  free_instr t block.terminal;
+  clear_instr_value_relationships t ~instr:(Block.terminal block);
+  free_instr t (Block.terminal block);
   add_instr_value_relationships t ~instr:with_;
-  block.terminal <- with_
+  Block.Expert.set_terminal block with_
 ;;
 
 let replace_terminal_ir t ~(block : Block.t) ~with_ =
   let with_ = alloc_instr t ~ir:with_ in
-  clear_instr_value_relationships t ~instr:block.terminal;
+  clear_instr_value_relationships t ~instr:(Block.terminal block);
   add_instr_value_relationships t ~instr:with_;
-  block.terminal <- with_
+  Block.Expert.set_terminal block with_
 ;;
 
 let append_instr t ~(block : Block.t) ~instr =
@@ -162,8 +162,8 @@ let append_instr t ~(block : Block.t) ~instr =
     | None -> curr.next <- Some instr
     | Some next -> go next
   in
-  match block.instructions with
-  | None -> block.instructions <- Some instr
+  match Block.instructions block with
+  | None -> Block.Expert.set_instructions block (Some instr)
   | Some head -> go head
 ;;
 

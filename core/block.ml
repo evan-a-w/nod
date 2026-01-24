@@ -112,3 +112,9 @@ module Pair = struct
   include functor Comparable.Make
   include functor Hashable.Make
 end
+
+module Expert = struct
+  let set_terminal = set_terminal
+  let set_instructions = set_instructions
+  let set_args = set_args
+end
