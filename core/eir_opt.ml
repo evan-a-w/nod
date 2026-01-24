@@ -334,7 +334,23 @@ let gvn (_ctx : context) ~(value : Value_state.t) =
   ()
 ;;
 
-type pass =
+(* let value_defining_instr ctx ~(value : Value_state.t) = *)
+(*   match value.def with *)
+(*   | Block_arg _ | Undefined -> None *)
+(*   | Instr instr_id ->  *)
+(*     Fn_state.instr ctx.fn_state instr_id *)
+
+(*     let simple_peeps ctx ~(value : Value_state.t) = *)
+(*       match value_defining_instr ctx ~value with *)
+(*       | None -> () *)
+(*       | Some instr_state -> *)
+(*         (match instr_state.ir with *)
+(*         | Add { dest; src1; src2 } -> *)
+
+(*         | _ -> () *)
+(*         ) *)
+
+type value_pass =
   { name : string
   ; enabled : Opt_flags.t -> bool
   ; on_value : (context -> Value_state.t -> unit) option
@@ -404,28 +420,30 @@ let pass_gvn =
   }
 ;;
 
-let passes = [ pass_constant_propagation; pass_dce; pass_gvn ]
+let value_passes = [ pass_constant_propagation; pass_dce; pass_gvn ]
 
-let run ctx =
-  let enabled_passes =
-    List.filter passes ~f:(fun pass -> pass.enabled ctx.opt_flags)
+let run_value_passes ctx =
+  let enabled_value_passes =
+    List.filter value_passes ~f:(fun pass -> pass.enabled ctx.opt_flags)
   in
   let on_value value =
-    List.iter enabled_passes ~f:(fun pass ->
+    List.iter enabled_value_passes ~f:(fun pass ->
       Option.iter pass.on_value ~f:(fun f -> f ctx value))
   in
   let on_terminal =
-    if List.exists enabled_passes ~f:(fun pass ->
+    if List.exists enabled_value_passes ~f:(fun pass ->
          Option.is_some pass.on_terminal)
     then
       Some
         (fun block ->
-          List.iter enabled_passes ~f:(fun pass ->
+          List.iter enabled_value_passes ~f:(fun pass ->
             Option.iter pass.on_terminal ~f:(fun f -> f ctx block)))
     else None
   in
   sweep_values ctx ~on_value ?on_terminal
 ;;
+
+let run ctx = run_value_passes ctx
 
 let optimize_root ?(opt_flags = Opt_flags.default) ssa =
   let ctx = create_context ~opt_flags ssa in
