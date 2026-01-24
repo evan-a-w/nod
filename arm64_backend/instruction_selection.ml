@@ -10,8 +10,12 @@ type t =
   ; var_names : int String.Table.t
   ; var_classes : Class.t Var.Table.t
   ; fn : Function.t
+  ; ssa_state : Ssa_state.t
   }
 [@@deriving fields]
+
+let register_block t block =
+  Ssa_state.register_instr t.ssa_state block.Block.terminal
 
 let require_class t var class_ =
   match Hashtbl.find t.var_classes var with
@@ -61,8 +65,8 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
-let lower_aggregates_exn (fn : Function.t) =
-  match Ir.lower_aggregates ~root:fn.root with
+let lower_aggregates_exn ~state (fn : Function.t) =
+  match Ir.lower_aggregates ~state ~root:fn.root with
   | Ok () -> ()
   | Error err -> failwith (Nod_error.to_string err)
 ;;
@@ -155,7 +159,7 @@ let expand_atomic_rmw t =
     , status )
   in
   let rec split_block block =
-    let instrs = Vec.to_list block.Block.instructions in
+    let instrs = Block.instrs_to_ir_list block in
     match
       List.findi instrs ~f:(fun _ instr ->
         match instr with
@@ -166,32 +170,42 @@ let expand_atomic_rmw t =
     | Some (idx, Atomic_rmw atomic) ->
       let before = List.take instrs idx in
       let after = List.drop instrs (idx + 1) in
-      let original_terminal = block.Block.terminal in
+      let state = t.ssa_state in
+      let original_terminal = block.Block.terminal.ir in
       let cont_block =
+        let terminal = Ssa_state.alloc_instr state ~ir:original_terminal in
         Block.create
           ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
-          ~terminal:original_terminal
+          ~terminal
       in
+      register_block t cont_block;
       cont_block.dfs_id <- Some 0;
-      cont_block.Block.instructions <- Vec.of_list after;
+      Ssa_state.replace_block_instructions state ~block:cont_block ~irs:after;
       let loop_block =
+        let terminal = Ssa_state.alloc_instr state ~ir:Noop in
         Block.create
           ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
-          ~terminal:Noop
+          ~terminal
       in
+      register_block t loop_block;
       loop_block.dfs_id <- Some 0;
       let loop_instrs, status_var = rmw_loop_instrs atomic in
-      loop_block.Block.instructions
-      <- List.map loop_instrs ~f:Ir0.arm64 |> Vec.of_list;
+      Ssa_state.replace_block_instructions
+        state
+        ~block:loop_block
+        ~irs:(List.map loop_instrs ~f:Ir0.arm64);
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
-      loop_block.Block.terminal
-      <- Branch
-           (Cond
-              { cond = Ir.Lit_or_var.Var status_var
-              ; if_true = loop_cb
-              ; if_false = cont_cb
-              });
+      Ssa_state.set_terminal_ir
+        state
+        ~block:loop_block
+        ~ir:
+          (Branch
+             (Cond
+                { cond = Ir.Lit_or_var.Var status_var
+                ; if_true = loop_cb
+                ; if_false = cont_cb
+                }));
       let before =
         match atomic.order with
         | Ir.Memory_order.Seq_cst -> before @ [ Ir0.arm64 Dmb ]
@@ -202,9 +216,9 @@ let expand_atomic_rmw t =
         | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
         | _ -> after
       in
-      cont_block.Block.instructions <- Vec.of_list after;
-      block.Block.instructions <- Vec.of_list before;
-      block.Block.terminal <- Branch (Uncond loop_cb);
+      Ssa_state.replace_block_instructions state ~block:cont_block ~irs:after;
+      Ssa_state.replace_block_instructions state ~block ~irs:before;
+      Ssa_state.set_terminal_ir state ~block ~ir:(Branch (Uncond loop_cb));
       split_block cont_block
     | Some _ -> ()
   in
@@ -502,11 +516,12 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
 
 let get_fn = fn
 
-let create fn =
+let create ~state fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
   ; var_classes = Var.Table.create ()
   ; fn
+  ; ssa_state = state
   }
 ;;
 
@@ -525,7 +540,10 @@ let mint_intermediate
     "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
     |> Util.new_name t.block_names
   in
-  let block = Block.create ~id_hum ~terminal:(Arm64 (jump to_call_block)) in
+  let state = t.ssa_state in
+  let terminal = Ssa_state.alloc_instr state ~ir:(Arm64 (jump to_call_block)) in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   block.dfs_id <- Some 0;
@@ -561,15 +579,21 @@ let make_prologue t =
       let reg = take_arg_reg class_ in
       Move { dst = Reg.allocated ~class_ arg (Some reg); src = Reg reg })
   in
-  let block =
-    Block.create ~id_hum ~terminal:(Arm64 (Jump { block = t.fn.root; args }))
+  let state = t.ssa_state in
+  let terminal =
+    Ssa_state.alloc_instr state ~ir:(Arm64 (Jump { block = t.fn.root; args }))
   in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   assert (Call_conv.(equal t.fn.call_conv default));
   block.dfs_id <- Some 0;
+  let old_args = Vec.to_list block.args in
   block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
-     |> Vec.of_list;
+  Ssa_state.update_block_args state ~block ~old_args ~new_args:args;
+  Ssa_state.replace_block_instructions
+    state
+    ~block
+    ~irs:(List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ]));
   block
 ;;
 
@@ -604,11 +628,19 @@ let make_epilogue t ~ret_shape =
       Move { dst = reg; src = Reg forced }, Reg forced)
     |> List.unzip
   in
-  let block = Block.create ~id_hum ~terminal:(Arm64 (Ret args')) in
+  let state = t.ssa_state in
+  let terminal = Ssa_state.alloc_instr state ~ir:(Arm64 (Ret args')) in
+  let block = Block.create ~id_hum ~terminal in
+  register_block t block;
   assert (Call_conv.(equal t.fn.call_conv default));
   block.dfs_id <- Some 0;
+  let old_args = Vec.to_list block.args in
   block.args <- Vec.of_list args;
-  block.instructions <- List.map ~f:Ir.arm64 reg_res_moves |> Vec.of_list;
+  Ssa_state.update_block_args state ~block ~old_args ~new_args:args;
+  Ssa_state.replace_block_instructions
+    state
+    ~block
+    ~irs:(List.map ~f:Ir.arm64 reg_res_moves);
   block
 ;;
 
@@ -637,22 +669,28 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.map_inplace block.instructions ~f:(fun ir ->
-      (match ir with
-       | Arm64 (Alloca (_, i)) ->
-         t.fn.bytes_statically_alloca'd
-         <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
-       | _ -> ());
-      Ir.map_arm64_operands ir ~f:(function
-        | Arm64_ir.Mem ({ reg = Unallocated var; class_ }, offset) ->
-          Arm64_ir.Mem (Reg.allocated ~class_ var None, offset)
-        | x -> x));
+    let state = t.ssa_state in
+    let instrs =
+      Block.instrs_to_ir_list block
+      |> List.map ~f:(fun ir ->
+        (match ir with
+         | Arm64 (Alloca (_, i)) ->
+           t.fn.bytes_statically_alloca'd
+           <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
+         | _ -> ());
+        Ir.map_arm64_operands ir ~f:(function
+          | Arm64_ir.Mem ({ reg = Unallocated var; class_ }, offset) ->
+            Arm64_ir.Mem (Reg.allocated ~class_ var None, offset)
+          | x -> x))
+    in
+    Ssa_state.replace_block_instructions state ~block ~irs:instrs;
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
     match true_terminal block with
     | None -> ()
     | Some true_terminal ->
       let epilogue_jmp operands_to_ret =
+        let state = t.ssa_state in
         let args =
           List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
           |> List.map ~f:(fun (operand, arg) ->
@@ -662,25 +700,30 @@ let split_blocks_and_add_prologue_and_epilogue t =
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
-                 Vec.push
-                   block.instructions
-                   (Arm64 (Move { dst = reg_of_var t v; src = operand }));
+                 ignore
+                   (Ssa_state.append_ir
+                      state
+                      ~block
+                      ~ir:(Arm64 (Move { dst = reg_of_var t v; src = operand })));
                  v)
             | other ->
               let v = fresh_like_var t arg in
-              Vec.push
-                block.instructions
-                (Arm64 (Move { dst = reg_of_var t v; src = other }));
+              ignore
+                (Ssa_state.append_ir
+                   state
+                   ~block
+                   ~ir:(Arm64 (Move { dst = reg_of_var t v; src = other })));
               v)
         in
         Jump { Call_block.block = epilogue; args }
       in
       (match true_terminal with
        | Ret l when not (phys_equal block epilogue) ->
-         replace_true_terminal block (epilogue_jmp l)
+         replace_true_terminal ~state:t.ssa_state block (epilogue_jmp l)
        | Ret _ | Jump _ -> ()
        | Conditional_branch { condition; then_; else_ = None } ->
          replace_true_terminal
+           ~state:t.ssa_state
            block
            (Conditional_branch { condition; then_; else_ = None })
        | Conditional_branch { condition; then_; else_ = Some else_ } ->
@@ -692,6 +735,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
          in
          block.insert_phi_moves <- false;
          replace_true_terminal
+           ~state:t.ssa_state
            block
            (Conditional_branch { condition; then_; else_ = Some else_ })
        | Tag_use _
@@ -781,7 +825,9 @@ let insert_par_moves t =
         (match true_terminal with
          | Jump cb ->
            let dst_to_src = List.zip_exn (Vec.to_list cb.block.args) cb.args in
-           Vec.append block.instructions (par_moves t ~dst_to_src)
+           let state = t.ssa_state in
+           Vec.iter (par_moves t ~dst_to_src) ~f:(fun ir ->
+             ignore (Ssa_state.append_ir state ~block ~ir))
          | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
          | Tag_use _
@@ -813,7 +859,11 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    block.terminal <- Ir.remove_block_args block.terminal
+    let state = t.ssa_state in
+    Ssa_state.set_terminal_ir
+      state
+      ~block
+      ~ir:(Ir.remove_block_args block.terminal.ir)
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -828,17 +878,24 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
   in
   Block.iter t.fn.root ~f:(fun block ->
     add_count t.block_names block.id_hum;
-    block.instructions
-    <- Vec.concat_map block.instructions ~f:(fun ir ->
-         lower_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.arm64);
-    block.terminal <- Ir.arm64_terminal (lower_ir block.terminal));
+    let state = t.ssa_state in
+    let instrs =
+      Block.instrs_to_ir_list block
+      |> List.concat_map ~f:(fun ir ->
+        lower_ir ir |> List.map ~f:Ir0.arm64)
+    in
+    Ssa_state.replace_block_instructions state ~block ~irs:instrs;
+    Ssa_state.set_terminal_ir
+      state
+      ~block
+      ~ir:(Ir.arm64_terminal (lower_ir block.terminal.ir)));
   t
 ;;
 
-let run (fn : Function.t) =
-  lower_aggregates_exn fn;
+let run ~state (fn : Function.t) =
+  lower_aggregates_exn ~state fn;
   fn
-  |> create
+  |> create ~state
   |> expand_atomic_rmw
   |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
   |> split_blocks_and_add_prologue_and_epilogue
@@ -851,10 +908,10 @@ let run (fn : Function.t) =
 ;;
 
 module For_testing = struct
-  let run_deebg (fn : Function.t) =
-    lower_aggregates_exn fn;
+  let run_deebg ~state (fn : Function.t) =
+    lower_aggregates_exn ~state fn;
     fn
-    |> create
+    |> create ~state
     |> expand_atomic_rmw
     |> simple_translation_to_arm64_ir ~this_call_conv:fn.call_conv
     |> split_blocks_and_add_prologue_and_epilogue

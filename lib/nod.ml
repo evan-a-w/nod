@@ -7,7 +7,7 @@ module Frontend = Nod_frontend
 module Parser = Nod_frontend.Parser
 module Lexer = Nod_frontend.Lexer
 module Parser_comb = Nod_frontend.Parser_comb
-module State = Nod_frontend.State
+module Core_state = Nod_core.State
 module Block = Nod_core.Block
 module Call_block = Nod_core.Call_block
 module Call_conv = Nod_core.Call_conv
@@ -51,10 +51,20 @@ let architecture () : arch =
 
 let only_on_arch arch f = if Poly.(architecture () = arch) then f () else ()
 
-module Eir = struct
-  include Nod_core.Eir
+type compiled_program =
+  { program : Block.t Program.t
+  ; state : Core_state.t
+  }
 
-  let compile_parsed = Nod_core.Eir.compile
+module Eir = struct
+  module Core = Nod_core.Eir
+  include Core
+
+  let compile_parsed ?opt_flags input =
+    let state = Core_state.create () in
+    Core.compile ?opt_flags ~state input
+    |> Result.map ~f:(fun program -> { program; state })
+  ;;
 
   let compile ?opt_flags program =
     Parser.parse_string program
@@ -137,12 +147,13 @@ let use_qemu_arm64 =
 let compile_and_lower_functions
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
+  ~(state : Core_state.t)
   ?(globals = [])
   functions
   =
   match arch with
-  | `X86_64 -> X86_backend.compile_to_asm ~system ~globals functions
-  | `Arm64 -> Arm64_backend.compile_to_asm ~system ~globals functions
+  | `X86_64 -> X86_backend.compile_to_asm ~system ~state ~globals functions
+  | `Arm64 -> Arm64_backend.compile_to_asm ~system ~state ~globals functions
   | `Other -> failwith "unsupported target architecture"
 ;;
 
@@ -153,6 +164,7 @@ type lowered_items =
 let compile_and_lower_functions_to_items
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
+  ~(state : Core_state.t)
   ?(globals = [])
   functions
   =
@@ -160,9 +172,9 @@ let compile_and_lower_functions_to_items
   then failwith "globals are not supported in item lowering";
   match arch with
   | `X86_64 ->
-    X86_backend.compile_to_items ~system functions |> fun items -> X86 items
+    X86_backend.compile_to_items ~system ~state functions |> fun items -> X86 items
   | `Arm64 ->
-    Arm64_backend.compile_to_items ~system functions |> fun items -> Arm64 items
+    Arm64_backend.compile_to_items ~system ~state functions |> fun items -> Arm64 items
   | `Other -> failwith "unsupported target architecture"
 ;;
 
@@ -175,10 +187,11 @@ let compile_and_lower
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok program ->
+  | Ok { program; state } ->
     compile_and_lower_functions
       ~arch
       ~system
+      ~state
       ~globals:program.Program.globals
       program.Program.functions
 ;;
@@ -192,10 +205,11 @@ let compile_and_lower_items
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok program ->
+  | Ok { program; state } ->
     compile_and_lower_functions_to_items
       ~arch
       ~system
+      ~state
       ~globals:program.Program.globals
       program.Program.functions
 ;;
@@ -212,10 +226,15 @@ let compile_and_jit_x86
   match Eir.compile ~opt_flags program with
   | Error err ->
     Or_error.error_string (Nod_error.to_string err) |> Or_error.ok_exn
-  | Ok program ->
+  | Ok { program; state } ->
     if not (List.is_empty program.Program.globals)
     then failwith "globals are not supported in the x86 jit";
-    X86_jit.compile ?dump_crap ?externals ~system program.Program.functions
+    X86_jit.compile
+      ?dump_crap
+      ?externals
+      ~system
+      ~state
+      program.Program.functions
 ;;
 
 let qemu_aarch64_ld_prefix =

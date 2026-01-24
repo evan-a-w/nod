@@ -218,6 +218,7 @@ let replace_regs
   ~assignments
   ~reg_numbering
   ~class_of_var
+  ~state
   =
   let open Calc_liveness in
   let root = fn.Function.root in
@@ -360,20 +361,21 @@ let replace_regs
        update_slots
          ~which:`Both
          { live_in = live_out; live_out = block_liveness.overall.live_in });
+    let instrs = Block.instrs_to_list block in
+    let liveness = Vec.to_list block_liveness.instructions in
     let new_instructions =
-      Vec.zip_exn block.instructions block_liveness.instructions
-      |> Vec.concat_map ~f:(fun (instruction, liveness) ->
+      List.zip_exn instrs liveness
+      |> List.concat_map ~f:(fun (instruction, liveness) ->
         update_slots ~which:`Open liveness;
-        let ir = map_ir instruction in
+        let irs = map_ir instruction.ir in
         update_slots ~which:`Close liveness;
-        Vec.of_list ir)
+        irs)
     in
-    block.instructions <- new_instructions;
+    Ssa_state.replace_block_instructions state ~block ~irs:new_instructions;
     update_slots ~which:`Both block_liveness.terminal;
-    block.terminal
-    <- (match map_ir block.terminal with
-        | [ x ] -> x
-        | _ -> failwith "impossible");
+    (match map_ir block.terminal.ir with
+     | [ x ] -> Ssa_state.set_terminal_ir state ~block ~ir:x
+     | _ -> failwith "impossible");
     prev_liveness := Some block_liveness.terminal);
   let spill_slots_used =
     match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with
@@ -384,7 +386,7 @@ let replace_regs
   spill_slots_used
 ;;
 
-let run ?(dump_crap = false) (fn : Function.t) =
+let run ?(dump_crap = false) ~state (fn : Function.t) =
   let var_classes = collect_var_classes fn.root in
   let class_of_var var = Hashtbl.find_exn var_classes var in
   let reg_numbering = Reg_numbering.create fn.root in
@@ -418,6 +420,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
       ~liveness_state
       ~reg_numbering
       ~class_of_var
+      ~state
   in
   fn.bytes_for_spills <- spill_slots_used * 8;
   fn

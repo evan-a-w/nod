@@ -355,14 +355,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       Vec.iteri blocks ~f:(fun idx block ->
         let label = label_of_block block in
         emit_label label;
-        let instructions = Vec.to_list block.Block.instructions in
+        let instructions = Block.instrs_to_ir_list block in
         List.iter instructions ~f:(fun ir ->
           match ir with
           | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
           | Ir0.Arm64_terminal xs ->
             List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
-        match block.Block.terminal with
+        match block.Block.terminal.ir with
         | Ir0.Arm64_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
         | Ir0.Arm64 x -> process_instruction ~current_idx:idx x

@@ -45,7 +45,7 @@ module M (A : Arch.S) = struct
         Set.iter live_in ~f:(fun live_id -> add_edge arg_id live_id));
       let zipped =
         List.zip_exn
-          (Vec.to_list block.instructions @ [ block.terminal ])
+          (Block.instrs_to_ir_list block @ [ block.terminal.ir ])
           (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
       in
       List.iter zipped ~f:(fun (ir, liveness (* , _) *)) ->

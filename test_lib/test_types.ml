@@ -2,9 +2,13 @@ open! Core
 open! Import
 
 let test s =
+  let state = State.create () in
   s
   |> Parser.parse_string
-  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    Program.map_function_roots_with_name program ~f:(fun ~name root ->
+      let fn_state = State.ensure_function state name in
+      Cfg.process ~state:fn_state root))
   |> Result.bind ~f:(fun program ->
     Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
       let%bind.Result () = acc in
@@ -12,7 +16,7 @@ let test s =
       Vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
         let%bind.Result () = acc in
         List.fold
-          (Vec.to_list block.Block.instructions @ [ block.terminal ])
+          (Block.instrs_to_ir_list block @ [ block.terminal.ir ])
           ~init:(Ok ())
           ~f:(fun acc instr ->
             let%bind.Result () = acc in

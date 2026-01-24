@@ -28,20 +28,24 @@ let rec find_following_call ~start ~len ~instructions =
   if start >= len
   then None
   else (
-    match Vec.get instructions start with
+    match instructions.(start) with
     | Ir0.X86 (CALL { fn; _ }) -> Some fn
     | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
 ;;
 
 let save_and_restore_in_prologue_and_epilogue
-  ~(state : Calc_clobbers.t String.Map.t)
+  ~(clobbers : Calc_clobbers.t String.Map.t)
+  ~(ssa_states : State.t)
   (functions : Function.t String.Map.t)
   =
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
-  Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
+  Map.iteri clobbers ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
     let fn = Map.find_exn functions name in
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
+    let function_state = State.state_for_function ssa_states name in
+    let prologue_state = function_state in
+    let epilogue_state = function_state in
     let () = Breadcrumbs.frame_pointer_omission in
     (* always restore RBP (so just remove it here, and we push it below anyway) *)
     let to_restore =
@@ -67,36 +71,41 @@ let save_and_restore_in_prologue_and_epilogue
     in
     let () =
       (* change prologue *)
-      let new_prologue : Ir.t Vec.t = Vec.create () in
-      Vec.push new_prologue (X86 (push (Reg Reg.rbp)));
-      Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)));
-      List.iter to_restore ~f:(fun reg ->
-        Vec.push new_prologue (X86 (push (Reg reg))));
-      if extra_bytes_after_callee_saves > 0
-      then
-        Vec.push
-          new_prologue
-          (X86
-             (sub
-                (Reg Reg.rsp)
-                (Imm (extra_bytes_after_callee_saves |> Int64.of_int))));
-      Vec.append new_prologue prologue.instructions;
-      prologue.instructions <- new_prologue
+      let new_prologue =
+        [ Ir0.X86 (push (Reg Reg.rbp)); Ir0.X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)) ]
+        @ List.map to_restore ~f:(fun reg -> Ir0.X86 (push (Reg reg)))
+        @ (if extra_bytes_after_callee_saves > 0
+           then
+             [ Ir0.X86
+                 (sub
+                    (Reg Reg.rsp)
+                    (Imm (extra_bytes_after_callee_saves |> Int64.of_int))) ]
+           else [])
+        @ Block.instrs_to_ir_list prologue
+      in
+      Ssa_state.replace_block_instructions
+        prologue_state
+        ~block:prologue
+        ~irs:new_prologue
     in
     let () =
       (* change epilogue *)
-      Vec.push
-        epilogue.instructions
-        (X86
-           (sub
-              (* sub rbp first, because we don't want rsp to be above places we care about in case the os clobbers them *)
-              (Reg Reg.rbp)
-              (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
-      Vec.push epilogue.instructions (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp)));
-      List.rev to_restore
-      |> List.iter ~f:(fun reg ->
-        Vec.push epilogue.instructions (X86 (pop reg)));
-      Vec.push epilogue.instructions (X86 (pop Reg.rbp))
+      let new_epilogue =
+        Block.instrs_to_ir_list epilogue
+        @ [ Ir0.X86
+              (sub
+                 (* sub rbp first, because we don't want rsp to be above places we care about in case the os clobbers them *)
+                 (Reg Reg.rbp)
+                 (Imm (fn.bytes_for_clobber_saves |> Int64.of_int)))
+          ; Ir0.X86 (mov (Reg Reg.rsp) (Reg Reg.rbp))
+          ]
+        @ List.rev_map to_restore ~f:(fun reg -> Ir0.X86 (pop reg))
+        @ [ Ir0.X86 (pop Reg.rbp) ]
+      in
+      Ssa_state.replace_block_instructions
+        epilogue_state
+        ~block:epilogue
+        ~irs:new_epilogue
     in
     ())
 ;;
@@ -108,19 +117,20 @@ let save_and_restore_around_calls
      and type Arg.t = Reg.t)
   ~state
   ~(liveness_state : a)
+  ~(ssa_state : Ssa_state.t)
   (block : Block.t)
   =
   let open Calc_liveness in
   let block_state = Liveness_state.block_liveness liveness_state block in
-  let instructions = block.instructions in
-  let len = Vec.length instructions in
+  let instructions = Block.instrs_to_ir_list block |> Array.of_list in
+  let len = Array.length instructions in
   let new_instructions = Vec.create () in
   let pending = Stack.create () in
   let rec loop idx =
     if idx >= len
     then ()
     else (
-      let ir = Vec.get instructions idx in
+      let ir = instructions.(idx) in
       (match ir with
        | Ir0.X86 Save_clobbers ->
          let liveness_at_instr = Vec.get block_state.instructions idx in
@@ -166,16 +176,22 @@ let save_and_restore_around_calls
   loop 0;
   if not (Stack.is_empty pending)
   then failwith "Unbalanced Save_clobbers markers";
-  block.instructions <- new_instructions;
-  match block.terminal with
+  Ssa_state.replace_block_instructions
+    ssa_state
+    ~block
+    ~irs:(Vec.to_list new_instructions);
+  match block.terminal.ir with
   | Ir0.X86 Save_clobbers | Ir0.X86 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
   | _ -> ()
 ;;
 
-let process (functions : Function.t String.Map.t) =
-  let state = Calc_clobbers.init_state functions in
-  save_and_restore_in_prologue_and_epilogue ~state functions;
+let process ~state (functions : Function.t String.Map.t) =
+  let clobbers_state = Calc_clobbers.init_state functions in
+  save_and_restore_in_prologue_and_epilogue
+    ~clobbers:clobbers_state
+    ~ssa_states:state
+    functions;
   Map.iter functions ~f:(fun fn ->
     let reg_numbering = Reg_numbering.create fn.root in
     let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
@@ -185,12 +201,14 @@ let process (functions : Function.t String.Map.t) =
       ~f:
         (save_and_restore_around_calls
            (module Calc_liveness)
-           ~state
-           ~liveness_state);
+           ~state:clobbers_state
+           ~liveness_state
+           ~ssa_state:(State.state_for_function state fn.name));
     let alloca_offset =
       ref
         (fn.bytes_for_clobber_saves + fn.bytes_for_padding + fn.bytes_for_spills)
     in
+    let function_state = State.state_for_function state fn.name in
     Block.iter fn.root ~f:(fun block ->
       let map_ir (ir : Ir.t) =
         let ir =
@@ -214,7 +232,8 @@ let process (functions : Function.t String.Map.t) =
             Mem (Reg.rbp, offset)
           | x -> x)
       in
-      Vec.map_inplace block.instructions ~f:map_ir;
-      block.terminal <- map_ir block.terminal));
+      let instrs = Block.instrs_to_ir_list block |> List.map ~f:map_ir in
+      Ssa_state.replace_block_instructions function_state ~block ~irs:instrs;
+      Ssa_state.set_terminal_ir function_state ~block ~ir:(map_ir block.terminal.ir)));
   functions
 ;;
