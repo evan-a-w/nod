@@ -1,6 +1,6 @@
 open! Core
 
-type 'a t =
+type ('a, +'perms) permissioned =
   { mutable arr : 'a array
   ; mutable length : int
   }
@@ -9,14 +9,6 @@ type 'a t =
 let create ?(capacity = 0) () =
   { arr = Array.create ~len:capacity (Obj.magic ()); length = 0 }
 ;;
-
-let clear t =
-  t.arr <- [||];
-  t.length <- 0
-;;
-
-let singleton x = { arr = [| x |]; length = 1 }
-let length t = t.length
 
 let rec push t v =
   if t.length = Array.length t.arr
@@ -30,6 +22,37 @@ let rec push t v =
     t.arr.(t.length) <- v;
     t.length <- t.length + 1)
 ;;
+
+let of_list l =
+  let t = create ~capacity:(List.length l) () in
+  List.iter l ~f:(push t);
+  t
+;;
+
+let fold t ~init ~f =
+  let r = ref init in
+  for i = 0 to t.length - 1 do
+    r := f !r t.arr.(i)
+  done;
+  !r
+;;
+
+let to_list t = fold t ~init:[] ~f:(fun acc x -> x :: acc) |> List.rev
+let sexp_of_permissioned sexp_of_a _ t = [%sexp_of: a list] (to_list t)
+let permissioned_of_sexp a_of_sexp _ sexp = [%of_sexp: a list] sexp |> of_list
+
+type 'a t = ('a, [ `Read | `Write ]) permissioned [@@deriving sexp]
+type 'a read = ('a, [ `Read ]) permissioned [@@deriving sexp]
+
+let read (t : _ t) = (t :> _ read)
+
+let clear t =
+  t.arr <- [||];
+  t.length <- 0
+;;
+
+let singleton x = { arr = [| x |]; length = 1 }
+let length t = t.length
 
 let pop_exn t =
   if t.length = 0
@@ -79,14 +102,6 @@ let iteri_rev t ~f =
   done
 ;;
 
-let fold t ~init ~f =
-  let r = ref init in
-  for i = 0 to t.length - 1 do
-    r := f !r t.arr.(i)
-  done;
-  !r
-;;
-
 let foldr t ~init ~f =
   let r = ref init in
   for i = length t - 1 downto 0 do
@@ -131,13 +146,6 @@ let zip_exn a b =
   new_
 ;;
 
-let of_list l =
-  let t = create ~capacity:(List.length l) () in
-  List.iter l ~f:(push t);
-  t
-;;
-
-let to_list t = fold t ~init:[] ~f:(fun acc x -> x :: acc) |> List.rev
 let to_array t = Array.sub t.arr ~pos:0 ~len:t.length
 
 let%expect_test "push" =
@@ -156,9 +164,6 @@ let%expect_test "push" =
     5
     |}]
 ;;
-
-let sexp_of_t sexp_of_a t = [%sexp_of: a list] (to_list t)
-let t_of_sexp a_of_sexp sexp = [%of_sexp: a list] sexp |> of_list
 
 let mem t v ~compare =
   let rec loop i =

@@ -336,13 +336,13 @@ let prune_args t =
   let rec go' block =
     let new_args = Vec.filter (Block.args block) ~f:(Set.mem uses) in
     if Vec.length new_args <> Vec.length (Block.args block)
-    then
-      (Fn_state.set_block_args (fn_state t) ~block ~args:new_args;
-       Vec.iter (Block.parents block) ~f:(fun block' ->
-         Fn_state.replace_terminal_ir
-           (fn_state t)
-           ~block:block'
-           ~with_:(Ir.add_block_args (Block.terminal block').ir)));
+    then (
+      Fn_state.set_block_args (fn_state t) ~block ~args:new_args;
+      Vec.iter (Block.parents block) ~f:(fun block' ->
+        Fn_state.replace_terminal_ir
+          (fn_state t)
+          ~block:block'
+          ~with_:(Ir.add_block_args (Block.terminal block').ir)));
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -385,7 +385,11 @@ let rename t =
         let next = instr.Instr_state.next in
         let new_ir = instr.Instr_state.ir |> replace_uses |> replace_defs in
         let new_instr = Fn_state.alloc_instr (fn_state t) ~ir:new_ir in
-        Fn_state.replace_instr (fn_state t) ~block ~instr ~with_instrs:[ new_instr ];
+        Fn_state.replace_instr
+          (fn_state t)
+          ~block
+          ~instr
+          ~with_instrs:[ new_instr ];
         rename_instrs next
     in
     rename_instrs (Block.instructions block);

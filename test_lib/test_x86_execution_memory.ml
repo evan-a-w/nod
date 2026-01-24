@@ -73,7 +73,10 @@ let%expect_test "alloca passed to child; child loads value" =
           ; Ir.store
               (Ir.Lit_or_var.Lit 41L)
               (Ir.Mem.address (Ir.Lit_or_var.Var slot))
-          ; Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]
+          ; Ir.call
+              ~fn:"child"
+              ~results:[ res ]
+              ~args:[ Ir.Lit_or_var.Var slot ]
           ]
     in
     let root =
@@ -118,7 +121,10 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
           ; Ir.store
               (Ir.Lit_or_var.Lit 1L)
               (Ir.Mem.address (Ir.Lit_or_var.Var slot))
-          ; Ir.call ~fn:"child" ~results:[ tmp ] ~args:[ Ir.Lit_or_var.Var slot ]
+          ; Ir.call
+              ~fn:"child"
+              ~results:[ tmp ]
+              ~args:[ Ir.Lit_or_var.Var slot ]
           ; Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var slot))
           ]
     in
@@ -246,7 +252,10 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
              ~ir:(Ir.return (Ir.Lit_or_var.Var res)))
     in
     Block.set_dfs_id swap_block (Some 1);
-    Fn_state.set_block_args fn_state ~block:swap_block ~args:(Vec.of_list [ a; b ]);
+    Fn_state.set_block_args
+      fn_state
+      ~block:swap_block
+      ~args:(Vec.of_list [ a; b ]);
     Fn_state.append_ir
       fn_state
       ~block:swap_block
@@ -277,10 +286,15 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
                      { Call_block.block = swap_block; args = [ b; a ] })))
     in
     Block.set_dfs_id start (Some 0);
-    Fn_state.append_ir fn_state ~block:start ~ir:(Ir.move a (Ir.Lit_or_var.Lit 1L));
-    Fn_state.append_ir fn_state ~block:start ~ir:(Ir.move b (Ir.Lit_or_var.Lit 2L));
-    Vec.push (Block.children start) swap_block;
-    Vec.push (Block.parents swap_block) start;
+    Fn_state.append_ir
+      fn_state
+      ~block:start
+      ~ir:(Ir.move a (Ir.Lit_or_var.Lit 1L));
+    Fn_state.append_ir
+      fn_state
+      ~block:start
+      ~ir:(Ir.move b (Ir.Lit_or_var.Lit 2L));
+    Block.Expert.add_child start ~child:swap_block;
     let fn = Function.create ~name:"root" ~args:[] ~root:start in
     String.Map.of_alist_exn [ "root", fn ]
   in

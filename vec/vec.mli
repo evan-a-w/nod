@@ -1,48 +1,134 @@
 open! Core
 
-type 'a t [@@deriving sexp]
+type ('a, +'perms) permissioned [@@deriving sexp]
+type 'a t = ('a, [ `Read | `Write ]) permissioned [@@deriving sexp]
+type 'a read = ('a, [ `Read ]) permissioned [@@deriving sexp]
 
-val create : ?capacity:int -> unit -> 'a t
-val length : 'a t -> int
-val get : 'a t -> int -> 'a
-val get_opt : 'a t -> int -> 'a option
-val set : 'a t -> int -> 'a -> unit
-val iter : 'a t -> f:('a -> unit) -> unit
-val iter_nested : 'a t t -> f:('a -> unit) -> unit
-val iteri : 'a t -> f:(int -> 'a -> unit) -> unit
-val iteri_rev : 'a t -> f:(int -> 'a -> unit) -> unit
-val iter_rev : 'a t -> f:('a -> unit) -> unit
-val fold : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
-val foldr : 'a t -> init:'b -> f:('b -> 'a -> 'b) -> 'b
-val push : 'a t -> 'a -> unit
-val pop_exn : 'a t -> 'a
-val pop : 'a t -> 'a option
-val fill_to_length : 'a t -> length:int -> f:(int -> 'a) -> unit
-val map : 'a t -> f:('a -> 'b) -> 'b t
-val fold_map : 'a t -> init:'acc -> f:('acc -> 'a -> 'acc * 'b) -> 'b t
-val of_list : 'a list -> 'a t
-val to_list : 'a t -> 'a list
-val to_array : 'a t -> 'a array
-val mem : 'a t -> 'a -> compare:('a -> 'a -> int) -> bool
-val take : 'a t -> other:'a t -> unit
-val switch : 'a t -> 'a t -> unit
-val last : 'a t -> 'a option
-val last_exn : 'a t -> 'a
-val filter : 'a t -> f:('a -> bool) -> 'a t
-val filter_map : 'a t -> f:('a -> 'b option) -> 'b t
-val filter_inplace : 'a t -> f:('a -> bool) -> unit
-val filter_map_inplace : 'a t -> f:('a -> 'a option) -> unit
-val findi : 'a t -> f:(int -> 'a -> 'b option) -> 'b option
-val map_inplace : 'a t -> f:('a -> 'a) -> unit
-val singleton : 'a -> 'a t
-val concat_map : 'a t -> f:('a -> 'b t) -> 'b t
-val concat_mapi : 'a t -> f:(int -> 'a -> 'b t) -> 'b t
-val concat : 'a t t -> 'a t
-val concat_list : 'a t list -> 'a t
-val append_list : 'a t -> 'a list -> unit
-val append : 'a t -> 'a t -> unit
-val to_sequence : 'a t -> 'a Sequence.t
-val clear : 'a t -> unit
-val reverse : 'a t -> 'a t
-val reverse_inplace : 'a t -> unit
-val zip_exn : 'a t -> 'b t -> ('a * 'b) t
+val read : 'a t -> 'a read
+val create : ?capacity:int -> unit -> ('a, [ `Read | `Write ]) permissioned
+val length : ('a, [> `Read ]) permissioned -> int
+val get : ('a, [> `Read ]) permissioned -> int -> 'a
+val get_opt : ('a, [> `Read ]) permissioned -> int -> 'a option
+val set : ('a, [> `Write ]) permissioned -> int -> 'a -> unit
+val iter : ('a, [> `Read ]) permissioned -> f:('a -> unit) -> unit
+
+val iter_nested
+  :  (('a, [> `Read ]) permissioned, [> `Read ]) permissioned
+  -> f:('a -> unit)
+  -> unit
+
+val iteri : ('a, [> `Read ]) permissioned -> f:(int -> 'a -> unit) -> unit
+val iteri_rev : ('a, [> `Read ]) permissioned -> f:(int -> 'a -> unit) -> unit
+val iter_rev : ('a, [> `Read ]) permissioned -> f:('a -> unit) -> unit
+val fold : ('a, [> `Read ]) permissioned -> init:'b -> f:('b -> 'a -> 'b) -> 'b
+val foldr : ('a, [> `Read ]) permissioned -> init:'b -> f:('b -> 'a -> 'b) -> 'b
+val push : ('a, [> `Write ]) permissioned -> 'a -> unit
+val pop_exn : ('a, [> `Read | `Write ]) permissioned -> 'a
+val pop : ('a, [> `Read | `Write ]) permissioned -> 'a option
+
+val fill_to_length
+  :  ('a, [> `Write ]) permissioned
+  -> length:int
+  -> f:(int -> 'a)
+  -> unit
+
+val map
+  :  ('a, [> `Read ]) permissioned
+  -> f:('a -> 'b)
+  -> ('b, [ `Read | `Write ]) permissioned
+
+val fold_map
+  :  ('a, [> `Read ]) permissioned
+  -> init:'acc
+  -> f:('acc -> 'a -> 'acc * 'b)
+  -> ('b, [ `Read | `Write ]) permissioned
+
+val of_list : 'a list -> ('a, [ `Read | `Write ]) permissioned
+val to_list : ('a, [> `Read ]) permissioned -> 'a list
+val to_array : ('a, [> `Read ]) permissioned -> 'a array
+
+val mem
+  :  ('a, [> `Read ]) permissioned
+  -> 'a
+  -> compare:('a -> 'a -> int)
+  -> bool
+
+val take
+  :  ('a, [> `Write ]) permissioned
+  -> other:('a, [> `Write ]) permissioned
+  -> unit
+
+val switch
+  :  ('a, [> `Write ]) permissioned
+  -> ('a, [> `Write ]) permissioned
+  -> unit
+
+val last : ('a, [> `Read ]) permissioned -> 'a option
+val last_exn : ('a, [> `Read ]) permissioned -> 'a
+
+val filter
+  :  ('a, [> `Read ]) permissioned
+  -> f:('a -> bool)
+  -> ('a, [ `Read | `Write ]) permissioned
+
+val filter_map
+  :  ('a, [> `Read ]) permissioned
+  -> f:('a -> 'b option)
+  -> ('b, [ `Read | `Write ]) permissioned
+
+val filter_inplace
+  :  ('a, [> `Read | `Write ]) permissioned
+  -> f:('a -> bool)
+  -> unit
+
+val filter_map_inplace
+  :  ('a, [> `Read | `Write ]) permissioned
+  -> f:('a -> 'a option)
+  -> unit
+
+val findi
+  :  ('a, [> `Read ]) permissioned
+  -> f:(int -> 'a -> 'b option)
+  -> 'b option
+
+val map_inplace : ('a, [> `Read | `Write ]) permissioned -> f:('a -> 'a) -> unit
+val singleton : 'a -> ('a, [ `Read | `Write ]) permissioned
+
+val concat_map
+  :  ('a, [> `Read ]) permissioned
+  -> f:('a -> ('b, [> `Read ]) permissioned)
+  -> ('b, [ `Read | `Write ]) permissioned
+
+val concat_mapi
+  :  ('a, [> `Read ]) permissioned
+  -> f:(int -> 'a -> ('b, [> `Read ]) permissioned)
+  -> ('b, [ `Read | `Write ]) permissioned
+
+val concat
+  :  (('a, [> `Read ]) permissioned, [> `Read ]) permissioned
+  -> ('a, [ `Read | `Write ]) permissioned
+
+val concat_list
+  :  ('a, [> `Read ]) permissioned list
+  -> ('a, [ `Read | `Write ]) permissioned
+
+val append_list : ('a, [> `Write ]) permissioned -> 'a list -> unit
+
+val append
+  :  ('a, [> `Write ]) permissioned
+  -> ('a, [> `Read ]) permissioned
+  -> unit
+
+val to_sequence : ('a, [> `Read ]) permissioned -> 'a Sequence.t
+val clear : ('a, [> `Write ]) permissioned -> unit
+
+val reverse
+  :  ('a, [> `Read ]) permissioned
+  -> ('a, [ `Read | `Write ]) permissioned
+
+val reverse_inplace : ('a, [> `Read | `Write ]) permissioned -> unit
+
+val zip_exn
+  :  ('a, [> `Read ]) permissioned
+  -> ('b, [> `Read ]) permissioned
+  -> ('a * 'b, [ `Read | `Write ]) permissioned

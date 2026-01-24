@@ -129,7 +129,8 @@ let of_cfg ~root =
     Vec.iteri (Block.args block) ~f:(fun arg var ->
       let value = ensure_value t ~var in
       value.def <- Block_arg { block; arg }));
-  Block.iter_instructions root ~f:(fun instr -> add_instr_value_relationships t ~instr);
+  Block.iter_instructions root ~f:(fun instr ->
+    add_instr_value_relationships t ~instr);
   t
 ;;
 

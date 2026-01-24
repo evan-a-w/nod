@@ -12,6 +12,7 @@ type t =
   }
 [@@deriving fields]
 
+let args t = args t |> Vec.read
 let id_exn t = Option.value_exn t.dfs_id
 let compare t1 t2 = id_exn t1 - id_exn t2
 let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
@@ -118,4 +119,16 @@ module Expert = struct
   let set_instructions = set_instructions
   let set_args = set_args
   let set_insert_phi_moves = set_insert_phi_moves
+
+  let add_child t ~child =
+    Vec.push t.children child;
+    Vec.push child.parents t
+  ;;
+
+  let add_parent t ~parent = add_child parent ~child:t
+  let children = children
+  let parents = parents
 end
+
+let children t = children t |> Vec.read
+let parents t = parents t |> Vec.read

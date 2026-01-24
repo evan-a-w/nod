@@ -21,8 +21,7 @@ let compile ?dump_crap (functions : Function.t String.Map.t) =
   in
   Map.mapi functions ~f:(fun ~key:name ~data:fn ->
     let fn_state = Map.find_exn fn_state_by_name name in
-    Instruction_selection.run ~fn_state fn
-    |> Regalloc.run ?dump_crap ~fn_state)
+    Instruction_selection.run ~fn_state fn |> Regalloc.run ?dump_crap ~fn_state)
   |> Save_clobbers.process ~fn_state_by_name
 ;;
 
@@ -92,7 +91,7 @@ module For_testing = struct
         [ [%message
             (block : string)
               ~instruction:
-                ([%message "block start" (args : Var.t Vec.t)] : Sexp.t)
+                ([%message "block start" (args : Var.t Vec.read)] : Sexp.t)
               ~live_in:(block_live_in : Var.t list)
               ~live_out:(List.hd_exn liveness |> Liveness.live_in' : Var.t list)]
         ]
