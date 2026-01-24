@@ -49,23 +49,6 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
-let replace_instructions t ~(block : Block.t) irs =
-  let rec clear = function
-    | None -> ()
-    | Some instr ->
-      let next = instr.Instr_state.next in
-      Fn_state.remove_instr t.fn_state ~block ~instr;
-      clear next
-  in
-  clear (Block.instructions block);
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir t.fn_state ~block ~ir)
-;;
-
-let append_instructions t ~(block : Block.t) irs =
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir t.fn_state ~block ~ir)
-;;
-
-
 let lower_aggregates_exn ~fn_state (fn : Function.t) =
   match Ir.lower_aggregates ~fn_state ~root:fn.root with
   | Ok () -> ()
@@ -154,11 +137,10 @@ let expand_atomic_rmw t =
       let cont_block =
         Block.create
           ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_cont"))
-          ~terminal:
-            (Fn_state.alloc_instr t.fn_state ~ir:original_terminal)
+          ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:original_terminal)
       in
       Block.set_dfs_id cont_block (Some 0);
-      replace_instructions t ~block:cont_block after;
+      Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
       let loop_block =
         Block.create
           ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_loop"))
@@ -166,7 +148,7 @@ let expand_atomic_rmw t =
       in
       Block.set_dfs_id loop_block (Some 0);
       let loop_instrs, success_var = rmw_loop_instrs atomic in
-      replace_instructions t ~block:loop_block loop_instrs;
+      Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
       Fn_state.replace_terminal_ir
@@ -186,7 +168,7 @@ let expand_atomic_rmw t =
           ; order = Ir.Memory_order.Relaxed
           }
       in
-      replace_instructions t ~block (before @ [ init_load ]);
+      Fn_state.replace_irs t.fn_state ~block ~irs:(before @ [ init_load ]);
       Fn_state.replace_terminal_ir
         t.fn_state
         ~block
@@ -630,16 +612,17 @@ let make_prologue t =
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   Block.set_dfs_id block (Some 0);
   Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
-  replace_instructions
-    t
+  Fn_state.replace_irs
+    t.fn_state
     ~block
-    (List.map
-       ~f:Ir.x86
-       (reg_arg_moves
-        @ stack_arg_moves
-        @ [ tag_def noop (Reg Reg.rbp) ]
-          (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
-       ));
+    ~irs:
+      (List.map
+         ~f:Ir.x86
+         (reg_arg_moves
+          @ stack_arg_moves
+          @ [ tag_def noop (Reg Reg.rbp) ]
+            (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
+         ));
   block
 ;;
 
@@ -678,11 +661,13 @@ let make_epilogue t ~ret_shape =
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   Block.set_dfs_id block (Some 0);
   Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
-  replace_instructions
-    t
+  Fn_state.replace_irs
+    t.fn_state
     ~block
-    (List.map ~f:Ir.x86 reg_res_moves
-    (* clobbers restores will be added here later *));
+    ~irs:
+      (List.map
+         ~f:Ir.x86
+         reg_res_moves (* clobbers restores will be added here later *));
   block
 ;;
 
@@ -859,10 +844,10 @@ let insert_par_moves t =
            let dst_to_src =
              List.zip_exn (Vec.to_list (Block.args cb.block)) cb.args
            in
-           append_instructions
-             t
+           Fn_state.append_irs
+             t.fn_state
              ~block
-             (par_moves t ~dst_to_src |> Vec.to_list)
+             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
          | RET _ -> ()
          | JNE _ | JE _ ->
            (* [block.insert_phi_moves] should be false *)
@@ -918,16 +903,13 @@ let simple_translation_to_x86_ir ~this_call_conv t =
     add_count t.block_names (Block.id_hum block);
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
-      |> List.concat_map ~f:(fun ir ->
-           lower_ir ir |> List.map ~f:Ir0.x86)
+      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.x86)
     in
-    replace_instructions t ~block instructions;
+    Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
-      ~with_:
-        (Ir.x86_terminal
-           (lower_ir (Block.terminal block).Instr_state.ir)));
+      ~with_:(Ir.x86_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
   t
 ;;
 

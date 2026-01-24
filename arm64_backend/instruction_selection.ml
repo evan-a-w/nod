@@ -62,23 +62,6 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
-let replace_instructions t ~(block : Block.t) irs =
-  let rec clear = function
-    | None -> ()
-    | Some instr ->
-      let next = instr.Instr_state.next in
-      Fn_state.remove_instr t.fn_state ~block ~instr;
-      clear next
-  in
-  clear (Block.instructions block);
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir t.fn_state ~block ~ir)
-;;
-
-let append_instructions t ~(block : Block.t) irs =
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir t.fn_state ~block ~ir)
-;;
-
-
 let lower_aggregates_exn ~fn_state (fn : Function.t) =
   match Ir.lower_aggregates ~fn_state ~root:fn.root with
   | Ok () -> ()
@@ -150,19 +133,24 @@ let expand_atomic_rmw t =
       match op with
       | Ir.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
       | Add ->
-        [ Int_binary { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Sub ->
-        [ Int_binary { op = Int_op.Sub; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Sub; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | And ->
-        [ Int_binary { op = Int_op.And; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.And; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Or ->
-        [ Int_binary { op = Int_op.Orr; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Orr; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
       | Xor ->
-        [ Int_binary { op = Int_op.Eor; dst = new_reg; lhs = Reg dst; rhs = src_op }
+        [ Int_binary
+            { op = Int_op.Eor; dst = new_reg; lhs = Reg dst; rhs = src_op }
         ]
     in
     ( pre_addr
@@ -188,11 +176,10 @@ let expand_atomic_rmw t =
       let cont_block =
         Block.create
           ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_cont"))
-          ~terminal:
-            (Fn_state.alloc_instr t.fn_state ~ir:original_terminal)
+          ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:original_terminal)
       in
       Block.set_dfs_id cont_block (Some 0);
-      replace_instructions t ~block:cont_block after;
+      Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
       let loop_block =
         Block.create
           ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_loop"))
@@ -200,10 +187,10 @@ let expand_atomic_rmw t =
       in
       Block.set_dfs_id loop_block (Some 0);
       let loop_instrs, status_var = rmw_loop_instrs atomic in
-      replace_instructions
-        t
+      Fn_state.replace_irs
+        t.fn_state
         ~block:loop_block
-        (List.map loop_instrs ~f:Ir0.arm64);
+        ~irs:(List.map loop_instrs ~f:Ir0.arm64);
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
       Fn_state.replace_terminal_ir
@@ -226,8 +213,8 @@ let expand_atomic_rmw t =
         | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
         | _ -> after
       in
-      replace_instructions t ~block:cont_block after;
-      replace_instructions t ~block before;
+      Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
+      Fn_state.replace_irs t.fn_state ~block ~irs:before;
       Fn_state.replace_terminal_ir
         t.fn_state
         ~block
@@ -248,17 +235,13 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     require_class t dest Class.I64;
     let pre1, lhs = int_operand src1 in
     let pre2, rhs = int_operand src2 in
-    pre1
-    @ pre2
-    @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
+    pre1 @ pre2 @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
     require_class t dest Class.F64;
     let pre1, lhs = float_operand src1 in
     let pre2, rhs = float_operand src2 in
-    pre1
-    @ pre2
-    @ [ Float_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
+    pre1 @ pre2 @ [ Float_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
   let cmp_zero cond =
     let pre, lhs = int_operand cond in
@@ -444,14 +427,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     in
     pre_addr @ pre_src @ dmb_if_seq_cst order @ [ store ] @ dmb_if_seq_cst order
   | Atomic_cmpxchg
-      { dest
-      ; success
-      ; addr
-      ; expected
-      ; desired
-      ; success_order
-      ; failure_order
-      }
+      { dest; success; addr; expected; desired; success_order; failure_order }
     ->
     require_class t dest Class.I64;
     require_class t success Class.I64;
@@ -608,10 +584,10 @@ let make_prologue t =
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
   Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
-  replace_instructions
-    t
+  Fn_state.replace_irs
+    t.fn_state
     ~block
-    (List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ]));
+    ~irs:(List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ]));
   block
 ;;
 
@@ -654,7 +630,10 @@ let make_epilogue t ~ret_shape =
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
   Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
-  replace_instructions t ~block (List.map ~f:Ir.arm64 reg_res_moves);
+  Fn_state.replace_irs
+    t.fn_state
+    ~block
+    ~irs:(List.map ~f:Ir.arm64 reg_res_moves);
   block
 ;;
 
@@ -698,7 +677,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
     let instructions =
       Instr_state.to_ir_list (Block.instructions block) |> List.map ~f:map_ir
     in
-    replace_instructions t ~block instructions;
+    Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     (* Create intermediate blocks when we go to multiple, for ease of
            implementation of copies for phis *)
     match true_terminal block with
@@ -740,14 +719,14 @@ let split_blocks_and_add_prologue_and_epilogue t =
            block
            (Conditional_branch { condition; then_; else_ = None })
        | Conditional_branch { condition; then_; else_ = Some else_ } ->
-        let then_ =
-          mint_intermediate t ~from_block:block ~to_call_block:then_
-        in
-        let else_ =
-          mint_intermediate t ~from_block:block ~to_call_block:else_
-        in
-        Block.Expert.set_insert_phi_moves block false;
-        replace_true_terminal
+         let then_ =
+           mint_intermediate t ~from_block:block ~to_call_block:then_
+         in
+         let else_ =
+           mint_intermediate t ~from_block:block ~to_call_block:else_
+         in
+         Block.Expert.set_insert_phi_moves block false;
+         replace_true_terminal
            ~fn_state:t.fn_state
            block
            (Conditional_branch { condition; then_; else_ = Some else_ })
@@ -836,15 +815,15 @@ let insert_par_moves t =
       | None -> ()
       | Some true_terminal ->
         (match true_terminal with
-        | Jump cb ->
+         | Jump cb ->
            let dst_to_src =
              List.zip_exn (Vec.to_list (Block.args cb.block)) cb.args
            in
-           append_instructions
-             t
+           Fn_state.append_irs
+             t.fn_state
              ~block
-             (par_moves t ~dst_to_src |> Vec.to_list)
-        | Ret _ -> ()
+             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
+         | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
          | Tag_use _
          | Tag_def _
@@ -895,16 +874,14 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
     add_count t.block_names (Block.id_hum block);
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
-      |> List.concat_map ~f:(fun ir ->
-           lower_ir ir |> List.map ~f:Ir0.arm64)
+      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.arm64)
     in
-    replace_instructions t ~block instructions;
+    Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
       ~with_:
-        (Ir.arm64_terminal
-           (lower_ir (Block.terminal block).Instr_state.ir)));
+        (Ir.arm64_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
   t
 ;;
 
