@@ -7,7 +7,7 @@ type nonrec t = Block.t t [@@deriving sexp, compare, equal, hash]
 
 let add_block_args =
   let on_call_block { Call_block.block; args = _ } =
-    { Call_block.block; args = Vec.to_list block.Block.args }
+    { Call_block.block; args = Vec.to_list (Block.args block) }
   in
   function
   | ( Add _
@@ -107,7 +107,7 @@ let remove_block_args =
 
 let iter_blocks_and_args t ~f =
   iter_call_blocks t ~f:(fun { block; args } ->
-    f ~block:block.Block.id_hum ~args)
+    f ~block:(Block.id_hum block) ~args)
 ;;
 
 include functor Hashable.Make
@@ -861,13 +861,13 @@ module Type_check = struct
   ;;
 
   let check_call_block_args (call_block : Block.t Call_block.t) =
-    let formal_args = Vec.to_list call_block.block.Block.args in
+    let formal_args = Vec.to_list (Block.args call_block.block) in
     let actual_args = call_block.args in
     if Int.O.(List.length formal_args <> List.length actual_args)
     then
       type_error
         "block %s expects %d arguments but received %d"
-        call_block.block.Block.id_hum
+        (Block.id_hum call_block.block)
         (List.length formal_args)
         (List.length actual_args)
     else
@@ -882,7 +882,7 @@ module Type_check = struct
           else
             type_error
               "block %s expects arg %s:%s but received %s:%s"
-              call_block.block.Block.id_hum
+              (Block.id_hum call_block.block)
               (Var.name formal)
               (Type.to_string (Var.type_ formal))
               (Var.name actual)
@@ -938,18 +938,18 @@ let lower_aggregates ~fn_state ~root =
       else (
         Core.Hash_set.Poly.add seen block;
         let acc = block :: acc in
-        Vec.fold block.Block.children ~init:acc ~f:collect)
+        Vec.fold (Block.children block) ~init:acc ~f:collect)
     in
     collect [] root |> List.rev
   in
   let used_names = String.Hash_set.create () in
   List.iter blocks ~f:(fun block ->
-    Vec.iter block.Block.args ~f:(add_var used_names);
+    Block.args block |> Vec.iter ~f:(add_var used_names);
     let add_instr_vars instr =
       List.iter (vars instr.Instr_state.ir) ~f:(add_var used_names)
     in
-    Instr_state.iter block.Block.instructions ~f:add_instr_vars;
-    add_instr_vars block.Block.terminal);
+    Instr_state.iter (Block.instructions block) ~f:add_instr_vars;
+    add_instr_vars (Block.terminal block));
   let counter = ref 0 in
   let fresh_temp ~type_ =
     let rec next_name () =
@@ -965,7 +965,8 @@ let lower_aggregates ~fn_state ~root =
     let open Result.Let_syntax in
     let%bind () = acc in
     let%bind () =
-      Instr_state.to_list block.Block.instructions
+      Block.instructions block
+      |> Instr_state.to_list
       |> List.fold ~init:(Ok ()) ~f:(fun acc instr ->
         let%bind () = acc in
         match Aggregate.lower_instruction ~fresh_temp instr.ir with
@@ -978,7 +979,9 @@ let lower_aggregates ~fn_state ~root =
         | Error err -> Error (`Type_mismatch (Error.to_string_hum err)))
     in
     let%bind () =
-      match Aggregate.lower_instruction ~fresh_temp block.Block.terminal.ir with
+      match
+        Aggregate.lower_instruction ~fresh_temp (Block.terminal block).ir
+      with
       | Ok [ ir ] ->
         if is_terminal ir
         then (

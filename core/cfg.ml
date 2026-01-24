@@ -26,8 +26,8 @@ let process ~fn_state (~instrs_by_label, ~labels) =
       Ir.blocks ir
       |> List.iter ~f:(fun block' ->
         let block' = Map.find_exn blocks block' in
-        Vec.push block.children block';
-        Vec.push block'.parents block);
+        Vec.push (Block.children block) block';
+        Vec.push (Block.parents block') block);
       let new_terminal =
         Fn_state.alloc_instr
           fn_state

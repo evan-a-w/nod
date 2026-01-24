@@ -113,7 +113,7 @@ module Dominator = struct
       let b = Block.id_exn block in
       if Vec.length (Block.parents block) >= 2
       then
-        Vec.iter block.parents ~f:(fun p ->
+        Vec.iter (Block.parents block) ~f:(fun p ->
           let runner = ref (Block.id_exn p) in
           while !runner <> Vec.get st.dom b do
             Hash_set.add (Vec.get st.dominance_frontier !runner) b;
@@ -147,7 +147,7 @@ module Def_uses = struct
         (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
         block
     in
-    Vec.iter block.Block.args ~f:(update t.defs);
+    Vec.iter (Block.args block) ~f:(update t.defs);
     Instr_state.iter (Block.instructions block) ~f:(fun instr ->
       let uses = Ir.uses instr.ir in
       let defs = Ir.defs instr.ir in
