@@ -98,11 +98,7 @@ module Opt = struct
     }
 
   let create ~opt_flags ssa =
-    { ssa
-    ; fn_state = Ssa.fn_state ssa
-    ; opt_flags
-    ; block_tracker = None
-    }
+    { ssa; fn_state = Ssa.fn_state ssa; opt_flags; block_tracker = None }
   ;;
 
   let rec iter_from t ~block ~f =
@@ -149,11 +145,11 @@ module Opt = struct
     Fn_state.instr_block t.fn_state instr_id |> Option.value_exn
   ;;
 
-  let def_block_exn t (value : Value_state.t) =
+  let def_block t (value : Value_state.t) =
     match value.def with
-    | Def_site.Block_arg { block; _ } -> block
-    | Def_site.Instr instr_id -> block_for_instr_id_exn t instr_id
-    | Def_site.Undefined -> failwith "value has no definition"
+    | Def_site.Block_arg { block; _ } -> Some block
+    | Def_site.Instr instr_id -> Some (block_for_instr_id_exn t instr_id)
+    | Def_site.Undefined -> None
   ;;
 
   (* TODO: implement, call when constant folding terminals and
@@ -189,8 +185,7 @@ module Opt = struct
     List.iter used_vars ~f:(fun var ->
       match active_value t var with
       | None -> ()
-      | Some value ->
-        if Set.is_empty value.uses then try_kill_value t ~value)
+      | Some value -> if Set.is_empty value.uses then try_kill_value t ~value)
 
   and remove_arg_from_parent t ~parent ~idx ~from_block =
     let removed = ref [] in
@@ -214,8 +209,7 @@ module Opt = struct
     List.iter !removed ~f:(fun var ->
       match active_value t var with
       | None -> ()
-      | Some value ->
-        if Set.is_empty value.uses then try_kill_value t ~value)
+      | Some value -> if Set.is_empty value.uses then try_kill_value t ~value)
 
   and remove_arg t ~block ~arg =
     let idx =
@@ -235,18 +229,11 @@ module Opt = struct
     then ()
     else (
       value.active <- false;
-      let def_block =
-        match value.def with
-        | Def_site.Undefined -> None
-        | _ -> Some (def_block_exn t value)
-      in
+      let def_block = def_block t value in
       (match value.def with
        | Def_site.Instr instr_id ->
-         let instr =
-           Fn_state.instr t.fn_state instr_id |> Option.value_exn
-         in
-         Option.iter def_block ~f:(fun block ->
-           remove_instr t ~block ~instr)
+         let instr = Fn_state.instr t.fn_state instr_id |> Option.value_exn in
+         Option.iter def_block ~f:(fun block -> remove_instr t ~block ~instr)
        | Def_site.Block_arg { block; arg } ->
          let arg_var = Vec.get (Block.args block) arg in
          remove_arg t ~block ~arg:arg_var
@@ -292,12 +279,7 @@ module Opt = struct
       then ()
       else (
         Hash_set.add seen id;
-        let def_block =
-          match value.def with
-          | Def_site.Block_arg { block; _ } -> Some block
-          | Def_site.Instr _ -> Some (def_block_exn t value)
-          | Def_site.Undefined -> None
-        in
+        let def_block = def_block t value in
         (match value.def with
          | Def_site.Block_arg _ -> f ~value
          | Def_site.Instr instr_id ->
@@ -312,8 +294,7 @@ module Opt = struct
     in
     Vec.iter t.fn_state.values ~f:(function
       | None -> ()
-      | Some value ->
-        if value.active then go value);
+      | Some value -> if value.active then go value);
     Option.iter on_terminal ~f:(fun _ -> t.block_tracker <- None)
   ;;
 
@@ -341,12 +322,10 @@ module Opt = struct
       match active_value t var with
       | None -> ()
       | Some value ->
-        if Opt_flags.unused_vars t.opt_flags
-           && Set.is_empty value.uses
+        if Opt_flags.unused_vars t.opt_flags && Set.is_empty value.uses
         then try_kill_value t ~value)
   ;;
 
-  (* must be strict subset of uses and such *)
   (* must be strict subset of uses and such *)
   let replace_defining_instruction t ~(value : Value_state.t) ~new_ir =
     let old_instr_id =
@@ -356,7 +335,7 @@ module Opt = struct
       | Def_site.Instr instr_id -> instr_id
       | Def_site.Undefined -> failwith "value has no definition"
     in
-    let def_block = def_block_exn t value in
+    let def_block = def_block t value |> Option.value_exn in
     let old_instr =
       Fn_state.instr t.fn_state old_instr_id |> Option.value_exn
     in
@@ -366,10 +345,7 @@ module Opt = struct
       ~block:def_block
       ~instr:old_instr
       ~with_instrs:[ new_instr ];
-    update_uses
-      t
-      ~old_ir:old_instr.Instr_state.ir
-      ~new_ir
+    update_uses t ~old_ir:old_instr.Instr_state.ir ~new_ir
   ;;
 
   (* must be strict subset of uses and such *)
@@ -387,10 +363,7 @@ module Opt = struct
         (Block.Expert.parents block')
         (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
     Fn_state.replace_terminal_ir t.fn_state ~block ~with_:new_terminal_ir;
-    update_uses
-      t
-      ~old_ir:old_terminal.Instr_state.ir
-      ~new_ir:new_terminal_ir
+    update_uses t ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
   ;;
 
   let rec refine_type t ~(value : Value_state.t) =
@@ -401,15 +374,12 @@ module Opt = struct
        | Def_site.Block_arg { block; arg } ->
          let arg_var = Vec.get (Block.args block) arg in
          refine_type_block_arg t ~value ~block ~arg:arg_var
-       | Def_site.Instr instr_id ->
-         refine_type_instr t ~value ~instr_id
+       | Def_site.Instr instr_id -> refine_type_instr t ~value ~instr_id
        | Def_site.Undefined -> ())
 
   and refine_type_block_arg t ~value ~block ~arg =
     let constant var =
-      Option.map
-        (value_by_var t var)
-        ~f:(fun x -> x.opt_tags.constant)
+      Option.map (value_by_var t var) ~f:(fun x -> x.opt_tags.constant)
     in
     defining_vars_for_block_arg ~block ~arg
     |> List.filter_map ~f:constant
@@ -433,11 +403,13 @@ module Opt = struct
     | Some _ as constant ->
       value.opt_tags <- { constant };
       let terminal_uses =
-        Ir.uses (Block.terminal (def_block_exn t value)).Instr_state.ir
+        Ir.uses
+          (Block.terminal (def_block t value |> Option.value_exn))
+            .Instr_state.ir
       in
       if List.exists terminal_uses ~f:(fun use ->
            String.equal (Var.name use) (Var.name value.var))
-      then refine_terminal t ~block:(def_block_exn t value)
+      then refine_terminal t ~block:(def_block t value |> Option.value_exn)
 
   and refine_terminal t ~block =
     let terminal = Block.terminal block in
@@ -456,10 +428,8 @@ module Opt = struct
       then refine_terminal t ~block
     in
     dfs_vars ~on_terminal t ~f:(fun ~value ->
-      if Opt_flags.constant_propagation t.opt_flags
-      then refine_type t ~value;
-      if Opt_flags.unused_vars t.opt_flags
-      then try_kill_value t ~value;
+      if Opt_flags.constant_propagation t.opt_flags then refine_type t ~value;
+      if Opt_flags.unused_vars t.opt_flags then try_kill_value t ~value;
       if value.active && Opt_flags.gvn t.opt_flags then gvn t ~value)
   ;;
 end

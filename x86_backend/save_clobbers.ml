@@ -24,18 +24,6 @@ let regs_to_save ~state ~call_fn ~live_out =
   Set.inter callee_clobbers live_out |> Set.to_list
 ;;
 
-let replace_instructions ~fn_state ~(block : Block.t) irs =
-  let rec clear = function
-    | None -> ()
-    | Some instr ->
-      let next = instr.Instr_state.next in
-      Fn_state.remove_instr fn_state ~block ~instr;
-      clear next
-  in
-  clear (Block.instructions block);
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir)
-;;
-
 let rec find_following_call ~start ~len ~instructions =
   if start >= len
   then None
@@ -97,16 +85,15 @@ let save_and_restore_in_prologue_and_epilogue
       Vec.append
         new_prologue
         (Instr_state.to_ir_list (Block.instructions prologue) |> Vec.of_list);
-      replace_instructions
-        ~fn_state
+      Fn_state.replace_irs
+        fn_state
         ~block:prologue
-        (Vec.to_list new_prologue)
+        ~irs:(Vec.to_list new_prologue)
     in
     let () =
       (* change epilogue *)
       let new_epilogue =
-        Instr_state.to_ir_list (Block.instructions epilogue)
-        |> Vec.of_list
+        Instr_state.to_ir_list (Block.instructions epilogue) |> Vec.of_list
       in
       Vec.push
         new_epilogue
@@ -119,10 +106,10 @@ let save_and_restore_in_prologue_and_epilogue
       List.rev to_restore
       |> List.iter ~f:(fun reg -> Vec.push new_epilogue (X86 (pop reg)));
       Vec.push new_epilogue (X86 (pop Reg.rbp));
-      replace_instructions
-        ~fn_state
+      Fn_state.replace_irs
+        fn_state
         ~block:epilogue
-        (Vec.to_list new_epilogue)
+        ~irs:(Vec.to_list new_epilogue)
     in
     ())
 ;;
@@ -195,10 +182,7 @@ let save_and_restore_around_calls
   loop 0;
   if not (Stack.is_empty pending)
   then failwith "Unbalanced Save_clobbers markers";
-  replace_instructions
-    ~fn_state
-    ~block
-    (Vec.to_list new_instructions);
+  Fn_state.replace_irs fn_state ~block ~irs:(Vec.to_list new_instructions);
   match (Block.terminal block).Instr_state.ir with
   | Ir0.X86 Save_clobbers | Ir0.X86 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
@@ -249,10 +233,9 @@ let process ~fn_state_by_name (functions : Function.t String.Map.t) =
           | x -> x)
       in
       let instructions =
-        Instr_state.to_ir_list (Block.instructions block)
-        |> List.map ~f:map_ir
+        Instr_state.to_ir_list (Block.instructions block) |> List.map ~f:map_ir
       in
-      replace_instructions ~fn_state ~block instructions;
+      Fn_state.replace_irs fn_state ~block ~irs:instructions;
       Fn_state.replace_terminal_ir
         fn_state
         ~block
