@@ -2,54 +2,6 @@ open! Ssa
 open! Core
 open! Import
 
-(* Planned opts/changes:
-
-   8 opts: inline, unroll (& vectorise), cse, dce, code motion, constant fold, peephole
-
-   Memory:
-
-   First write in tags on ir to keep track of memory regions and stuff like reading and mutating which regions.
-   Make sure these tags can be inserted in the frontend stage (at least make it possible, and later extend the parser to parse annotations)
-
-   IR ops: alloca, gep/addr_of, load, store, and calls that may read/write memory.
-
-   Only values are in SSA; memory is implicit shared state.
-
-   Add metadata/flags to ops about effects: readonly, writeonly, argmemonly, noalias, nocapture, invariant.load, alignment, TBAA, etc.
-
-   You need a notion of disjointness to optimize safely.
-
-   Stack slots (alloca v): treat each alloca as its own location; quickly disjoint.
-
-   Fields of aggregates: use field sensitivity. Treat p->x and p->y as different alias classes (use GEP indices/offsets).
-
-   Globals: distinct by symbol + section (and possibly constant vs mutable).
-
-   Heap objects: introduce object identity via allocation sites (context-sensitive if you like). A pointer's "points-to set" is a set of alloc-sites.
-
-   Address spaces/regions: sometimes you'll model distinct regions (e.g., stack vs heap vs GPU local) as never-aliasing.
-
-   This granularity is the backbone for AA and DSE.
-
-   reg2mem
-
-   SROA / mem2reg (promote allocas, split aggregates)
-
-   GVN/CSE (values + loads)
-
-   DSE (kills earlier stores)
-
-   LICM (hoist invariant loads; sink dead stores)
-
-   Loop vectorization / store & load widening (if you have it)
-
-   DCE (clean up)
-
-   Repeat (2-6) once; interleave with inlining and AA rebuild as needed.
-
-   Run MemorySSA rebuild when necessary (cheap if incremental).
-*)
-
 module Opt_flags = struct
   type t =
     { unused_vars : bool
@@ -93,7 +45,6 @@ let rec iter_blocks ctx ~block ~f =
 ;;
 
 let iter_blocks ctx ~f = iter_blocks ctx ~block:(Ssa.root ctx.ssa) ~f
-
 let value_by_var ctx var = Fn_state.value_by_var ctx.fn_state var
 
 let active_value ctx var =
@@ -162,9 +113,7 @@ let defining_vars_for_block_arg ~block ~arg =
       Ir.filter_map_call_blocks
         parent_terminal.Instr_state.ir
         ~f:(fun { Ir.Call_block.block = block'; args } ->
-          if phys_equal block' block
-          then Some (List.nth_exn args idx)
-          else None)
+          if phys_equal block' block then Some (List.nth_exn args idx) else None)
     with
     | [] -> None
     | xs -> Some xs)
@@ -179,8 +128,7 @@ let rec remove_instr ctx ~block ~instr =
   List.iter used_vars ~f:(fun var ->
     match active_value ctx var with
     | None -> ()
-    | Some value ->
-      if Set.is_empty value.uses then try_kill_value ctx ~value)
+    | Some value -> if Set.is_empty value.uses then try_kill_value ctx ~value)
 
 and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   let removed = ref [] in
@@ -204,8 +152,7 @@ and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   List.iter !removed ~f:(fun var ->
     match active_value ctx var with
     | None -> ()
-    | Some value ->
-      if Set.is_empty value.uses then try_kill_value ctx ~value)
+    | Some value -> if Set.is_empty value.uses then try_kill_value ctx ~value)
 
 and remove_arg ctx ~block ~arg =
   let idx =
@@ -232,11 +179,8 @@ and kill_definition ctx (value : Value_state.t) =
     in
     (match value.def with
      | Def_site.Instr instr_id ->
-       let instr =
-         Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
-       in
-       Option.iter def_block ~f:(fun block ->
-         remove_instr ctx ~block ~instr)
+       let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
+       Option.iter def_block ~f:(fun block -> remove_instr ctx ~block ~instr)
      | Def_site.Block_arg { block; arg } ->
        let arg_var = Vec.get (Block.args block) arg in
        remove_arg ctx ~block ~arg:arg_var
@@ -315,10 +259,7 @@ let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
     ~block:def_block
     ~instr:old_instr
     ~with_instrs:[ new_instr ];
-  update_uses
-    ctx
-    ~old_ir:old_instr.Instr_state.ir
-    ~new_ir
+  update_uses ctx ~old_ir:old_instr.Instr_state.ir ~new_ir
 ;;
 
 (* must be strict subset of uses and such *)
@@ -336,10 +277,7 @@ let replace_terminal ctx ~block ~new_terminal_ir =
       (Block.Expert.parents block')
       (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
   Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_terminal_ir;
-  update_uses
-    ctx
-    ~old_ir:old_terminal.Instr_state.ir
-    ~new_ir:new_terminal_ir
+  update_uses ctx ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
 ;;
 
 let rec refine_type ctx ~(value : Value_state.t) =
@@ -350,15 +288,12 @@ let rec refine_type ctx ~(value : Value_state.t) =
      | Def_site.Block_arg { block; arg } ->
        let arg_var = Vec.get (Block.args block) arg in
        refine_type_block_arg ctx ~value ~block ~arg:arg_var
-     | Def_site.Instr instr_id ->
-       refine_type_instr ctx ~value ~instr_id
+     | Def_site.Instr instr_id -> refine_type_instr ctx ~value ~instr_id
      | Def_site.Undefined -> ())
 
 and refine_type_block_arg ctx ~value ~block ~arg =
   let constant var =
-    Option.map
-      (value_by_var ctx var)
-      ~f:(fun x -> x.opt_tags.constant)
+    Option.map (value_by_var ctx var) ~f:(fun x -> x.opt_tags.constant)
   in
   defining_vars_for_block_arg ~block ~arg
   |> List.filter_map ~f:constant
@@ -441,8 +376,7 @@ let sweep_values ?on_terminal ctx ~on_value =
   in
   Vec.iter ctx.fn_state.values ~f:(function
     | None -> ()
-    | Some value ->
-      if value.active then go value);
+    | Some value -> if value.active then go value);
   Option.iter on_terminal ~f:(fun _ -> ctx.block_tracker <- None)
 ;;
 
@@ -465,8 +399,7 @@ let pass_dce =
 let pass_gvn =
   { name = "gvn"
   ; enabled = Opt_flags.gvn
-  ; on_value =
-      Some (fun ctx value -> if value.active then gvn ctx ~value)
+  ; on_value = Some (fun ctx value -> if value.active then gvn ctx ~value)
   ; on_terminal = None
   }
 ;;
