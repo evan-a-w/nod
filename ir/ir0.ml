@@ -418,7 +418,8 @@ let map_vars t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_var_operands x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map x86_irs ~f:(X86_ir.map_var_operands ~f))
-  | Unreachable | Noop -> t
+  | Unreachable -> Unreachable
+  | Noop -> Noop
 ;;
 
 let is_terminal = function
@@ -464,34 +465,34 @@ let map_call_blocks t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f) x86_irs)
-  | Alloca _
-  | Unreachable
-  | Add _
-  | Mul _
-  | Div _
-  | Mod _
-  | Lt _
-  | Sub _
-  | Fadd _
-  | Fsub _
-  | Fmul _
-  | Fdiv _
-  | Move _
-  | Cast _
-  | Noop
-  | Load _
-  | Store _
-  | Load_field _
-  | Store_field _
-  | Memcpy _
-  | Atomic_load _
-  | Atomic_store _
-  | Atomic_rmw _
-  | Atomic_cmpxchg _
-  | Return _
-  | And _
-  | Or _
-  | Call _ -> t
+  | Move (a, b) -> Move (a, b)
+  | Alloca x -> Alloca x
+  | Add x -> Add x
+  | Mul x -> Mul x
+  | Div x -> Div x
+  | Mod x -> Mod x
+  | Lt x -> Lt x
+  | Sub x -> Sub x
+  | Fadd x -> Fadd x
+  | Fsub x -> Fsub x
+  | Fmul x -> Fmul x
+  | Fdiv x -> Fdiv x
+  | Cast (a, b) -> Cast (a, b)
+  | Noop -> Noop
+  | Load (a, b) -> Load (a, b)
+  | Store (a, b) -> Store (a, b)
+  | Load_field x -> Load_field x
+  | Store_field x -> Store_field x
+  | Memcpy x -> Memcpy x
+  | Atomic_load x -> Atomic_load x
+  | Atomic_store x -> Atomic_store x
+  | Atomic_rmw x -> Atomic_rmw x
+  | Atomic_cmpxchg x -> Atomic_cmpxchg x
+  | Return x -> Return x
+  | And x -> And x
+  | Or x -> Or x
+  | Call x -> Call x
+  | Unreachable -> Unreachable
 ;;
 
 let iter_call_blocks t ~f =
