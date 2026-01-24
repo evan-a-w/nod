@@ -27,57 +27,63 @@ let reg_of_operand_exn = function
 type ('var, 'block) t =
   | NOOP
   (* Use this tag things for regalloc bs where we mint temp vars and make them allocated to a particular hw reg when we need *)
-  | Tag_use of 'block t * operand
-  | Tag_def of 'block t * operand
-  | AND of operand * operand
-  | OR of operand * operand
-  | MOV of operand * operand
-  | ADD of operand * operand
-  | SUB of operand * operand
-  | IMUL of operand (* multiply RAX by operand  result RDX:RAX *)
-  | IDIV of operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
-  | MOD of operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
+  | Tag_use of ('var, 'block) t * 'var operand
+  | Tag_def of ('var, 'block) t * 'var operand
+  | AND of 'var operand * 'var operand
+  | OR of 'var operand * 'var operand
+  | MOV of 'var operand * 'var operand
+  | ADD of 'var operand * 'var operand
+  | SUB of 'var operand * 'var operand
+  | IMUL of 'var operand (* multiply RAX by operand  result RDX:RAX *)
+  | IDIV of
+      'var operand (* divide RDX:RAX by operand  result in RAX, mod in RDX *)
+  | MOD of
+      'var operand (* divide RDX:RAX by operand  result in RDX, quot in RAX *)
   (* SSE float instructions *)
-  | ADDSD of operand * operand (* double precision add *)
-  | SUBSD of operand * operand (* double precision sub *)
-  | MULSD of operand * operand (* double precision mul *)
-  | DIVSD of operand * operand (* double precision div *)
-  | MOVSD of operand * operand (* f64 move *)
-  | MOVQ of operand * operand (* move quadword (for i64<->f64 bitcast) *)
+  | ADDSD of 'var operand * 'var operand (* double precision add *)
+  | SUBSD of 'var operand * 'var operand (* double precision sub *)
+  | MULSD of 'var operand * 'var operand (* double precision mul *)
+  | DIVSD of 'var operand * 'var operand (* double precision div *)
+  | MOVSD of 'var operand * 'var operand (* f64 move *)
+  | MOVQ of
+      'var operand * 'var operand (* move quadword (for i64<->f64 bitcast) *)
   (* Type conversion instructions *)
-  | CVTSI2SD of operand * operand (* convert int64 to f64 *)
-  | CVTTSD2SI of operand * operand (* convert f64 to int64 with truncation *)
+  | CVTSI2SD of 'var operand * 'var operand (* convert int64 to f64 *)
+  | CVTTSD2SI of
+      'var operand * 'var operand (* convert f64 to int64 with truncation *)
   (* Atomic operations *)
   | MFENCE (* memory fence - full barrier *)
-  | XCHG of operand * operand (* atomic exchange - always locked on x86 *)
-  | LOCK_ADD of operand * operand (* locked add *)
-  | LOCK_SUB of operand * operand (* locked sub *)
-  | LOCK_AND of operand * operand (* locked and *)
-  | LOCK_OR of operand * operand (* locked or *)
-  | LOCK_XOR of operand * operand (* locked xor *)
+  | XCHG of
+      'var operand * 'var operand (* atomic exchange - always locked on x86 *)
+  | LOCK_ADD of 'var operand * 'var operand (* locked add *)
+  | LOCK_SUB of 'var operand * 'var operand (* locked sub *)
+  | LOCK_AND of 'var operand * 'var operand (* locked and *)
+  | LOCK_OR of 'var operand * 'var operand (* locked or *)
+  | LOCK_XOR of 'var operand * 'var operand (* locked xor *)
   | LOCK_CMPXCHG of
-      { dest : operand (* memory location *)
-      ; expected : operand (* register with expected value, typically RAX *)
-      ; desired : operand (* register with desired value *)
+      { dest : 'var operand (* memory location *)
+      ; expected :
+          'var operand (* register with expected value, typically RAX *)
+      ; desired : 'var operand (* register with desired value *)
       }
   | Save_clobbers
   | Restore_clobbers
   | CALL of
       { fn : string
-      ; results : Reg.t list
-      ; args : operand list
+      ; results : 'var Reg.t list
+      ; args : 'var operand list
       }
-  | PUSH of operand
-  | POP of Reg.t
+  | PUSH of 'var operand
+  | POP of 'var Reg.t
   | LABEL of string
-  | CMP of operand * operand
-  | SETE of operand
-  | SETL of operand (* set if less than, signed *)
-  | JE of 'block Call_block.t * 'block Call_block.t option
-  | JNE of 'block Call_block.t * 'block Call_block.t option
-  | JMP of 'block Call_block.t
-  | RET of operand list
-  | ALLOCA of operand * Int64.t
+  | CMP of 'var operand * 'var operand
+  | SETE of 'var operand
+  | SETL of 'var operand (* set if less than, signed *)
+  | JE of ('var, 'block) Call_block.t * ('var, 'block) Call_block.t option
+  | JNE of ('var, 'block) Call_block.t * ('var, 'block) Call_block.t option
+  | JMP of ('var, 'block) Call_block.t
+  | RET of 'var operand list
+  | ALLOCA of 'var operand * Int64.t
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
@@ -162,7 +168,7 @@ let fold_operands ins ~f ~init =
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
-let rebuild_virtual_reg (reg : Reg.t) ~var =
+let rebuild_virtual_reg (reg : 'var Reg.t) ~var =
   match Reg.raw reg with
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
@@ -173,7 +179,7 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | _ -> reg
 ;;
 
-let map_reg (reg : Reg.t) ~f =
+let map_reg (reg : _ Reg.t) ~f =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) ->
     Reg (rebuild_virtual_reg reg ~var:(f v))
@@ -256,30 +262,31 @@ let rec map_var_operands ins ~f =
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
 ;;
 
-let var_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) -> Some v
+let var_of_reg (reg : 'var Reg.t) =
+  match Reg.raw reg with
+  | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
 ;;
 
-let vars_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) ->
-    Var.Set.singleton v
-  | _ -> Var.Set.empty
+let vars_of_reg (reg : 'var Reg.t) =
+  match Reg.raw reg with
+  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
+  | _ -> []
 ;;
 
 let vars_of_operand = function
   | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ | Symbol _ -> Var.Set.empty
+  | Imm _ | Spill_slot _ | Symbol _ -> []
   | Mem (r, _disp) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
-  | Reg r -> Reg.Set.singleton r
+  | Reg r -> [ r ]
   | Spill_slot _ ->
     Breadcrumbs.frame_pointer_omission;
-    Reg.Set.singleton X86_reg.rbp
-  | Imm _ | Symbol _ -> Reg.Set.empty
-  | Mem (r, _disp) -> Reg.Set.singleton r
+    [ X86_reg.rbp ]
+  | Imm _ | Symbol _ -> []
+  | Mem (r, _disp) -> [ r ]
 ;;
 
 let map_virtual_reg reg ~f =
@@ -294,14 +301,14 @@ let map_virtual_reg reg ~f =
 ;;
 
 let regs_of_def_operand = function
-  | Reg r -> Reg.Set.singleton r
-  | Imm _ | Mem _ | Spill_slot _ | Symbol _ -> Reg.Set.empty
+  | Reg r -> [ r ]
+  | Imm _ | Mem _ | Spill_slot _ | Symbol _ -> []
 ;;
 
 let regs_of_mem_base = function
-  | Mem (r, _) -> Reg.Set.singleton r
-  | Spill_slot _ -> Reg.Set.singleton Reg.rbp
-  | Reg _ | Imm _ | Symbol _ -> Reg.Set.empty
+  | Mem (r, _) -> [ r ]
+  | Spill_slot _ -> [ Reg.rbp ]
+  | Reg _ | Imm _ | Symbol _ -> []
 ;;
 
 let map_def_reg = map_virtual_reg
@@ -321,10 +328,10 @@ let map_use_operand op ~f =
   | Mem (r, disp) -> Mem (map_use_reg r ~f, disp)
 ;;
 
-let rec reg_defs ins : Reg.Set.t =
+let rec reg_defs ins =
   match ins with
-  | Save_clobbers | Restore_clobbers | MFENCE -> Reg.Set.empty
-  | Tag_def (ins, r) -> Set.union (regs_of_operand r) (reg_defs ins)
+  | Save_clobbers | Restore_clobbers | MFENCE -> []
+  | Tag_def (ins, r) -> regs_of_operand r @ reg_defs ins
   | Tag_use (ins, _) -> reg_defs ins
   | MOV (dst, _)
   | MOVQ (dst, _)
@@ -350,28 +357,26 @@ let rec reg_defs ins : Reg.Set.t =
   | LOCK_XOR (dst, _) -> regs_of_def_operand dst
   (* CMPXCHG writes to the expected register (EAX) with old value, and may write to dest *)
   | LOCK_CMPXCHG { dest; expected; desired = _ } ->
-    Set.union (regs_of_def_operand dest) (regs_of_def_operand expected)
-  | IDIV _ | MOD _ | IMUL _ -> Reg.Set.of_list [ Reg.rax; Reg.rdx ]
-  | CALL { results; _ } -> Reg.Set.of_list results
-  | PUSH _ -> Reg.Set.singleton Reg.rsp
-  | POP reg -> Reg.Set.of_list [ Reg.rsp; reg ]
-  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> Reg.Set.empty
+    regs_of_def_operand dest @ regs_of_def_operand expected
+  | IDIV _ | MOD _ | IMUL _ -> [ Reg.rax; Reg.rdx ]
+  | CALL { results; _ } -> results
+  | PUSH _ -> [ Reg.rsp ]
+  | POP reg -> [ Reg.rsp; reg ]
+  | NOOP | RET _ | CMP _ | LABEL _ | JE _ | JNE _ | JMP _ -> []
 ;;
 
-let rec reg_uses ins : Reg.Set.t =
+let rec reg_uses ins =
   match ins with
-  | Save_clobbers | Restore_clobbers | MFENCE -> Reg.Set.empty
-  | Tag_use (ins, r) -> Set.union (regs_of_operand r) (reg_uses ins)
+  | Save_clobbers | Restore_clobbers | MFENCE -> []
+  | Tag_use (ins, r) -> regs_of_operand r @ reg_uses ins
   | Tag_def (ins, _) -> reg_uses ins
-  | IDIV op | MOD op ->
-    Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax; Reg.rdx ])
-  | IMUL op -> Set.union (regs_of_operand op) (Reg.Set.of_list [ Reg.rax ])
+  | IDIV op | MOD op -> regs_of_operand op @ [ Reg.rax; Reg.rdx ]
+  | IMUL op -> regs_of_operand op @ [ Reg.rax ]
   | MOV (dst, src)
   | MOVQ (dst, src)
   | MOVSD (dst, src)
   | CVTSI2SD (dst, src)
-  | CVTTSD2SI (dst, src) ->
-    Set.union (regs_of_operand src) (regs_of_mem_base dst)
+  | CVTTSD2SI (dst, src) -> regs_of_operand src @ regs_of_mem_base dst
   | SETE dst | SETL dst -> regs_of_mem_base dst
   | ADD (dst, src)
   | SUB (dst, src)
@@ -380,45 +385,34 @@ let rec reg_uses ins : Reg.Set.t =
   | ADDSD (dst, src)
   | SUBSD (dst, src)
   | MULSD (dst, src)
-  | DIVSD (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  | DIVSD (dst, src) -> regs_of_operand dst @ regs_of_operand src
   (* Atomic RMW operations use both operands *)
   | XCHG (dst, src)
   | LOCK_ADD (dst, src)
   | LOCK_SUB (dst, src)
   | LOCK_AND (dst, src)
   | LOCK_OR (dst, src)
-  | LOCK_XOR (dst, src) -> Set.union (regs_of_operand dst) (regs_of_operand src)
+  | LOCK_XOR (dst, src) -> regs_of_operand dst @ regs_of_operand src
   (* CMPXCHG uses all three operands *)
   | LOCK_CMPXCHG { dest; expected; desired } ->
-    Set.union
-      (Set.union (regs_of_operand dest) (regs_of_operand expected))
-      (regs_of_operand desired)
-  | CMP (a, b) -> Set.union (regs_of_operand a) (regs_of_operand b)
-  | RET ops -> Reg.Set.union_list (List.map ops ~f:regs_of_operand)
-  | PUSH op -> Set.union (Reg.Set.singleton Reg.rsp) (regs_of_operand op)
-  | POP _ -> Reg.Set.of_list [ Reg.rsp ]
-  | CALL { args; _ } ->
-    List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
-      Set.union acc (regs_of_operand op))
+    regs_of_operand dest @ regs_of_operand expected @ regs_of_operand desired
+  | CMP (a, b) -> regs_of_operand a @ regs_of_operand b
+  | RET ops -> List.concat_map ops ~f:regs_of_operand
+  | PUSH op -> Reg.rsp :: regs_of_operand op
+  | POP _ -> [ Reg.rsp ]
+  | CALL { args; _ } -> List.concat_map args ~f:regs_of_operand
   | JE (a, b) | JNE (a, b) ->
     Call_block.uses a
     @ (Option.map b ~f:Call_block.uses |> Option.value ~default:[])
     |> List.map ~f:Reg.unallocated
-    |> Reg.Set.of_list
-  | JMP a -> Call_block.uses a |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
-  | ALLOCA _ | NOOP | LABEL _ -> Reg.Set.empty
+  | JMP a -> Call_block.uses a |> List.map ~f:Reg.unallocated
+  | ALLOCA _ | NOOP | LABEL _ -> []
 ;;
 
-let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
-
-let vars ins =
-  Set.union (reg_defs ins) (reg_uses ins)
-  |> Set.filter_map (module Var) ~f:var_of_reg
-  |> Set.to_list
-;;
-
-let defs ins = reg_defs ins |> Set.filter_map (module Var) ~f:var_of_reg
-let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
+let regs ins = reg_defs ins @ reg_uses ins
+let vars ins = regs ins |> List.filter_map ~f:var_of_reg
+let defs ins = reg_defs ins |> List.filter_map ~f:var_of_reg
+let uses ins = reg_uses ins |> List.filter_map ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
@@ -462,7 +456,7 @@ let rec blocks instr =
     List.concat_map ~f:Call_block.blocks (lbl :: Option.to_list next)
 ;;
 
-let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
+let rec map_blocks (instr : ('var, 'a) t) ~(f : 'a -> 'b) : ('var, 'b) t =
   match instr with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
