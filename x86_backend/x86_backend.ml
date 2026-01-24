@@ -16,9 +16,13 @@ open! Common
 *)
 
 let compile ?dump_crap (functions : Function.t String.Map.t) =
-  Map.map functions ~f:(fun fn ->
-    Instruction_selection.run fn |> Regalloc.run ?dump_crap)
-  |> Save_clobbers.process
+  let fn_state_by_name =
+    Map.mapi functions ~f:(fun ~key:_ ~data:fn -> Fn_state.of_cfg ~root:fn.root)
+  in
+  Map.mapi functions ~f:(fun ~key:name ~data:fn ->
+    let fn_state = Map.find_exn fn_state_by_name name in
+    Instruction_selection.run ~fn_state fn |> Regalloc.run ?dump_crap ~fn_state)
+  |> Save_clobbers.process ~fn_state_by_name
 ;;
 
 let compile_to_asm ~system ?dump_crap ?(globals = []) functions =
@@ -33,7 +37,9 @@ let compile_to_items ~system ?dump_crap ?(globals = []) functions =
 
 module For_testing = struct
   let select_instructions (functions : Function.t String.Map.t) =
-    Map.map functions ~f:(fun fn -> Instruction_selection.run fn)
+    Map.map functions ~f:(fun fn ->
+      let fn_state = Fn_state.of_cfg ~root:fn.root in
+      Instruction_selection.run ~fn_state fn)
   ;;
 
   let print_selected_instructions_with_all_liveness_info
@@ -68,7 +74,7 @@ module For_testing = struct
             live_in, live_out)
           |> List.unzip
         in
-        let names = List.map instructions ~f:(Fn.const block.id_hum) in
+        let names = List.map instructions ~f:(Fn.const (Block.id_hum block)) in
         let inner_sexps =
           List.zip_exn
             names
@@ -80,12 +86,12 @@ module For_testing = struct
                 (live_in : Var.t list)
                 (live_out : Var.t list)])
         in
-        let args = block.args in
-        let block = block.id_hum in
+        let args = Block.args block in
+        let block = Block.id_hum block in
         [ [%message
             (block : string)
               ~instruction:
-                ([%message "block start" (args : Var.t Vec.t)] : Sexp.t)
+                ([%message "block start" (args : Var.t Vec.read)] : Sexp.t)
               ~live_in:(block_live_in : Var.t list)
               ~live_out:(List.hd_exn liveness |> Liveness.live_in' : Var.t list)]
         ]
@@ -118,7 +124,7 @@ module For_testing = struct
         let instructions, _liveness =
           List.unzip (instructions @ [ terminal ])
         in
-        print_s [%message "block" (block.id_hum : string)];
+        print_s [%message "block" (Block.id_hum block : string)];
         List.map instructions ~f:(fun ir ->
           [%message (ir : Ir.t) (Ir.defs ir : Arg.t list)])
         |> Table.print_records))
@@ -155,7 +161,8 @@ module For_testing = struct
 
   let print_assignments (functions : Function.t String.Map.t) =
     Map.iteri functions ~f:(fun ~key:function_name ~data:fn ->
-      let fn = Instruction_selection.run fn in
+      let fn_state = Fn_state.of_cfg ~root:fn.root in
+      let fn = Instruction_selection.run ~fn_state fn in
       let ~assignments:assignments_table, ~interference_graph =
         compute_assignments fn
       in

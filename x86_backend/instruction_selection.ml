@@ -7,6 +7,7 @@ type t =
   { block_names : int String.Table.t
   ; var_names : int String.Table.t
   ; var_classes : Class.t Var.Table.t
+  ; fn_state : Fn_state.t
   ; fn : Function.t
   }
 [@@deriving fields]
@@ -48,8 +49,8 @@ let fresh_like_var t var =
     ~type_:(Var.type_ var)
 ;;
 
-let lower_aggregates_exn (fn : Function.t) =
-  match Ir.lower_aggregates ~root:fn.root with
+let lower_aggregates_exn ~fn_state (fn : Function.t) =
+  match Ir.lower_aggregates ~fn_state ~root:fn.root with
   | Ok () -> ()
   | Error err -> failwith (Nod_error.to_string err)
 ;;
@@ -63,7 +64,7 @@ let failure_order_of_rmw = function
 let expand_atomic_rmw t =
   let used_names = String.Hash_set.create () in
   Block.iter t.fn.root ~f:(fun block ->
-    Hash_set.add used_names block.Block.id_hum);
+    Hash_set.add used_names (Block.id_hum block));
   let fresh_name base =
     let rec loop attempt =
       let candidate =
@@ -121,7 +122,7 @@ let expand_atomic_rmw t =
     , success )
   in
   let rec split_block block =
-    let instrs = Vec.to_list block.Block.instructions in
+    let instrs = Instr_state.to_ir_list (Block.instructions block) in
     match
       List.findi instrs ~f:(fun _ instr ->
         match instr with
@@ -132,31 +133,34 @@ let expand_atomic_rmw t =
     | Some (idx, Atomic_rmw atomic) ->
       let before = List.take instrs idx in
       let after = List.drop instrs (idx + 1) in
-      let original_terminal = block.Block.terminal in
+      let original_terminal = (Block.terminal block).Instr_state.ir in
       let cont_block =
         Block.create
-          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_cont"))
-          ~terminal:original_terminal
+          ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_cont"))
+          ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:original_terminal)
       in
-      cont_block.dfs_id <- Some 0;
-      cont_block.Block.instructions <- Vec.of_list after;
+      Block.set_dfs_id cont_block (Some 0);
+      Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
       let loop_block =
         Block.create
-          ~id_hum:(fresh_name (block.Block.id_hum ^ "__atomic_rmw_loop"))
-          ~terminal:Noop
+          ~id_hum:(fresh_name (Block.id_hum block ^ "__atomic_rmw_loop"))
+          ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:Noop)
       in
-      loop_block.dfs_id <- Some 0;
+      Block.set_dfs_id loop_block (Some 0);
       let loop_instrs, success_var = rmw_loop_instrs atomic in
-      loop_block.Block.instructions <- Vec.of_list loop_instrs;
+      Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
-      loop_block.Block.terminal
-      <- Branch
-           (Cond
-              { cond = Ir.Lit_or_var.Var success_var
-              ; if_true = cont_cb
-              ; if_false = loop_cb
-              });
+      Fn_state.replace_terminal_ir
+        t.fn_state
+        ~block:loop_block
+        ~with_:
+          (Branch
+             (Cond
+                { cond = Ir.Lit_or_var.Var success_var
+                ; if_true = cont_cb
+                ; if_false = loop_cb
+                }));
       let init_load =
         Ir.atomic_load
           { dest = atomic.dest
@@ -164,8 +168,11 @@ let expand_atomic_rmw t =
           ; order = Ir.Memory_order.Relaxed
           }
       in
-      block.Block.instructions <- Vec.of_list (before @ [ init_load ]);
-      block.Block.terminal <- Branch (Uncond loop_cb);
+      Fn_state.replace_irs t.fn_state ~block ~irs:(before @ [ init_load ]);
+      Fn_state.replace_terminal_ir
+        t.fn_state
+        ~block
+        ~with_:(Branch (Uncond loop_cb));
       split_block cont_block
     | Some _ -> ()
   in
@@ -523,10 +530,11 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
 
 let get_fn = fn
 
-let create fn =
+let create ~fn_state fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
   ; var_classes = Var.Table.create ()
+  ; fn_state
   ; fn
   }
 ;;
@@ -543,13 +551,21 @@ let mint_intermediate
   ~(to_call_block : Block.t Call_block.t)
   =
   let id_hum =
-    "intermediate_" ^ from_block.id_hum ^ "_to_" ^ to_call_block.block.id_hum
+    "intermediate_"
+    ^ Block.id_hum from_block
+    ^ "_to_"
+    ^ Block.id_hum to_call_block.block
     |> Util.new_name t.block_names
   in
-  let block = Block.create ~id_hum ~terminal:(X86 (X86_ir.jmp to_call_block)) in
+  let block =
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr t.fn_state ~ir:(X86 (X86_ir.jmp to_call_block)))
+  in
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
-  block.dfs_id <- Some 0;
+  Block.set_dfs_id block (Some 0);
   (* The intermediate block doesn't need formal parameters - it's just a place
      to insert phi moves. The phi moves will be generated by insert_par_moves
      based on the mismatch between to_call_block.args and to_call_block.block.args *)
@@ -584,22 +600,29 @@ let make_prologue t =
       mov (Reg (Reg.unallocated arg)) (Mem (Reg.rbp, stack_offset)))
   in
   let block =
-    Block.create ~id_hum ~terminal:(X86 (jmp { block = t.fn.root; args }))
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:(X86 (jmp { block = t.fn.root; args })))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
-  block.dfs_id <- Some 0;
-  block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map
-       ~f:Ir.x86
-       (reg_arg_moves
-        @ stack_arg_moves
-        @ [ tag_def noop (Reg Reg.rbp) ]
-          (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
-       )
-     |> Vec.of_list;
+  Block.set_dfs_id block (Some 0);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
+  Fn_state.replace_irs
+    t.fn_state
+    ~block
+    ~irs:
+      (List.map
+         ~f:Ir.x86
+         (reg_arg_moves
+          @ stack_arg_moves
+          @ [ tag_def noop (Reg Reg.rbp) ]
+            (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
+         ));
   block
 ;;
 
@@ -628,17 +651,23 @@ let make_epilogue t ~ret_shape =
     |> List.map ~f:(fun (arg, reg) ->
       Reg (Reg.allocated ~class_:(Reg.class_ reg) arg (Some reg)))
   in
-  let block = Block.create ~id_hum ~terminal:(X86 (RET args')) in
+  let block =
+    Block.create
+      ~id_hum
+      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(X86 (RET args')))
+  in
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
-  block.dfs_id <- Some 0;
-  block.args <- Vec.of_list args;
-  block.instructions
-  <- List.map
-       ~f:Ir.x86
-       reg_res_moves (* clobbers restores will be added here later *)
-     |> Vec.of_list;
+  Block.set_dfs_id block (Some 0);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
+  Fn_state.replace_irs
+    t.fn_state
+    ~block
+    ~irs:
+      (List.map
+         ~f:Ir.x86
+         reg_res_moves (* clobbers restores will be added here later *));
   block
 ;;
 
@@ -657,7 +686,8 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | Some _, Some _ -> failwith "diff ret shape"
       | None, Some _ -> r := this
     in
-    Block.iter_instructions t.fn.root ~f:(on_arch_irs ~f:update);
+    Block.iter_instructions t.fn.root ~f:(fun instr ->
+      on_arch_irs instr.Instr_state.ir ~f:update);
     !r
   in
   let prologue = make_prologue t in
@@ -667,7 +697,8 @@ let split_blocks_and_add_prologue_and_epilogue t =
   t.fn.epilogue <- Some epilogue;
   t.fn.root <- prologue;
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
-    Vec.iter block.instructions ~f:(function
+    Instr_state.iter (Block.instructions block) ~f:(fun instr ->
+      match instr.Instr_state.ir with
       | X86 (ALLOCA (_, i)) ->
         t.fn.bytes_statically_alloca'd
         <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
@@ -678,8 +709,9 @@ let split_blocks_and_add_prologue_and_epilogue t =
     | None -> ()
     | Some true_terminal ->
       let rep make a b =
-        block.insert_phi_moves <- false;
+        Block.Expert.set_insert_phi_moves block false;
         replace_true_terminal
+          ~fn_state:t.fn_state
           block
           (make
              (mint_intermediate t ~from_block:block ~to_call_block:a)
@@ -687,7 +719,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       in
       let epilogue_jmp operands_to_ret =
         let args =
-          List.zip_exn operands_to_ret (Vec.to_list epilogue.args)
+          List.zip_exn operands_to_ret (Vec.to_list (Block.args epilogue))
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
             | Reg reg ->
@@ -695,22 +727,24 @@ let split_blocks_and_add_prologue_and_epilogue t =
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
-                 Vec.push
-                   block.instructions
-                   (X86 (mov (Reg (Reg.unallocated v)) operand));
+                 Fn_state.append_ir
+                   t.fn_state
+                   ~block
+                   ~ir:(X86 (mov (Reg (Reg.unallocated v)) operand));
                  v)
             | other ->
               let v = fresh_like_var t arg in
-              Vec.push
-                block.instructions
-                (X86 (mov (Reg (Reg.unallocated v)) other));
+              Fn_state.append_ir
+                t.fn_state
+                ~block
+                ~ir:(X86 (mov (Reg (Reg.unallocated v)) other));
               v)
         in
         jmp { Call_block.block = epilogue; args }
       in
       (match true_terminal with
        | RET l when not (phys_equal block epilogue) ->
-         replace_true_terminal block (epilogue_jmp l)
+         replace_true_terminal ~fn_state:t.fn_state block (epilogue_jmp l)
        | RET _ | JMP _ | JNE (_, None) | JE (_, None) -> ()
        | JE (a, Some b) -> rep X86_ir.je a b
        | JNE (a, Some b) ->
@@ -799,7 +833,7 @@ let par_moves t ~dst_to_src =
 
 let insert_par_moves t =
   Block.iter t.fn.root ~f:(fun block ->
-    if not block.insert_phi_moves
+    if not (Block.insert_phi_moves block)
     then ()
     else (
       match true_terminal block with
@@ -807,8 +841,13 @@ let insert_par_moves t =
       | Some true_terminal ->
         (match true_terminal with
          | JMP cb ->
-           let dst_to_src = List.zip_exn (Vec.to_list cb.block.args) cb.args in
-           Vec.append block.instructions (par_moves t ~dst_to_src)
+           let dst_to_src =
+             List.zip_exn (Vec.to_list (Block.args cb.block)) cb.args
+           in
+           Fn_state.append_irs
+             t.fn_state
+             ~block
+             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
          | RET _ -> ()
          | JNE _ | JE _ ->
            (* [block.insert_phi_moves] should be false *)
@@ -844,7 +883,10 @@ let insert_par_moves t =
 
 let remove_call_block_args t =
   Block.iter t.fn.root ~f:(fun block ->
-    block.terminal <- Ir.remove_block_args block.terminal
+    Fn_state.replace_terminal_ir
+      t.fn_state
+      ~block
+      ~with_:(Ir.remove_block_args (Block.terminal block).Instr_state.ir)
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -858,18 +900,23 @@ let simple_translation_to_x86_ir ~this_call_conv t =
     res
   in
   Block.iter t.fn.root ~f:(fun block ->
-    add_count t.block_names block.id_hum;
-    block.instructions
-    <- Vec.concat_map block.instructions ~f:(fun ir ->
-         lower_ir ir |> Vec.of_list |> Vec.map ~f:Ir0.x86);
-    block.terminal <- Ir.x86_terminal (lower_ir block.terminal));
+    add_count t.block_names (Block.id_hum block);
+    let instructions =
+      Instr_state.to_ir_list (Block.instructions block)
+      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.x86)
+    in
+    Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
+    Fn_state.replace_terminal_ir
+      t.fn_state
+      ~block
+      ~with_:(Ir.x86_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
   t
 ;;
 
-let run (fn : Function.t) =
-  lower_aggregates_exn fn;
+let run ~fn_state (fn : Function.t) =
+  lower_aggregates_exn ~fn_state fn;
   fn
-  |> create
+  |> create ~fn_state
   |> expand_atomic_rmw
   |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
   |> split_blocks_and_add_prologue_and_epilogue
@@ -883,9 +930,10 @@ let run (fn : Function.t) =
 
 module For_testing = struct
   let run_deebg (fn : Function.t) =
-    lower_aggregates_exn fn;
+    let fn_state = Fn_state.of_cfg ~root:fn.root in
+    lower_aggregates_exn ~fn_state fn;
     fn
-    |> create
+    |> create ~fn_state
     |> expand_atomic_rmw
     |> simple_translation_to_x86_ir ~this_call_conv:fn.call_conv
     |> split_blocks_and_add_prologue_and_epilogue

@@ -47,11 +47,11 @@ let order_blocks root =
        | false ->
          Hash_set.add seen block;
          try_push block;
-         Vec.iter block.children ~f:(fun child ->
-           if Vec.length child.parents = 1
-              && not (Hashtbl.mem idx_by_block child)
-           then try_push child);
-         Vec.iter block.children ~f:(Queue.enqueue q);
+        Vec.iter (Block.children block) ~f:(fun child ->
+          if Vec.length (Block.parents child) = 1
+             && not (Hashtbl.mem idx_by_block child)
+          then try_push child);
+        Vec.iter (Block.children block) ~f:(Queue.enqueue q);
          go ())
   in
   go ();
@@ -150,7 +150,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
           then fn_label
           else
             sanitize_identifier
-              (sprintf "%s__%s" sanitized_name block.Block.id_hum)
+              (sprintf "%s__%s" sanitized_name (Block.id_hum block))
         in
         let base_label =
           if idx = 0 then base_label else ensure_unique base_label
@@ -356,14 +356,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         let label = label_of_block block in
         emit_label label;
         pending_const_cmp := None;
-        let instructions = Vec.to_list block.Block.instructions in
+        let instructions = Instr_state.to_ir_list (Block.instructions block) in
         List.iter instructions ~f:(fun ir ->
           match ir with
           | Ir0.X86 x -> process_instruction ~current_idx:idx x
           | Ir0.X86_terminal xs ->
             List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
-        match block.Block.terminal with
+        match (Block.terminal block).Instr_state.ir with
         | Ir0.X86_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
         | Ir0.X86 x -> process_instruction ~current_idx:idx x

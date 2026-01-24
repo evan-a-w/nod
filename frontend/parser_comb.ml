@@ -1,5 +1,7 @@
+module Frontend_state = State
+
 open! Core
-include State.Result
+include Frontend_state.Result
 
 module Make (Token : Token_intf.S) = struct
   include Let_syntax

@@ -88,20 +88,30 @@ let%expect_test "nod load and store field" =
     {|
     ((%entry (args ())
       (instrs
-       ((Load_field
-         ((dest ((name x) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
-          (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))
-        (Load_field
-         ((dest ((name y) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
-          (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
-          (indices (0 0))))
-        (Store_field
-         ((base (Var ((name a) (type_ Ptr)))) (src (Var ((name x) (type_ I64))))
-          (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))
-        (Store_field
-         ((base (Var ((name a) (type_ Ptr)))) (src (Var ((name y) (type_ I64))))
-          (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
-          (indices (0 0))))
-        (Return (Var ((name x) (type_ I64))))))))
+       (((id (Instr_id 1))
+         (ir
+          (Load_field
+           ((dest ((name x) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
+            (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))))
+        ((id (Instr_id 2))
+         (ir
+          (Load_field
+           ((dest ((name y) (type_ I64))) (base (Var ((name a) (type_ Ptr))))
+            (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
+            (indices (0 0))))))
+        ((id (Instr_id 3))
+         (ir
+          (Store_field
+           ((base (Var ((name a) (type_ Ptr))))
+            (src (Var ((name x) (type_ I64))))
+            (type_ (Tuple (I64 F64 (Tuple (I64 F64))))) (indices (0))))))
+        ((id (Instr_id 4))
+         (ir
+          (Store_field
+           ((base (Var ((name a) (type_ Ptr))))
+            (src (Var ((name y) (type_ I64))))
+            (type_ (Tuple ((Tuple (I64 F64 (Tuple (I64 F64)))) I64)))
+            (indices (0 0))))))
+        ((id (Instr_id 5)) (ir (Return (Var ((name x) (type_ I64))))))))))
     |}]
 ;;

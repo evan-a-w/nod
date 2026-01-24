@@ -41,7 +41,8 @@ module M (A : Arch.S) = struct
       let s = var_state t v in
       s.num_uses <- s.num_uses + 1
     in
-    Block.iter_instructions root ~f:(fun ir ->
+    Block.iter_instructions root ~f:(fun instr ->
+      let ir = instr.Instr_state.ir in
       Ir.uses ir |> List.iter ~f:add_use;
       Ir.defs ir
       |> List.iter ~f:(fun def ->

@@ -54,77 +54,129 @@ let%expect_test "nod hashmap program compiles" =
      (root
       ((%entry (args ())
         (instrs
-         ((Alloca ((dest ((name state) (type_ Ptr))) (size (Lit 16))))
-          (Alloca ((dest ((name table) (type_ Ptr))) (size (Lit 64))))
-          (Store (Lit 4)
-           (Address ((base (Var ((name state) (type_ Ptr)))) (offset 0))))
-          (Store (Var ((name table) (type_ Ptr)))
-           (Address ((base (Var ((name state) (type_ Ptr)))) (offset 8))))
-          (Call (fn hashmap_init) (results (((name init_done) (type_ I64))))
-           (args ((Var ((name state) (type_ Ptr))))))
-          (Alloca ((dest ((name entry1) (type_ Ptr))) (size (Lit 16))))
-          (Store (Lit 7)
-           (Address ((base (Var ((name entry1) (type_ Ptr)))) (offset 0))))
-          (Store (Lit 21)
-           (Address ((base (Var ((name entry1) (type_ Ptr)))) (offset 8))))
-          (Call (fn hashmap_put) (results (((name put1) (type_ I64))))
-           (args
-            ((Var ((name state) (type_ Ptr))) (Var ((name entry1) (type_ Ptr))))))
-          (Alloca ((dest ((name entry2) (type_ Ptr))) (size (Lit 16))))
-          (Store (Lit 42)
-           (Address ((base (Var ((name entry2) (type_ Ptr)))) (offset 0))))
-          (Store (Lit 100)
-           (Address ((base (Var ((name entry2) (type_ Ptr)))) (offset 8))))
-          (Call (fn hashmap_put) (results (((name put2) (type_ I64))))
-           (args
-            ((Var ((name state) (type_ Ptr))) (Var ((name entry2) (type_ Ptr))))))
-          (Alloca ((dest ((name query_hit) (type_ Ptr))) (size (Lit 16))))
-          (Store (Lit 7)
-           (Address ((base (Var ((name query_hit) (type_ Ptr)))) (offset 0))))
-          (Store (Lit 0)
-           (Address ((base (Var ((name query_hit) (type_ Ptr)))) (offset 8))))
-          (Call (fn hashmap_get) (results (((name hit) (type_ I64))))
-           (args
-            ((Var ((name state) (type_ Ptr)))
-             (Var ((name query_hit) (type_ Ptr))))))
-          (Alloca ((dest ((name query_miss) (type_ Ptr))) (size (Lit 16))))
-          (Store (Lit 99)
-           (Address ((base (Var ((name query_miss) (type_ Ptr)))) (offset 0))))
-          (Store (Lit 5)
-           (Address ((base (Var ((name query_miss) (type_ Ptr)))) (offset 8))))
-          (Call (fn hashmap_get) (results (((name miss) (type_ I64))))
-           (args
-            ((Var ((name state) (type_ Ptr)))
-             (Var ((name query_miss) (type_ Ptr))))))
-          (Add
-           ((dest ((name total) (type_ I64)))
-            (src1 (Var ((name hit) (type_ I64))))
-            (src2 (Var ((name miss) (type_ I64))))))
-          (Add
-           ((dest ((name total%0) (type_ I64)))
-            (src1 (Var ((name total) (type_ I64))))
-            (src2 (Var ((name init_done) (type_ I64))))))
-          (Sub
-           ((dest ((name total%1) (type_ I64)))
-            (src1 (Var ((name total%0) (type_ I64))))
-            (src2 (Var ((name init_done) (type_ I64))))))
-          (Add
-           ((dest ((name total%2) (type_ I64)))
-            (src1 (Var ((name total%1) (type_ I64))))
-            (src2 (Var ((name put1) (type_ I64))))))
-          (Sub
-           ((dest ((name total%3) (type_ I64)))
-            (src1 (Var ((name total%2) (type_ I64))))
-            (src2 (Var ((name put1) (type_ I64))))))
-          (Add
-           ((dest ((name total%4) (type_ I64)))
-            (src1 (Var ((name total%3) (type_ I64))))
-            (src2 (Var ((name put2) (type_ I64))))))
-          (Sub
-           ((dest ((name total%5) (type_ I64)))
-            (src1 (Var ((name total%4) (type_ I64))))
-            (src2 (Var ((name put2) (type_ I64))))))
-          (Return (Var ((name total%5) (type_ I64)))))))))
+         (((id (Instr_id 30))
+           (ir (Alloca ((dest ((name state) (type_ Ptr))) (size (Lit 16))))))
+          ((id (Instr_id 0))
+           (ir (Alloca ((dest ((name table) (type_ Ptr))) (size (Lit 64))))))
+          ((id (Instr_id 1))
+           (ir
+            (Store (Lit 4)
+             (Address ((base (Var ((name state) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 2))
+           (ir
+            (Store (Var ((name table) (type_ Ptr)))
+             (Address ((base (Var ((name state) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 3))
+           (ir
+            (Call (fn hashmap_init) (results (((name init_done) (type_ I64))))
+             (args ((Var ((name state) (type_ Ptr))))))))
+          ((id (Instr_id 4))
+           (ir (Alloca ((dest ((name entry1) (type_ Ptr))) (size (Lit 16))))))
+          ((id (Instr_id 5))
+           (ir
+            (Store (Lit 7)
+             (Address ((base (Var ((name entry1) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 6))
+           (ir
+            (Store (Lit 21)
+             (Address ((base (Var ((name entry1) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 7))
+           (ir
+            (Call (fn hashmap_put) (results (((name put1) (type_ I64))))
+             (args
+              ((Var ((name state) (type_ Ptr)))
+               (Var ((name entry1) (type_ Ptr))))))))
+          ((id (Instr_id 8))
+           (ir (Alloca ((dest ((name entry2) (type_ Ptr))) (size (Lit 16))))))
+          ((id (Instr_id 9))
+           (ir
+            (Store (Lit 42)
+             (Address ((base (Var ((name entry2) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 10))
+           (ir
+            (Store (Lit 100)
+             (Address ((base (Var ((name entry2) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 11))
+           (ir
+            (Call (fn hashmap_put) (results (((name put2) (type_ I64))))
+             (args
+              ((Var ((name state) (type_ Ptr)))
+               (Var ((name entry2) (type_ Ptr))))))))
+          ((id (Instr_id 12))
+           (ir (Alloca ((dest ((name query_hit) (type_ Ptr))) (size (Lit 16))))))
+          ((id (Instr_id 13))
+           (ir
+            (Store (Lit 7)
+             (Address ((base (Var ((name query_hit) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 14))
+           (ir
+            (Store (Lit 0)
+             (Address ((base (Var ((name query_hit) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 15))
+           (ir
+            (Call (fn hashmap_get) (results (((name hit) (type_ I64))))
+             (args
+              ((Var ((name state) (type_ Ptr)))
+               (Var ((name query_hit) (type_ Ptr))))))))
+          ((id (Instr_id 16))
+           (ir (Alloca ((dest ((name query_miss) (type_ Ptr))) (size (Lit 16))))))
+          ((id (Instr_id 17))
+           (ir
+            (Store (Lit 99)
+             (Address ((base (Var ((name query_miss) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 18))
+           (ir
+            (Store (Lit 5)
+             (Address ((base (Var ((name query_miss) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 19))
+           (ir
+            (Call (fn hashmap_get) (results (((name miss) (type_ I64))))
+             (args
+              ((Var ((name state) (type_ Ptr)))
+               (Var ((name query_miss) (type_ Ptr))))))))
+          ((id (Instr_id 20))
+           (ir
+            (Add
+             ((dest ((name total) (type_ I64)))
+              (src1 (Var ((name hit) (type_ I64))))
+              (src2 (Var ((name miss) (type_ I64))))))))
+          ((id (Instr_id 21))
+           (ir
+            (Add
+             ((dest ((name total%0) (type_ I64)))
+              (src1 (Var ((name total) (type_ I64))))
+              (src2 (Var ((name init_done) (type_ I64))))))))
+          ((id (Instr_id 22))
+           (ir
+            (Sub
+             ((dest ((name total%1) (type_ I64)))
+              (src1 (Var ((name total%0) (type_ I64))))
+              (src2 (Var ((name init_done) (type_ I64))))))))
+          ((id (Instr_id 23))
+           (ir
+            (Add
+             ((dest ((name total%2) (type_ I64)))
+              (src1 (Var ((name total%1) (type_ I64))))
+              (src2 (Var ((name put1) (type_ I64))))))))
+          ((id (Instr_id 24))
+           (ir
+            (Sub
+             ((dest ((name total%3) (type_ I64)))
+              (src1 (Var ((name total%2) (type_ I64))))
+              (src2 (Var ((name put1) (type_ I64))))))))
+          ((id (Instr_id 25))
+           (ir
+            (Add
+             ((dest ((name total%4) (type_ I64)))
+              (src1 (Var ((name total%3) (type_ I64))))
+              (src2 (Var ((name put2) (type_ I64))))))))
+          ((id (Instr_id 26))
+           (ir
+            (Sub
+             ((dest ((name total%5) (type_ I64)))
+              (src1 (Var ((name total%4) (type_ I64))))
+              (src2 (Var ((name put2) (type_ I64))))))))
+          ((id (Instr_id 27)) (ir (Return (Var ((name total%5) (type_ I64)))))))))))
      (args ()) (name root) (prologue ()) (epilogue ())
      (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
      (bytes_statically_alloca'd 0))
@@ -132,93 +184,137 @@ let%expect_test "nod hashmap program compiles" =
      (root
       ((%entry (args (((name state) (type_ Ptr)) ((name entry) (type_ Ptr))))
         (instrs
-         ((Load ((name key) (type_ I64))
-           (Address ((base (Var ((name entry) (type_ Ptr)))) (offset 0))))
-          (Load ((name value) (type_ I64))
-           (Address ((base (Var ((name entry) (type_ Ptr)))) (offset 8))))
-          (Load ((name capacity) (type_ I64))
-           (Address ((base (Var ((name state) (type_ Ptr)))) (offset 0))))
-          (Load ((name table) (type_ Ptr))
-           (Address ((base (Var ((name state) (type_ Ptr)))) (offset 8))))
-          (Call (fn hash) (results (((name idx0) (type_ I64))))
-           (args
-            ((Var ((name key) (type_ I64))) (Var ((name capacity) (type_ I64))))))
-          (Alloca ((dest ((name idx_slot) (type_ Ptr))) (size (Lit 8))))
-          (Store (Var ((name idx0) (type_ I64)))
-           (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))
-          (Branch
-           (Uncond
-            ((block
-              ((id_hum probe)
+         (((id (Instr_id 32))
+           (ir
+            (Load ((name key) (type_ I64))
+             (Address ((base (Var ((name entry) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 5))
+           (ir
+            (Load ((name value) (type_ I64))
+             (Address ((base (Var ((name entry) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 6))
+           (ir
+            (Load ((name capacity) (type_ I64))
+             (Address ((base (Var ((name state) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 7))
+           (ir
+            (Load ((name table) (type_ Ptr))
+             (Address ((base (Var ((name state) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 8))
+           (ir
+            (Call (fn hash) (results (((name idx0) (type_ I64))))
+             (args
+              ((Var ((name key) (type_ I64)))
+               (Var ((name capacity) (type_ I64))))))))
+          ((id (Instr_id 9))
+           (ir (Alloca ((dest ((name idx_slot) (type_ Ptr))) (size (Lit 8))))))
+          ((id (Instr_id 10))
+           (ir
+            (Store (Var ((name idx0) (type_ I64)))
+             (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 11))
+           (ir
+            (Branch
+             (Uncond
+              ((block
+                ((id_hum probe)
+                 (args
+                  (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
+                   ((name slot_key) (type_ I64))))))
                (args
                 (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
-                 ((name slot_key) (type_ I64))))))
-             (args
-              (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
-               ((name slot_key) (type_ I64))))))))))
+                 ((name slot_key) (type_ I64))))))))))))
        (probe
         (args
          (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
           ((name slot_key) (type_ I64))))
         (instrs
-         ((Load ((name idx%0) (type_ I64))
-           (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))
-          (Mul
-           ((dest ((name offset) (type_ I64)))
-            (src1 (Var ((name idx%0) (type_ I64)))) (src2 (Lit 16))))
-          (Add
-           ((dest ((name slot%0) (type_ Ptr)))
-            (src1 (Var ((name table) (type_ Ptr))))
-            (src2 (Var ((name offset) (type_ I64))))))
-          (Load ((name slot_key%0) (type_ I64))
-           (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 0))))
-          (Branch
-           (Cond (cond (Var ((name slot_key%0) (type_ I64))))
-            (if_true ((block ((id_hum check_key) (args ()))) (args ())))
-            (if_false ((block ((id_hum insert) (args ()))) (args ()))))))))
+         (((id (Instr_id 33))
+           (ir
+            (Load ((name idx%0) (type_ I64))
+             (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 13))
+           (ir
+            (Mul
+             ((dest ((name offset) (type_ I64)))
+              (src1 (Var ((name idx%0) (type_ I64)))) (src2 (Lit 16))))))
+          ((id (Instr_id 0))
+           (ir
+            (Add
+             ((dest ((name slot%0) (type_ Ptr)))
+              (src1 (Var ((name table) (type_ Ptr))))
+              (src2 (Var ((name offset) (type_ I64))))))))
+          ((id (Instr_id 14))
+           (ir
+            (Load ((name slot_key%0) (type_ I64))
+             (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 15))
+           (ir
+            (Branch
+             (Cond (cond (Var ((name slot_key%0) (type_ I64))))
+              (if_true ((block ((id_hum check_key) (args ()))) (args ())))
+              (if_false ((block ((id_hum insert) (args ()))) (args ()))))))))))
        (check_key (args ())
         (instrs
-         ((Sub
-           ((dest ((name diff) (type_ I64)))
-            (src1 (Var ((name slot_key%0) (type_ I64))))
-            (src2 (Var ((name key) (type_ I64))))))
-          (Branch
-           (Cond (cond (Var ((name diff) (type_ I64))))
-            (if_true ((block ((id_hum probe_next) (args ()))) (args ())))
-            (if_false ((block ((id_hum update) (args ()))) (args ()))))))))
+         (((id (Instr_id 34))
+           (ir
+            (Sub
+             ((dest ((name diff) (type_ I64)))
+              (src1 (Var ((name slot_key%0) (type_ I64))))
+              (src2 (Var ((name key) (type_ I64))))))))
+          ((id (Instr_id 17))
+           (ir
+            (Branch
+             (Cond (cond (Var ((name diff) (type_ I64))))
+              (if_true ((block ((id_hum probe_next) (args ()))) (args ())))
+              (if_false ((block ((id_hum update) (args ()))) (args ()))))))))))
        (probe_next (args ())
         (instrs
-         ((Add
-           ((dest ((name idx_inc) (type_ I64)))
-            (src1 (Var ((name idx%0) (type_ I64)))) (src2 (Lit 1))))
-          (Mod
-           ((dest ((name idx_wrap) (type_ I64)))
-            (src1 (Var ((name idx_inc) (type_ I64))))
-            (src2 (Var ((name capacity) (type_ I64))))))
-          (Store (Var ((name idx_wrap) (type_ I64)))
-           (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))
-          (Branch
-           (Uncond
-            ((block
-              ((id_hum probe)
+         (((id (Instr_id 35))
+           (ir
+            (Add
+             ((dest ((name idx_inc) (type_ I64)))
+              (src1 (Var ((name idx%0) (type_ I64)))) (src2 (Lit 1))))))
+          ((id (Instr_id 18))
+           (ir
+            (Mod
+             ((dest ((name idx_wrap) (type_ I64)))
+              (src1 (Var ((name idx_inc) (type_ I64))))
+              (src2 (Var ((name capacity) (type_ I64))))))))
+          ((id (Instr_id 2))
+           (ir
+            (Store (Var ((name idx_wrap) (type_ I64)))
+             (Address ((base (Var ((name idx_slot) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 19))
+           (ir
+            (Branch
+             (Uncond
+              ((block
+                ((id_hum probe)
+                 (args
+                  (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
+                   ((name slot_key) (type_ I64))))))
                (args
-                (((name idx) (type_ I64)) ((name slot) (type_ Ptr))
-                 ((name slot_key) (type_ I64))))))
-             (args
-              (((name idx%0) (type_ I64)) ((name slot%0) (type_ Ptr))
-               ((name slot_key%0) (type_ I64))))))))))
+                (((name idx%0) (type_ I64)) ((name slot%0) (type_ Ptr))
+                 ((name slot_key%0) (type_ I64))))))))))))
        (update (args ())
         (instrs
-         ((Store (Var ((name value) (type_ I64)))
-           (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 8))))
-          (Return (Var ((name value) (type_ I64)))))))
+         (((id (Instr_id 36))
+           (ir
+            (Store (Var ((name value) (type_ I64)))
+             (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 21)) (ir (Return (Var ((name value) (type_ I64)))))))))
        (insert (args ())
         (instrs
-         ((Store (Var ((name key) (type_ I64)))
-           (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 0))))
-          (Store (Var ((name value) (type_ I64)))
-           (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 8))))
-          (Return (Var ((name value) (type_ I64)))))))))
+         (((id (Instr_id 37))
+           (ir
+            (Store (Var ((name key) (type_ I64)))
+             (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 0))))))
+          ((id (Instr_id 24))
+           (ir
+            (Store (Var ((name value) (type_ I64)))
+             (Address ((base (Var ((name slot%0) (type_ Ptr)))) (offset 8))))))
+          ((id (Instr_id 3)) (ir (Return (Var ((name value) (type_ I64)))))))))))
      (args (((name state) (type_ Ptr)) ((name entry) (type_ Ptr))))
      (name hashmap_put) (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
      (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))

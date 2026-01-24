@@ -1,5 +1,6 @@
 open! Core
 open! Import
+open Ir
 module Reg = X86_reg
 
 module Arch_ir = struct
@@ -33,7 +34,7 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
 ;;
 
 let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
-  match x86_block.terminal with
+  match (Block.terminal x86_block).Instr_state.ir with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
   | Arm64 _ | Arm64_terminal _ -> None
@@ -53,22 +54,32 @@ let true_terminal (x86_block : Block.t) : Block.t X86_ir.t option =
   | Fdiv _
   | Load (_, _)
   | Store (_, _)
-  | Load_field _ | Store_field _ | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move (_, _)
   | Cast (_, _)
   | Branch _ | Return _ | Unreachable | Call _ -> None
 ;;
 
-let replace_true_terminal (x86_block : Block.t) new_true_terminal =
-  match x86_block.terminal with
-  | X86 _terminal -> x86_block.terminal <- X86 new_true_terminal
+let replace_true_terminal ~fn_state (x86_block : Block.t) new_true_terminal =
+  let terminal_ir = (Block.terminal x86_block).Instr_state.ir in
+  match terminal_ir with
+  | X86 _terminal ->
+    Fn_state.replace_terminal_ir
+      fn_state
+      ~block:x86_block
+      ~with_:(X86 new_true_terminal)
   | X86_terminal terminals ->
-    x86_block.terminal
-    <- X86_terminal
-         (List.take terminals (List.length terminals - 1)
-          @ [ new_true_terminal ])
-  | Arm64 _ | Arm64_terminal _ -> ()
+    let new_ir =
+      Ir0.X86_terminal
+        (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ])
+    in
+    Fn_state.replace_terminal_ir fn_state ~block:x86_block ~with_:new_ir
   | Noop
   | And _
   | Or _
@@ -78,18 +89,24 @@ let replace_true_terminal (x86_block : Block.t) new_true_terminal =
   | Div _
   | Mod _
   | Lt _
-  | Alloca _
   | Fadd _
   | Fsub _
   | Fmul _
   | Fdiv _
+  | Alloca _
+  | Call _
   | Load (_, _)
   | Store (_, _)
-  | Load_field _ | Store_field _ | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Load_field _
+  | Store_field _
+  | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move (_, _)
   | Cast (_, _)
-  | Branch _ | Return _ | Unreachable | Call _ -> ()
+  | Branch _ | Return _ | Arm64 _ | Arm64_terminal _ | Unreachable -> ()
 ;;
 
 let ( >> ) f g = Fn.compose g f

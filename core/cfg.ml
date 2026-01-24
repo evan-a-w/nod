@@ -7,10 +7,13 @@ open! Core
 
      to an actual cfg, [Ir.t]
 *)
-let process (~instrs_by_label, ~labels) =
+let process ~fn_state (~instrs_by_label, ~labels) =
   let blocks =
     Vec.map labels ~f:(fun label ->
-      label, Block.create ~id_hum:label ~terminal:Ir.unreachable)
+      ( label
+      , Block.create
+          ~id_hum:label
+          ~terminal:(Fn_state.alloc_instr fn_state ~ir:Ir.unreachable) ))
     |> Vec.to_list
     |> String.Map.of_alist_exn
   in
@@ -18,14 +21,18 @@ let process (~instrs_by_label, ~labels) =
   Vec.iteri labels ~f:(fun i label ->
     let block = Map.find_exn blocks label in
     let found_terminal = ref false in
-    let add_terminal instr =
+    let add_terminal ir =
       found_terminal := true;
-      Ir.blocks instr
+      Ir.blocks ir
       |> List.iter ~f:(fun block' ->
         let block' = Map.find_exn blocks block' in
-        Vec.push block.children block';
-        Vec.push block'.parents block);
-      block.terminal <- Ir.map_blocks ~f:(Map.find_exn blocks) instr
+        Block.Expert.add_child block ~child:block');
+      let new_terminal =
+        Fn_state.alloc_instr
+          fn_state
+          ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) ir)
+      in
+      Fn_state.replace_terminal fn_state ~block ~with_:new_terminal
     in
     Vec.iter
       (Map.find instrs_by_label label
@@ -36,9 +43,10 @@ let process (~instrs_by_label, ~labels) =
         else if Ir.is_terminal instr
         then add_terminal instr
         else
-          Vec.push
-            block.instructions
-            (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+          Fn_state.append_ir
+            fn_state
+            ~block
+            ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) instr));
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with

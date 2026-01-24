@@ -1,5 +1,6 @@
 open! Core
 open! Import
+open Ir
 module Reg = Arm64_reg
 
 module Arch_ir = struct
@@ -33,7 +34,7 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
 ;;
 
 let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
-  match block.terminal with
+  match (Block.terminal block).Instr_state.ir with
   | Arm64 terminal -> Some terminal
   | Arm64_terminal terminals -> List.last terminals
   | X86 _ | X86_terminal _ -> None
@@ -56,21 +57,32 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Load_field _
   | Store_field _
   | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move _
   | Cast _
-  | Branch _ | Return _ | Unreachable | Call _ -> None
+  | Branch _
+  | Return _
+  | Unreachable
+  | Call _ -> None
 ;;
 
-let replace_true_terminal (block : Block.t) new_true_terminal =
-  match block.terminal with
-  | Arm64 _terminal -> block.terminal <- Arm64 new_true_terminal
+let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
+  let terminal_ir = (Block.terminal block).Instr_state.ir in
+  match terminal_ir with
+  | Arm64 _terminal ->
+    Fn_state.replace_terminal_ir
+      fn_state
+      ~block
+      ~with_:(Arm64 new_true_terminal)
   | Arm64_terminal terminals ->
-    block.terminal
-    <- Arm64_terminal
-         (List.take terminals (List.length terminals - 1)
-          @ [ new_true_terminal ])
-  | X86 _ | X86_terminal _ -> ()
+    let new_ir =
+      Ir0.Arm64_terminal
+        (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ])
+    in
+    Fn_state.replace_terminal_ir fn_state ~block ~with_:new_ir
   | Noop
   | And _
   | Or _
@@ -80,20 +92,24 @@ let replace_true_terminal (block : Block.t) new_true_terminal =
   | Div _
   | Mod _
   | Lt _
-  | Alloca _
   | Fadd _
   | Fsub _
   | Fmul _
   | Fdiv _
-  | Load _
-  | Store _
+  | Alloca _
+  | Call _
+  | Load (_, _)
+  | Store (_, _)
   | Load_field _
   | Store_field _
   | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
-  | Move _
-  | Cast _
-  | Branch _ | Return _ | Unreachable | Call _ -> ()
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
+  | Move (_, _)
+  | Cast (_, _)
+  | Branch _ | Return _ | X86 _ | X86_terminal _ | Unreachable -> ()
 ;;
 
 let ( >> ) f g = Fn.compose g f

@@ -7,7 +7,7 @@ type nonrec t = Block.t t [@@deriving sexp, compare, equal, hash]
 
 let add_block_args =
   let on_call_block { Call_block.block; args = _ } =
-    { Call_block.block; args = Vec.to_list block.Block.args }
+    { Call_block.block; args = Vec.to_list (Block.args block) }
   in
   function
   | ( Add _
@@ -107,7 +107,7 @@ let remove_block_args =
 
 let iter_blocks_and_args t ~f =
   iter_call_blocks t ~f:(fun { block; args } ->
-    f ~block:block.Block.id_hum ~args)
+    f ~block:(Block.id_hum block) ~args)
 ;;
 
 include functor Hashable.Make
@@ -120,7 +120,8 @@ module Aggregate = struct
 
   let ensure_value_type type_ =
     if Type.is_aggregate type_
-    then type_error "aggregate values are not supported: %s" (Type.to_string type_)
+    then
+      type_error "aggregate values are not supported: %s" (Type.to_string type_)
     else Ok type_
   ;;
 
@@ -166,7 +167,11 @@ module Aggregate = struct
     | Lit_or_var.Lit _ -> Ok ()
     | Var v -> ensure_pointer_target (Var.type_ v) ~expected ~op ~position
     | Global g ->
-      ensure_pointer_target (Type.Ptr_typed g.Global.type_) ~expected ~op ~position
+      ensure_pointer_target
+        (Type.Ptr_typed g.Global.type_)
+        ~expected
+        ~op
+        ~position
   ;;
 
   let types_compatible ~expected ~actual =
@@ -175,12 +180,14 @@ module Aggregate = struct
   ;;
 
   let lower_load_field ({ dest; base; type_; indices } : load_field) =
-    let%bind () = ensure_pointer_operand base ~op:"load_field" ~position:"base" in
+    let%bind () =
+      ensure_pointer_operand base ~op:"load_field" ~position:"base"
+    in
     let%bind offset, raw_field_type = field_offset type_ indices in
     match raw_field_type with
     | Tuple _ ->
       if Type.is_ptr (Var.type_ dest)
-      then
+      then (
         let%bind () =
           ensure_pointer_target
             (Var.type_ dest)
@@ -190,14 +197,12 @@ module Aggregate = struct
         in
         Ok
           [ add
-              { dest
-              ; src1 = base
-              ; src2 = Lit_or_var.Lit (Int64.of_int offset)
-              }
-          ]
+              { dest; src1 = base; src2 = Lit_or_var.Lit (Int64.of_int offset) }
+          ])
       else
         type_error
-          "load_field expected pointer destination for aggregate field but got %s"
+          "load_field expected pointer destination for aggregate field but got \
+           %s"
           (Type.to_string (Var.type_ dest))
     | _ ->
       let%bind field_type = ensure_value_type raw_field_type in
@@ -213,7 +218,9 @@ module Aggregate = struct
       Ok [ load dest (Mem.address base ~offset) ]
   ;;
 
-  let lower_store_field ({ base; src; type_; indices } : store_field) ~fresh_temp
+  let lower_store_field
+    ({ base; src; type_; indices } : store_field)
+    ~fresh_temp
     =
     let%bind () =
       ensure_pointer_operand base ~op:"store_field" ~position:"base"
@@ -233,11 +240,7 @@ module Aggregate = struct
           ~position:"source"
       in
       Ok
-        [ add
-            { dest
-            ; src1 = base
-            ; src2 = Lit_or_var.Lit (Int64.of_int offset)
-            }
+        [ add { dest; src1 = base; src2 = Lit_or_var.Lit (Int64.of_int offset) }
         ; memcpy { dest = Lit_or_var.Var dest; src; type_ = raw_field_type }
         ]
     | _ ->
@@ -292,7 +295,9 @@ module Aggregate = struct
         let%bind field_type = ensure_value_type raw_field_type in
         let temp = fresh_temp ~type_:field_type in
         let load_instr = load temp (Mem.address src ~offset) in
-        let store_instr = store (Lit_or_var.Var temp) (Mem.address dest ~offset) in
+        let store_instr =
+          store (Lit_or_var.Var temp) (Mem.address dest ~offset)
+        in
         emit (store_instr :: load_instr :: acc) rest
     in
     emit [] leaves
@@ -420,7 +425,8 @@ module Type_check = struct
 
   let ensure_value_type type_ =
     if Type.is_aggregate type_
-    then type_error "aggregate values are not supported: %s" (Type.to_string type_)
+    then
+      type_error "aggregate values are not supported: %s" (Type.to_string type_)
     else Ok type_
   ;;
 
@@ -518,9 +524,7 @@ module Type_check = struct
           (Var.name dest)
           (Type.to_string (Var.type_ dest))
     | Var src_var ->
-      if types_compatible
-           ~expected:(Var.type_ dest)
-           ~actual:(Var.type_ src_var)
+      if types_compatible ~expected:(Var.type_ dest) ~actual:(Var.type_ src_var)
       then Ok ()
       else
         type_error
@@ -622,9 +626,7 @@ module Type_check = struct
              "cannot assign literal to global of type %s"
              (Type.to_string global.Global.type_)
        | Var v ->
-         if types_compatible
-              ~expected:global.Global.type_
-              ~actual:(Var.type_ v)
+         if types_compatible ~expected:global.Global.type_ ~actual:(Var.type_ v)
          then Ok ()
          else
            type_error
@@ -652,28 +654,29 @@ module Type_check = struct
       ensure_pointer_operand base ~op:"load_field" ~position:"base"
     in
     let%bind _offset, raw_field_type = field_offset type_ indices in
-    (match raw_field_type with
-     | Tuple _ ->
-       if Type.is_ptr (Var.type_ dest)
-       then
-         ensure_pointer_target
-           (Var.type_ dest)
-           ~expected:raw_field_type
-           ~op:"load_field"
-           ~position:"destination"
-       else
-         type_error
-           "load_field expected pointer destination for aggregate field but got %s"
-           (Type.to_string (Var.type_ dest))
-     | _ ->
-       let%bind field_type = ensure_value_type raw_field_type in
-       if Type.equal (Var.type_ dest) field_type
-       then Ok ()
-       else
-         type_error
-           "load_field expected destination of type %s but got %s"
-           (Type.to_string field_type)
-           (Type.to_string (Var.type_ dest)))
+    match raw_field_type with
+    | Tuple _ ->
+      if Type.is_ptr (Var.type_ dest)
+      then
+        ensure_pointer_target
+          (Var.type_ dest)
+          ~expected:raw_field_type
+          ~op:"load_field"
+          ~position:"destination"
+      else
+        type_error
+          "load_field expected pointer destination for aggregate field but got \
+           %s"
+          (Type.to_string (Var.type_ dest))
+    | _ ->
+      let%bind field_type = ensure_value_type raw_field_type in
+      if Type.equal (Var.type_ dest) field_type
+      then Ok ()
+      else
+        type_error
+          "load_field expected destination of type %s but got %s"
+          (Type.to_string field_type)
+          (Type.to_string (Var.type_ dest))
   ;;
 
   let check_store_field ({ base; src; type_; indices } : store_field) =
@@ -681,31 +684,31 @@ module Type_check = struct
       ensure_pointer_operand base ~op:"store_field" ~position:"base"
     in
     let%bind _offset, raw_field_type = field_offset type_ indices in
-    (match raw_field_type with
-     | Tuple _ ->
-       let%bind () =
-         ensure_pointer_operand src ~op:"store_field" ~position:"source"
-       in
-       (match src with
-        | Lit_or_var.Lit _ -> Ok ()
-        | Var v ->
-          ensure_pointer_target
-            (Var.type_ v)
-            ~expected:raw_field_type
-            ~op:"store_field"
-            ~position:"source"
-        | Global g ->
-          ensure_pointer_target
-            (Type.Ptr_typed g.Global.type_)
-            ~expected:raw_field_type
-            ~op:"store_field"
-            ~position:"source")
-     | _ ->
-       let%bind field_type = ensure_value_type raw_field_type in
-       match src with
+    match raw_field_type with
+    | Tuple _ ->
+      let%bind () =
+        ensure_pointer_operand src ~op:"store_field" ~position:"source"
+      in
+      (match src with
        | Lit_or_var.Lit _ -> Ok ()
-       | Var v when types_compatible ~expected:field_type ~actual:(Var.type_ v) ->
-         Ok ()
+       | Var v ->
+         ensure_pointer_target
+           (Var.type_ v)
+           ~expected:raw_field_type
+           ~op:"store_field"
+           ~position:"source"
+       | Global g ->
+         ensure_pointer_target
+           (Type.Ptr_typed g.Global.type_)
+           ~expected:raw_field_type
+           ~op:"store_field"
+           ~position:"source")
+    | _ ->
+      let%bind field_type = ensure_value_type raw_field_type in
+      (match src with
+       | Lit_or_var.Lit _ -> Ok ()
+       | Var v when types_compatible ~expected:field_type ~actual:(Var.type_ v)
+         -> Ok ()
        | Var v ->
          type_error
            "store_field expected source of type %s but got %s"
@@ -820,8 +823,8 @@ module Type_check = struct
      ; desired
      ; success_order = _
      ; failure_order = _
-     }
-    : atomic_cmpxchg)
+     } :
+      atomic_cmpxchg)
     =
     let%bind () = ensure_pointer_mem addr ~op:"atomic_cmpxchg" in
     let dest_type = Var.type_ dest in
@@ -858,13 +861,13 @@ module Type_check = struct
   ;;
 
   let check_call_block_args (call_block : Block.t Call_block.t) =
-    let formal_args = Vec.to_list call_block.block.Block.args in
+    let formal_args = Vec.to_list (Block.args call_block.block) in
     let actual_args = call_block.args in
     if Int.O.(List.length formal_args <> List.length actual_args)
     then
       type_error
         "block %s expects %d arguments but received %d"
-        call_block.block.Block.id_hum
+        (Block.id_hum call_block.block)
         (List.length formal_args)
         (List.length actual_args)
     else
@@ -879,7 +882,7 @@ module Type_check = struct
           else
             type_error
               "block %s expects arg %s:%s but received %s:%s"
-              call_block.block.Block.id_hum
+              (Block.id_hum call_block.block)
               (Var.name formal)
               (Type.to_string (Var.type_ formal))
               (Var.name actual)
@@ -925,7 +928,7 @@ end
 
 let check_types = Type_check.check
 
-let lower_aggregates ~root =
+let lower_aggregates ~fn_state ~root =
   let add_var used var = Core.Hash_set.add used (Var.name var) in
   let blocks =
     let seen = Core.Hash_set.Poly.create () in
@@ -935,18 +938,18 @@ let lower_aggregates ~root =
       else (
         Core.Hash_set.Poly.add seen block;
         let acc = block :: acc in
-        Vec.fold block.Block.children ~init:acc ~f:collect)
+        Vec.fold (Block.children block) ~init:acc ~f:collect)
     in
     collect [] root |> List.rev
   in
   let used_names = String.Hash_set.create () in
   List.iter blocks ~f:(fun block ->
-    Vec.iter block.Block.args ~f:(add_var used_names);
+    Block.args block |> Vec.iter ~f:(add_var used_names);
     let add_instr_vars instr =
-      List.iter (vars instr) ~f:(add_var used_names)
+      List.iter (vars instr.Instr_state.ir) ~f:(add_var used_names)
     in
-    Vec.iter block.Block.instructions ~f:add_instr_vars;
-    add_instr_vars block.Block.terminal);
+    Instr_state.iter (Block.instructions block) ~f:add_instr_vars;
+    add_instr_vars (Block.terminal block));
   let counter = ref 0 in
   let fresh_temp ~type_ =
     let rec next_name () =
@@ -961,27 +964,36 @@ let lower_aggregates ~root =
   List.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
     let open Result.Let_syntax in
     let%bind () = acc in
-    let new_instrs = Vec.create () in
     let%bind () =
-      Vec.fold block.Block.instructions ~init:(Ok ()) ~f:(fun acc instr ->
+      Block.instructions block
+      |> Instr_state.to_list
+      |> List.fold ~init:(Ok ()) ~f:(fun acc instr ->
         let%bind () = acc in
-        match Aggregate.lower_instruction ~fresh_temp instr with
-        | Ok instrs ->
-          List.iter instrs ~f:(Vec.push new_instrs);
+        match Aggregate.lower_instruction ~fresh_temp instr.ir with
+        | Ok irs ->
+          let instrs =
+            List.map irs ~f:(fun ir -> Fn_state.alloc_instr fn_state ~ir)
+          in
+          Fn_state.replace_instr fn_state ~block ~instr ~with_instrs:instrs;
           Ok ()
-        | Error err ->
-          Error (`Type_mismatch (Error.to_string_hum err)))
+        | Error err -> Error (`Type_mismatch (Error.to_string_hum err)))
     in
-    block.Block.instructions <- new_instrs;
     let%bind () =
-      match Aggregate.lower_instruction ~fresh_temp block.Block.terminal with
-      | Ok [ instr ] ->
-        if is_terminal instr
+      match
+        Aggregate.lower_instruction ~fresh_temp (Block.terminal block).ir
+      with
+      | Ok [ ir ] ->
+        if is_terminal ir
         then (
-          block.terminal <- instr;
+          Fn_state.replace_terminal
+            fn_state
+            ~block
+            ~with_:(Fn_state.alloc_instr fn_state ~ir);
           Ok ())
         else Error (`Type_mismatch "aggregate instruction cannot be terminal")
-      | Ok _ -> Error (`Type_mismatch "aggregate instruction cannot be terminal")
+      | Ok _ ->
+        Error (`Type_mismatch "aggregate instruction cannot be terminal")
       | Error err -> Error (`Type_mismatch (Error.to_string_hum err))
     in
     Ok ())
+;;
