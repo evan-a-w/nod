@@ -450,7 +450,7 @@ let iter_call_blocks t ~f =
   | Call _ -> ()
 ;;
 
-let map_blocks (t : 'a t) ~f : 'b t =
+let map_blocks (t : ('var, 'a) t) ~f : ('var, 'b) t =
   match t with
   | And a -> And a
   | Or a -> Or a
