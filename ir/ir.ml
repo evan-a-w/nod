@@ -1,5 +1,4 @@
 open! Core
-open! Import
 include Ir0
 module Block = Block
 module Call_block = Call_block

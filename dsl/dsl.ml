@@ -305,7 +305,7 @@ module Field = struct
 
   type 'a field_access =
     { always_have : 'a
-    ; type_ : Nod_core.Type.t option
+    ; type_ : Nod_common.Type.t option
     ; indices : int list
     }
 

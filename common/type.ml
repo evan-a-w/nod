@@ -78,7 +78,9 @@ let rec align_of = function
 ;;
 
 let align_up value alignment =
-  if alignment = 0 then value else ((value + alignment - 1) / alignment) * alignment
+  if alignment = 0
+  then value
+  else (value + alignment - 1) / alignment * alignment
 ;;
 
 let rec size_in_bytes = function
@@ -140,6 +142,7 @@ let rec fold_leaves type_ ~offset acc ~f =
 ;;
 
 let leaf_offsets type_ =
-  fold_leaves type_ ~offset:0 [] ~f:(fun ~offset acc leaf -> (offset, leaf) :: acc)
+  fold_leaves type_ ~offset:0 [] ~f:(fun ~offset acc leaf ->
+    (offset, leaf) :: acc)
   |> List.rev
 ;;
