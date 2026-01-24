@@ -23,15 +23,15 @@ let map_vars t ~f =
   match t with
   | Address { base; offset } ->
     Address { base = Lit_or_var.map_vars base ~f; offset }
-  | Stack_slot _ -> t
-  | Global _ -> t
+  | Stack_slot s -> Stack_slot s
+  | Global g -> Global g
 ;;
 
 let map_lit_or_vars t ~f =
   match t with
   | Address { base; offset } -> Address { base = f base; offset }
-  | Stack_slot _ -> t
-  | Global _ -> t
+  | Stack_slot s -> Stack_slot s
+  | Global g -> Global g
 ;;
 
 let address ?(offset = 0) base = Address { base; offset }

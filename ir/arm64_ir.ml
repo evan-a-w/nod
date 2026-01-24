@@ -293,30 +293,20 @@ let map_reg (reg : 'var Reg.t) ~f =
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
-  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> target
+  | Jump_target.Imm i -> Jump_target.Imm i
+  | Jump_target.Symbol s -> Jump_target.Symbol s
+  | Jump_target.Label l -> Jump_target.Label l
 ;;
 
 let map_var_operand op ~f =
   match op with
-  | Reg r -> map_reg r ~f
-  | Imm _ | Spill_slot _ -> op
-  | Mem (r, disp) ->
-    (match map_reg r ~f with
-     | Reg r -> Mem (r, disp)
-     | _ -> failwith "expected register operand")
+  | Reg r -> Reg (Reg.map_vars r ~f)
+  | Imm i -> Imm i
+  | Spill_slot s -> Spill_slot s
+  | Mem (r, disp) -> Mem (Reg.map_vars r ~f, disp)
 ;;
 
-let map_virtual_reg reg ~f =
-  match Reg.raw reg with
-  | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
-  | Raw.Allocated (v, forced) ->
-    let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
-    in
-    Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
-  | _ -> reg
-;;
-
+let map_virtual_reg reg ~f = Reg.map_vars reg ~f
 let map_def_reg = map_virtual_reg
 let map_use_reg = map_virtual_reg
 
@@ -786,8 +776,6 @@ let rec call_blocks = function
   | Jump cb -> [ cb ]
   | _ -> []
 ;;
-
-let map_lit_or_vars t ~f:_ = t
 
 let rec is_terminal = function
   | Save_clobbers | Restore_clobbers | Nop | Label _ -> false

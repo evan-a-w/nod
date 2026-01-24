@@ -82,6 +82,77 @@ module Raw = struct
     | Allocated of 'var * 'var t option
   [@@deriving sexp, equal, compare, hash, variants]
 
+  let rec map_vars t ~f =
+    match t with
+    | Unallocated var -> Unallocated (f var)
+    | Allocated (var, var2) ->
+      Allocated (f var, Option.map ~f:(map_vars ~f) var2)
+    | SP -> SP
+    | X0 -> X0
+    | X1 -> X1
+    | X2 -> X2
+    | X3 -> X3
+    | X4 -> X4
+    | X5 -> X5
+    | X6 -> X6
+    | X7 -> X7
+    | X8 -> X8
+    | X9 -> X9
+    | X10 -> X10
+    | X11 -> X11
+    | X12 -> X12
+    | X13 -> X13
+    | X14 -> X14
+    | X15 -> X15
+    | X16 -> X16
+    | X17 -> X17
+    | X18 -> X18
+    | X19 -> X19
+    | X20 -> X20
+    | X21 -> X21
+    | X22 -> X22
+    | X23 -> X23
+    | X24 -> X24
+    | X25 -> X25
+    | X26 -> X26
+    | X27 -> X27
+    | X28 -> X28
+    | X29 -> X29
+    | X30 -> X30
+    | D0 -> D0
+    | D1 -> D1
+    | D2 -> D2
+    | D3 -> D3
+    | D4 -> D4
+    | D5 -> D5
+    | D6 -> D6
+    | D7 -> D7
+    | D8 -> D8
+    | D9 -> D9
+    | D10 -> D10
+    | D11 -> D11
+    | D12 -> D12
+    | D13 -> D13
+    | D14 -> D14
+    | D15 -> D15
+    | D16 -> D16
+    | D17 -> D17
+    | D18 -> D18
+    | D19 -> D19
+    | D20 -> D20
+    | D21 -> D21
+    | D22 -> D22
+    | D23 -> D23
+    | D24 -> D24
+    | D25 -> D25
+    | D26 -> D26
+    | D27 -> D27
+    | D28 -> D28
+    | D29 -> D29
+    | D30 -> D30
+    | D31 -> D31
+  ;;
+
   let all_physical =
     [ SP
     ; X0
@@ -569,3 +640,5 @@ let allocable ~class_ =
     ; d28
     ]
 ;;
+
+let map_vars t ~f = { reg = Raw.map_vars t.reg ~f; class_ = t.class_ }
