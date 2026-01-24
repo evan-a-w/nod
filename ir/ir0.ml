@@ -1,49 +1,50 @@
 open! Core
 open! Import
+include Ir_helpers
 
 type ('var, 'block) t =
   | Noop
-  | And of arith
-  | Or of arith
-  | Add of arith
-  | Sub of arith
-  | Mul of arith
-  | Div of arith
-  | Mod of arith
-  | Lt of arith (* signed less than: dest = 1 if src1 < src2, else 0 *)
-  | Fadd of arith
-  | Fsub of arith
-  | Fmul of arith
-  | Fdiv of arith
-  | Alloca of alloca
+  | And of 'var arith
+  | Or of 'var arith
+  | Add of 'var arith
+  | Sub of 'var arith
+  | Mul of 'var arith
+  | Div of 'var arith
+  | Mod of 'var arith
+  | Lt of 'var arith (* signed less than: dest = 1 if src1 < src2, else 0 *)
+  | Fadd of 'var arith
+  | Fsub of 'var arith
+  | Fmul of 'var arith
+  | Fdiv of 'var arith
+  | Alloca of 'var alloca
   | Call of
       { fn : string
-      ; results : Var.t list
-      ; args : Lit_or_var.t list
+      ; results : 'var list
+      ; args : 'var Lit_or_var.t list
       }
-  | Load of Var.t * Mem.t
-  | Store of Lit_or_var.t * Mem.t
-  | Load_field of load_field
-  | Store_field of store_field
-  | Memcpy of memcpy
-  | Atomic_load of atomic_load
-  | Atomic_store of atomic_store
-  | Atomic_rmw of atomic_rmw
-  | Atomic_cmpxchg of atomic_cmpxchg
-  | Move of Var.t * Lit_or_var.t
-  | Cast of Var.t * Lit_or_var.t
+  | Load of 'var * 'var Mem.t
+  | Store of 'var Lit_or_var.t * 'var Mem.t
+  | Load_field of 'var load_field
+  | Store_field of 'var store_field
+  | Memcpy of 'var memcpy
+  | Atomic_load of 'var atomic_load
+  | Atomic_store of 'var atomic_store
+  | Atomic_rmw of 'var atomic_rmw
+  | Atomic_cmpxchg of 'var atomic_cmpxchg
+  | Move of 'var * 'var Lit_or_var.t
+  | Cast of 'var * 'var Lit_or_var.t
   (* Cast performs type conversion between different types:
      - Int -> Float: sign-extends and converts (cvtsi2sd/cvtsi2ss)
      - Float -> Int: truncates toward zero, overflow saturates (cvttsd2si/cvttss2si)
      - Float <-> Float: precision change, rounds to nearest (cvtsd2ss/cvtss2sd)
      - Int -> Int: truncate (larger -> smaller) or sign-extend (smaller -> larger)
   *)
-  | Branch of 'block Branch.t
-  | Return of Lit_or_var.t
-  | Arm64 of 'block Arm64_ir.t
-  | Arm64_terminal of 'block Arm64_ir.t list
-  | X86 of 'block X86_ir.t
-  | X86_terminal of 'block X86_ir.t list
+  | Branch of ('var, 'block) Branch.t
+  | Return of 'var Lit_or_var.t
+  | Arm64 of ('var, 'block) Arm64_ir.t
+  | Arm64_terminal of ('var, 'block) Arm64_ir.t list
+  | X86 of ('var, 'block) X86_ir.t
+  | X86_terminal of ('var, 'block) X86_ir.t list
   | Unreachable
 [@@deriving sexp, compare, equal, variants, hash]
 
@@ -127,16 +128,10 @@ let constant = function
 ;;
 
 let defs = function
-  | Arm64 arm64_ir -> Arm64_ir.defs arm64_ir |> Set.to_list
-  | Arm64_terminal arm64_irs ->
-    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.defs)
-    |> Var.Set.of_list
-    |> Set.to_list
-  | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
-  | X86_terminal x86_irs ->
-    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
-    |> Var.Set.of_list
-    |> Set.to_list
+  | Arm64 arm64_ir -> Arm64_ir.defs arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map arm64_irs ~f:Arm64_ir.defs
+  | X86 x86_ir -> X86_ir.defs x86_ir
+  | X86_terminal x86_irs -> List.concat_map x86_irs ~f:X86_ir.defs
   | Alloca a -> [ a.dest ]
   | And a
   | Or a
@@ -201,16 +196,10 @@ let blocks = function
 ;;
 
 let uses = function
-  | Arm64 arm64_ir -> Arm64_ir.uses arm64_ir |> Set.to_list
-  | Arm64_terminal arm64_irs ->
-    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.uses)
-    |> Var.Set.of_list
-    |> Set.to_list
-  | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
-  | X86_terminal x86_irs ->
-    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
-    |> Var.Set.of_list
-    |> Set.to_list
+  | Arm64 arm64_ir -> Arm64_ir.uses arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map arm64_irs ~f:Arm64_ir.uses
+  | X86 x86_ir -> X86_ir.uses x86_ir
+  | X86_terminal x86_irs -> List.concat_map x86_irs ~f:X86_ir.uses
   | Alloca a -> Lit_or_var.vars a.size
   | Add a
   | Sub a
@@ -235,52 +224,39 @@ let uses = function
   | Atomic_cmpxchg a ->
     Lit_or_var.vars a.expected @ Lit_or_var.vars a.desired @ Mem.vars a.addr
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
-  | Call { args; _ } ->
-    List.concat_map args ~f:Lit_or_var.vars |> Var.Set.of_list |> Set.to_list
+  | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
   | Unreachable | Noop -> []
 ;;
 
-let vars t =
-  Set.union (Var.Set.of_list (uses t)) (Var.Set.of_list (defs t)) |> Set.to_list
-;;
+let vars t = uses t @ defs t
 
 let x86_regs t =
   match t with
   | X86 x86 -> X86_ir.regs x86
-  | X86_terminal x86s ->
-    List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s
-    |> X86_ir.Reg.Set.union_list
-    |> Set.to_list
+  | X86_terminal x86s -> List.concat_map x86s ~f:X86_ir.regs
   | _ -> []
 ;;
 
 let x86_reg_defs t =
   match t with
-  | X86 x86 -> X86_ir.reg_defs x86 |> Set.to_list
-  | X86_terminal x86s ->
-    List.map ~f:X86_ir.reg_defs x86s |> X86_ir.Reg.Set.union_list |> Set.to_list
+  | X86 x86 -> X86_ir.reg_defs x86
+  | X86_terminal x86s -> List.concat_map x86s ~f:X86_ir.reg_defs
   | _ -> []
 ;;
 
 let arm64_regs t =
   match t with
   | Arm64 arm64 -> Arm64_ir.regs arm64
-  | Arm64_terminal arm64s ->
-    List.map ~f:(Fn.compose Arm64_ir.Reg.Set.of_list Arm64_ir.regs) arm64s
-    |> Arm64_ir.Reg.Set.union_list
-    |> Set.to_list
+  | Arm64_terminal arm64s -> List.concat_map arm64s ~f:Arm64_ir.regs
   | _ -> []
 ;;
 
 let arm64_reg_defs t =
   match t with
-  | Arm64 arm64 -> Arm64_ir.reg_defs arm64 |> Set.to_list
-  | Arm64_terminal arm64s ->
-    List.map ~f:Arm64_ir.reg_defs arm64s
-    |> Arm64_ir.Reg.Set.union_list
-    |> Set.to_list
+  | Arm64 arm64 -> Arm64_ir.reg_defs arm64
+  | Arm64_terminal arm64s -> List.concat_map arm64s ~f:Arm64_ir.reg_defs
   | _ -> []
 ;;
 
@@ -612,8 +588,8 @@ let map_arm64_operands t ~f =
 ;;
 
 let uses_ex_args t =
-  Set.diff
-    (uses t |> Var.Set.of_list)
-    (List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
-     |> Var.Set.of_list)
+  let args =
+    List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
+  in
+  List.filter (uses t) ~f:(fun var -> not (List.mem args var ~equal:Poly.equal))
 ;;

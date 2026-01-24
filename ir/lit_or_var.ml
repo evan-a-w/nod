@@ -20,14 +20,14 @@ let map_vars t ~f =
   | Global _ -> t
 ;;
 
-let to_x86_ir_operand t : X86_ir.operand =
+let to_x86_ir_operand t : 'var X86_ir.operand =
   match t with
   | Lit l -> Imm l
   | Var v -> Reg (X86_reg.unallocated v)
   | Global _ -> failwith "cannot convert global operand without lowering"
 ;;
 
-let to_arm64_ir_operand t : Arm64_ir.operand =
+let to_arm64_ir_operand t : 'var Arm64_ir.operand =
   match t with
   | Lit l -> Arm64_ir.Imm l
   | Var v -> Arm64_ir.Reg (Arm64_reg.unallocated v)

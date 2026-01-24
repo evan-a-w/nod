@@ -1,15 +1,15 @@
 open! Core
 open! Import
 
-type address =
-  { base : Lit_or_var.t
+type 'var address =
+  { base : 'var Lit_or_var.t
   ; offset : int
   }
 [@@deriving sexp, compare, equal, hash]
 
-type t =
+type 'var t =
   | Stack_slot of int (* bytes *)
-  | Address of address
+  | Address of 'var address
   | Global of Global.t
 [@@deriving sexp, compare, equal, hash]
 
@@ -36,7 +36,7 @@ let map_lit_or_vars t ~f =
 
 let address ?(offset = 0) base = Address { base; offset }
 
-let to_x86_ir_operand t : X86_ir.operand =
+let to_x86_ir_operand t : 'var X86_ir.operand =
   match t with
   | Address { base = Lit_or_var.Var v; offset } ->
     Mem (X86_reg.unallocated v, offset)
@@ -50,7 +50,8 @@ let to_x86_ir_operand t : X86_ir.operand =
     failwith "cannot convert literal address without lowering"
 ;;
 
-let to_arm64_ir_operand = function
+let to_arm64_ir_operand t : 'var Arm64_ir.operand =
+  match t with
   | Stack_slot i -> Arm64_ir.Mem (Arm64_reg.fp, i)
   | Address { base = Lit_or_var.Var v; offset } ->
     Arm64_ir.Mem (Arm64_reg.unallocated v, offset)

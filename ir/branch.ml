@@ -3,11 +3,11 @@ open! Import
 
 type ('var, 'block) t =
   | Cond of
-      { cond : Lit_or_var.t
-      ; if_true : 'block Call_block.t
-      ; if_false : 'block Call_block.t
+      { cond : 'var Lit_or_var.t
+      ; if_true : ('var, 'block) Call_block.t
+      ; if_false : ('var, 'block) Call_block.t
       }
-  | Uncond of 'block Call_block.t
+  | Uncond of ('var, 'block) Call_block.t
 [@@deriving sexp, compare, equal, hash]
 
 let filter_map_call_blocks t ~f =
@@ -43,8 +43,6 @@ let uses = function
       ; Call_block.uses if_true
       ; Call_block.uses if_false
       ]
-    |> Var.Set.of_list
-    |> Set.to_list
   | Uncond call -> Call_block.uses call
 ;;
 
