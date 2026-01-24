@@ -297,14 +297,17 @@ module Opt = struct
                     match loc.Loc.where with
                     | Loc.Block_arg _ -> true
                     | Instr instr_id ->
-                      not (Instr_id.equal instr_id parent_terminal.Instr_state.id));
+                      not
+                        (Instr_id.equal instr_id parent_terminal.Instr_state.id));
                   Queue.enqueue found opt_var;
                   false)
           })
     in
     Fn_state.replace_terminal_ir (fn_state t.ssa) ~block:parent ~with_:new_ir;
     let new_terminal = Block.terminal parent in
-    let loc = { Loc.where = Instr new_terminal.Instr_state.id; block = parent } in
+    let loc =
+      { Loc.where = Instr new_terminal.Instr_state.id; block = parent }
+    in
     Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
       Hash_set.add opt_var.uses loc);
     Queue.iter found ~f:(fun (opt_var : Opt_var.t) ->
@@ -456,7 +459,7 @@ module Opt = struct
       t
       ~old_instr_id:old_instr.Instr_state.id
       ~old_ir:old_instr.Instr_state.ir
-      ~new_ir:new_ir
+      ~new_ir
       ~loc:var.loc
   ;;
 
@@ -469,10 +472,10 @@ module Opt = struct
       List.filter old_blocks ~f:(fun block' ->
         not (List.mem new_blocks block' ~equal:phys_equal))
     in
-    Vec.switch (Block.children block) (Vec.of_list new_blocks);
+    Vec.switch (Block.Expert.children block) (Vec.of_list new_blocks);
     List.iter diff ~f:(fun block' ->
       Vec.switch
-        (Block.parents block')
+        (Block.Expert.parents block')
         (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
     Fn_state.replace_terminal_ir (fn_state t.ssa) ~block ~with_:new_terminal_ir;
     let new_terminal = Block.terminal block in
@@ -521,7 +524,9 @@ module Opt = struct
     | None -> ()
     | Some _ as constant ->
       var.tags <- { constant };
-      let terminal_uses = Ir.uses (Block.terminal var.loc.block).Instr_state.ir in
+      let terminal_uses =
+        Ir.uses (Block.terminal var.loc.block).Instr_state.ir
+      in
       if List.exists terminal_uses ~f:(fun use ->
            String.equal (Var.name use) var.id)
       then refine_terminal t ~block:var.loc.block
@@ -575,9 +580,12 @@ let set_entry_block_args program ~state =
 let type_check_block block =
   let open Result.Let_syntax in
   let%bind () =
-    Instr_state.fold (Block.instructions block) ~init:(Ok ()) ~f:(fun acc instr ->
-      let%bind () = acc in
-      Ir.check_types instr.Instr_state.ir)
+    Instr_state.fold
+      (Block.instructions block)
+      ~init:(Ok ())
+      ~f:(fun acc instr ->
+        let%bind () = acc in
+        Ir.check_types instr.Instr_state.ir)
   in
   Ir.check_types (Block.terminal block).Instr_state.ir
 ;;

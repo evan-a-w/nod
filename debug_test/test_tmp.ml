@@ -58,7 +58,7 @@ let test_ssa ?don't_opt s =
             print_s
               [%message
                 (Block.id_hum block)
-                  ~args:(Block.args block : Var.t Vec.t)
+                  ~args:(Block.args block : Var.t Vec.read)
                   (instrs : Ir.t list)]))
     in
     go program;
@@ -138,8 +138,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
         child_state
         ~id_hum:"%root"
         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
-        ~instrs:
-          [ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
+        ~instrs:[ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
     in
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
@@ -298,8 +297,7 @@ let%expect_test "print helper" =
       child_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
-      ~instrs:
-        [ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
+      ~instrs:[ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
   in
   let child =
     make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
@@ -316,10 +314,7 @@ let%expect_test "print helper" =
         ; Ir.store
             (Ir.Lit_or_var.Lit 41L)
             (Ir.Mem.address (Ir.Lit_or_var.Var slot))
-        ; Ir.call
-            ~fn:"child"
-            ~results:[ res ]
-            ~args:[ Ir.Lit_or_var.Var slot ]
+        ; Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]
         ]
   in
   let root =

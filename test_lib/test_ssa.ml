@@ -27,17 +27,19 @@ let test ?don't_opt s =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     let go program =
-      Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
-        Vec.iter ssa.in_order ~f:(fun block ->
-          let instrs =
-            Instr_state.to_ir_list (Block.instructions block)
-            @ [ (Block.terminal block).Instr_state.ir ]
-          in
-          print_s
-            [%message
-              (Block.id_hum block)
-                ~args:(Block.args block : Var.t Vec.t)
-                (instrs : Ir.t list)]))
+      Map.iter
+        program.Program.functions
+        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+          Vec.iter ssa.in_order ~f:(fun block ->
+            let instrs =
+              Instr_state.to_ir_list (Block.instructions block)
+              @ [ (Block.terminal block).Instr_state.ir ]
+            in
+            print_s
+              [%message
+                (Block.id_hum block)
+                  ~args:(Block.args block : Var.t Vec.read)
+                  (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
@@ -76,7 +78,7 @@ let%expect_test "eir compile with args" =
       print_s
         [%message
           (Block.id_hum block)
-            ~args:(Block.args block : Var.t Vec.t)
+            ~args:(Block.args block : Var.t Vec.read)
             (instrs : Ir.t list)]);
     [%expect
       {|
