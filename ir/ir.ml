@@ -665,9 +665,10 @@ let map_arm64_operands t ~f =
   | _ -> t
 ;;
 
-let uses_ex_args t =
+let uses_ex_args t ~compare_var =
+  let equal a b = compare_var a b = 0 in
   let args =
     List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
   in
-  List.filter (uses t) ~f:(fun var -> not (List.mem args var ~equal:Poly.equal))
+  List.filter (uses t) ~f:(fun var -> not (List.mem args var ~equal))
 ;;
