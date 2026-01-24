@@ -259,7 +259,14 @@ let rec map_var_operands ins ~f =
      | _ -> failwith "expected reg operand in POP")
   | CMP (a, b) -> CMP (map_var_operand a ~f, map_var_operand b ~f)
   | RET ops -> RET (List.map ~f:(map_var_operand ~f) ops)
-  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> ins (* no virtual‑uses *)
+  | JE (lbl, next) ->
+    let map_cb cb = Call_block.map_uses cb ~f in
+    JE (map_cb lbl, Option.map next ~f:map_cb)
+  | JNE (lbl, next) ->
+    let map_cb cb = Call_block.map_uses cb ~f in
+    JNE (map_cb lbl, Option.map next ~f:map_cb)
+  | JMP lbl -> JMP (Call_block.map_uses lbl ~f)
+  | NOOP | LABEL _ -> ins (* no virtual‑uses *)
 ;;
 
 let var_of_reg (reg : 'var Reg.t) =
