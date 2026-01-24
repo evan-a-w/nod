@@ -55,6 +55,7 @@ module Raw : sig
   val class_ : 'var t -> [ `Physical of Class.t | `Variable ]
   val to_id : var_id:('var -> int) -> 'var t -> int
   val of_id : id_var:(int -> 'var) -> int -> 'var t
+  val map_vars : 'var t -> f:('var -> 'var2) -> 'var2 t
 end
 
 type 'var t =
@@ -71,7 +72,6 @@ val with_class : 'var t -> Class.t -> 'var t
 val with_raw : 'var t -> 'var Raw.t -> 'var t
 val unallocated : ?class_:Class.t -> 'var -> 'var t
 val allocated : class_:Class.t -> 'var -> 'var t option -> 'var t
-
 val rbp : 'var t
 val rsp : 'var t
 val rax : 'var t
@@ -104,9 +104,9 @@ val xmm12 : 'var t
 val xmm13 : 'var t
 val xmm14 : 'var t
 val xmm15 : 'var t
-
 val arguments : call_conv:Call_conv.t -> Class.t -> 'var t list
 val callee_saved : call_conv:Call_conv.t -> Class.t -> 'var t list
 val results : call_conv:Call_conv.t -> Class.t -> 'var t list
 val all_physical : 'var t list
 val allocable : class_:Class.t -> 'var t list
+val map_vars : 'var t -> f:('var -> 'var2) -> 'var2 t

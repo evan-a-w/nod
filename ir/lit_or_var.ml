@@ -15,9 +15,9 @@ let vars = function
 
 let map_vars t ~f =
   match t with
-  | Lit _ -> t
+  | Lit l -> Lit l
   | Var v -> Var (f v)
-  | Global _ -> t
+  | Global g -> Global g
 ;;
 
 let to_x86_ir_operand t : 'var X86_ir.operand =

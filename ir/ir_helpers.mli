@@ -19,12 +19,13 @@ type 'var arith =
   }
 [@@deriving sexp, compare, equal, hash]
 
-val map_arith_defs : 'var arith -> f:('var -> 'var) -> 'var arith
-val map_arith_uses : 'var arith -> f:('var -> 'var) -> 'var arith
+val map_arith_defs : 'var arith -> f:('var -> 'var2) -> 'var2 arith
+val map_arith_uses : 'var arith -> f:('var -> 'var2) -> 'var2 arith
+
 val map_arith_lit_or_vars
   :  'var arith
-  -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
-  -> 'var arith
+  -> f:('var Lit_or_var.t -> 'var2 Lit_or_var.t)
+  -> 'var2 arith
 
 type 'var alloca =
   { dest : 'var
@@ -32,8 +33,9 @@ type 'var alloca =
   }
 [@@deriving sexp, compare, equal, hash]
 
-val map_alloca_defs : 'var alloca -> f:('var -> 'var) -> 'var alloca
-val map_alloca_uses : 'var alloca -> f:('var -> 'var) -> 'var alloca
+val map_alloca_defs : 'var alloca -> f:('var -> 'var2) -> 'var2 alloca
+val map_alloca_uses : 'var alloca -> f:('var -> 'var2) -> 'var2 alloca
+
 val map_alloca_lit_or_vars
   :  'var alloca
   -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
@@ -98,6 +100,7 @@ type 'var atomic_cmpxchg =
 
 val map_load_field_defs : 'var load_field -> f:('var -> 'var) -> 'var load_field
 val map_load_field_uses : 'var load_field -> f:('var -> 'var) -> 'var load_field
+
 val map_load_field_lit_or_vars
   :  'var load_field
   -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
@@ -114,6 +117,7 @@ val map_store_field_lit_or_vars
   -> 'var store_field
 
 val map_memcpy_uses : 'var memcpy -> f:('var -> 'var) -> 'var memcpy
+
 val map_memcpy_lit_or_vars
   :  'var memcpy
   -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
@@ -139,15 +143,8 @@ val map_atomic_store_lit_or_vars
   -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
   -> 'var atomic_store
 
-val map_atomic_rmw_defs
-  :  'var atomic_rmw
-  -> f:('var -> 'var)
-  -> 'var atomic_rmw
-
-val map_atomic_rmw_uses
-  :  'var atomic_rmw
-  -> f:('var -> 'var)
-  -> 'var atomic_rmw
+val map_atomic_rmw_defs : 'var atomic_rmw -> f:('var -> 'var) -> 'var atomic_rmw
+val map_atomic_rmw_uses : 'var atomic_rmw -> f:('var -> 'var) -> 'var atomic_rmw
 
 val map_atomic_rmw_lit_or_vars
   :  'var atomic_rmw

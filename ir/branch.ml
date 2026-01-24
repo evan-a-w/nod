@@ -46,7 +46,8 @@ let uses = function
   | Uncond call -> Call_block.uses call
 ;;
 
-let map_uses ~f = function
+let map_uses t ~f =
+  match t with
   | Cond { cond; if_true; if_false } ->
     Cond
       { cond = Lit_or_var.map_vars ~f cond
@@ -56,7 +57,8 @@ let map_uses ~f = function
   | Uncond call -> Uncond (Call_block.map_uses call ~f)
 ;;
 
-let map_blocks ~f = function
+let map_blocks t ~f =
+  match t with
   | Cond { cond; if_true; if_false } ->
     Cond
       { cond
@@ -66,14 +68,16 @@ let map_blocks ~f = function
   | Uncond call -> Uncond (Call_block.map_blocks call ~f)
 ;;
 
-let iter_call_blocks ~f = function
+let iter_call_blocks t ~f =
+  match t with
   | Cond { cond = _; if_true; if_false } ->
     f if_true;
     f if_false
   | Uncond call -> f call
 ;;
 
-let map_call_blocks ~f = function
+let map_call_blocks t ~f =
+  match t with
   | Cond { cond; if_true; if_false } ->
     Cond { cond; if_true = f if_true; if_false = f if_false }
   | Uncond call -> Uncond (f call)

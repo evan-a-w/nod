@@ -336,7 +336,8 @@ let map_uses t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_uses ~f) x86_irs)
-  | Unreachable | Noop -> t
+  | Unreachable -> Unreachable
+  | Noop -> Noop
 ;;
 
 let map_vars t ~f =
@@ -357,24 +358,17 @@ let map_vars t ~f =
   let map_memcpy { dest; src; type_ } =
     { dest = map_lit_or_var dest; src = map_lit_or_var src; type_ }
   in
-  let map_atomic_load { dest; addr; order } =
+  let map_atomic_load ({ dest; addr; order } : _ atomic_load) : _ atomic_load =
     { dest = f dest; addr = map_mem addr; order }
   in
-  let map_atomic_store { addr; src; order } =
+  let map_atomic_store ({ addr; src; order } : _ atomic_store) : _ atomic_store =
     { addr = map_mem addr; src = map_lit_or_var src; order }
   in
   let map_atomic_rmw { dest; addr; src; op; order } =
     { dest = f dest; addr = map_mem addr; src = map_lit_or_var src; op; order }
   in
   let map_atomic_cmpxchg
-    { dest
-    ; success
-    ; addr
-    ; expected
-    ; desired
-    ; success_order
-    ; failure_order
-    }
+    { dest; success; addr; expected; desired; success_order; failure_order }
     =
     { dest = f dest
     ; success = f success
@@ -413,7 +407,10 @@ let map_vars t ~f =
   | Cast (var, b) -> Cast (f var, map_lit_or_var b)
   | Call { fn; results; args } ->
     Call
-      { fn; results = List.map results ~f; args = List.map args ~f:map_lit_or_var }
+      { fn
+      ; results = List.map results ~f
+      ; args = List.map args ~f:map_lit_or_var
+      }
   | Branch b -> Branch (Branch.map_uses b ~f)
   | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_var_operands arm64_ir ~f)
   | Arm64_terminal arm64_irs ->
@@ -605,12 +602,7 @@ let map_lit_or_vars t ~f =
   | Return var -> Return (f var)
   | Noop -> Noop
   | Unreachable -> Unreachable
-  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_lit_or_vars arm64_ir ~f)
-  | Arm64_terminal arm64_irs ->
-    Arm64_terminal (List.map ~f:(Arm64_ir.map_lit_or_vars ~f) arm64_irs)
-  | X86 x86_ir -> X86 (X86_ir.map_lit_or_vars x86_ir ~f)
-  | X86_terminal x86_irs ->
-    X86_terminal (List.map ~f:(X86_ir.map_lit_or_vars ~f) x86_irs)
+  | Arm64 _ | Arm64_terminal _ | X86 _ | X86_terminal _ -> t
 ;;
 
 let jump_to block' =

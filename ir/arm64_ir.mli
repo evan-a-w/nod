@@ -1,6 +1,5 @@
 open! Core
 open! Import
-
 module Reg = Arm64_reg
 
 module Jump_target : sig
@@ -166,7 +165,12 @@ type ('var, 'block) t =
 [@@deriving sexp, equal, compare, hash, variants]
 
 val fn : ('var, 'block) t -> string option
-val map_var_operands : ('var, 'block) t -> f:('var -> 'var2) -> ('var2, 'block) t
+
+val map_var_operands
+  :  ('var, 'block) t
+  -> f:('var -> 'var2)
+  -> ('var2, 'block) t
+
 val map_operands
   :  ('var, 'block) t
   -> f:('var operand -> 'var operand)
@@ -177,7 +181,10 @@ val map_call_blocks
   -> f:(('var, 'block) Call_block.t -> ('var, 'block2) Call_block.t)
   -> ('var, 'block2) t
 
-val iter_call_blocks : ('var, 'block) t -> f:(('var, 'block) Call_block.t -> unit) -> unit
+val iter_call_blocks
+  :  ('var, 'block) t
+  -> f:(('var, 'block) Call_block.t -> unit)
+  -> unit
 
 val filter_map_call_blocks
   :  ('var, 'block) t
@@ -187,17 +194,13 @@ val filter_map_call_blocks
 val map_blocks : ('var, 'block) t -> f:('block -> 'block2) -> ('var, 'block2) t
 val map_defs : ('var, 'block) t -> f:('var -> 'var) -> ('var, 'block) t
 val map_uses : ('var, 'block) t -> f:('var -> 'var) -> ('var, 'block) t
-val map_lit_or_vars : ('var, 'block) t -> f:('var Lit_or_var.t -> 'var Lit_or_var.t) -> ('var, 'block) t
-
 val blocks : ('var, 'block) t -> 'block list
 val call_blocks : ('var, 'block) t -> ('var, 'block) Call_block.t list
 val is_terminal : ('var, 'block) t -> bool
-
 val reg_defs : ('var, 'block) t -> 'var Reg.t list
 val reg_uses : ('var, 'block) t -> 'var Reg.t list
 val regs : ('var, 'block) t -> 'var Reg.t list
 val defs : ('var, 'block) t -> 'var list
 val uses : ('var, 'block) t -> 'var list
 val vars : ('var, 'block) t -> 'var list
-
 val unreachable : ('var, 'block) t

@@ -168,32 +168,13 @@ let fold_operands ins ~f ~init =
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
 
-let rebuild_virtual_reg (reg : 'var Reg.t) ~var =
-  match Reg.raw reg with
-  | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
-  | Raw.Allocated (_, forced) ->
-    let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
-    in
-    Reg.allocated ~class_:(Reg.class_ reg) var forced
-  | _ -> reg
-;;
-
-let map_reg (reg : _ Reg.t) ~f =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) ->
-    Reg (rebuild_virtual_reg reg ~var:(f v))
-  | _ -> Reg reg
-;;
-
 let map_var_operand op ~f =
   match op with
-  | Reg r -> map_reg r ~f
-  | Imm _ | Spill_slot _ | Symbol _ -> op
-  | Mem (r, disp) ->
-    (match map_reg r ~f with
-     | Reg r -> Mem (r, disp)
-     | _ -> failwith "expected reg, got non reg, in [map_var_operand]")
+  | Reg r -> Reg (Reg.map_vars r ~f)
+  | Imm i -> Imm i
+  | Spill_slot s -> Spill_slot s
+  | Symbol s -> Symbol s
+  | Mem (r, disp) -> Mem (Reg.map_vars r ~f, disp)
 ;;
 
 let rec map_var_operands ins ~f =
@@ -266,7 +247,8 @@ let rec map_var_operands ins ~f =
     let map_cb cb = Call_block.map_uses cb ~f in
     JNE (map_cb lbl, Option.map next ~f:map_cb)
   | JMP lbl -> JMP (Call_block.map_uses lbl ~f)
-  | NOOP | LABEL _ -> ins (* no virtual‑uses *)
+  | NOOP -> NOOP
+  | LABEL s -> LABEL s
 ;;
 
 let var_of_reg (reg : 'var Reg.t) =
@@ -715,30 +697,39 @@ let rec map_call_blocks t ~f =
   | JE (lbl, next) -> JE (f lbl, Option.map next ~f)
   | JNE (lbl, next) -> JNE (f lbl, Option.map next ~f)
   | JMP lbl -> JMP (f lbl)
-  | NOOP
-  | AND (_, _)
-  | OR (_, _)
-  | MOV (_, _)
-  | MOVSD (_, _)
-  | MOVQ (_, _)
-  | CVTSI2SD (_, _)
-  | CVTTSD2SI (_, _)
-  | SETE _ | SETL _
-  | ADD (_, _)
-  | SUB (_, _)
-  | ADDSD (_, _)
-  | SUBSD (_, _)
-  | MULSD (_, _)
-  | DIVSD (_, _)
-  | XCHG (_, _)
-  | LOCK_ADD (_, _)
-  | LOCK_SUB (_, _)
-  | LOCK_AND (_, _)
-  | LOCK_OR (_, _)
-  | LOCK_XOR (_, _)
-  | LOCK_CMPXCHG _ | IMUL _ | IDIV _ | MOD _ | LABEL _
-  | CMP (_, _)
-  | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> t
+  | NOOP -> NOOP
+  | AND (a, b) -> AND (a, b)
+  | OR (a, b) -> OR (a, b)
+  | MOV (a, b) -> MOV (a, b)
+  | MOVSD (a, b) -> MOVSD (a, b)
+  | MOVQ (a, b) -> MOVQ (a, b)
+  | CVTSI2SD (a, b) -> CVTSI2SD (a, b)
+  | CVTTSD2SI (a, b) -> CVTTSD2SI (a, b)
+  | ADD (a, b) -> ADD (a, b)
+  | SUB (a, b) -> SUB (a, b)
+  | ADDSD (a, b) -> ADDSD (a, b)
+  | SUBSD (a, b) -> SUBSD (a, b)
+  | MULSD (a, b) -> MULSD (a, b)
+  | DIVSD (a, b) -> DIVSD (a, b)
+  | XCHG (a, b) -> XCHG (a, b)
+  | LOCK_ADD (a, b) -> LOCK_ADD (a, b)
+  | LOCK_SUB (a, b) -> LOCK_SUB (a, b)
+  | LOCK_AND (a, b) -> LOCK_AND (a, b)
+  | LOCK_OR (a, b) -> LOCK_OR (a, b)
+  | LOCK_XOR (a, b) -> LOCK_XOR (a, b)
+  | ALLOCA (a, b) -> ALLOCA (a, b)
+  | CMP (a, b) -> CMP (a, b)
+  | LOCK_CMPXCHG x -> LOCK_CMPXCHG x
+  | SETE x -> SETE x
+  | SETL x -> SETL x
+  | IMUL x -> IMUL x
+  | IDIV x -> IDIV x
+  | MOD x -> MOD x
+  | LABEL x -> LABEL x
+  | RET x -> RET x
+  | CALL x -> CALL x
+  | PUSH x -> PUSH x
+  | POP x -> POP x
 ;;
 
 let rec iter_call_blocks t ~f =
@@ -808,8 +799,6 @@ let rec call_blocks = function
   | CMP (_, _)
   | ALLOCA _ | RET _ | CALL _ | PUSH _ | POP _ -> []
 ;;
-
-let map_lit_or_vars t ~f:_ = t
 
 let rec is_terminal = function
   | Save_clobbers | Restore_clobbers | MFENCE -> false
