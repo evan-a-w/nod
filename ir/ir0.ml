@@ -1,6 +1,6 @@
 open! Core
 open! Import
-include Ir_helpers
+open! Ir_helpers
 
 type ('var, 'block) t =
   | Noop
@@ -336,6 +336,91 @@ let map_uses t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_uses ~f) x86_irs)
+  | Unreachable | Noop -> t
+;;
+
+let map_vars t ~f =
+  let map_lit_or_var = Lit_or_var.map_vars ~f in
+  let map_mem = Mem.map_vars ~f in
+  let map_arith { dest; src1; src2 } =
+    { dest = f dest; src1 = map_lit_or_var src1; src2 = map_lit_or_var src2 }
+  in
+  let map_alloca { dest; size } =
+    { dest = f dest; size = map_lit_or_var size }
+  in
+  let map_load_field { dest; base; type_; indices } =
+    { dest = f dest; base = map_lit_or_var base; type_; indices }
+  in
+  let map_store_field { base; src; type_; indices } =
+    { base = map_lit_or_var base; src = map_lit_or_var src; type_; indices }
+  in
+  let map_memcpy { dest; src; type_ } =
+    { dest = map_lit_or_var dest; src = map_lit_or_var src; type_ }
+  in
+  let map_atomic_load { dest; addr; order } =
+    { dest = f dest; addr = map_mem addr; order }
+  in
+  let map_atomic_store { addr; src; order } =
+    { addr = map_mem addr; src = map_lit_or_var src; order }
+  in
+  let map_atomic_rmw { dest; addr; src; op; order } =
+    { dest = f dest; addr = map_mem addr; src = map_lit_or_var src; op; order }
+  in
+  let map_atomic_cmpxchg
+    { dest
+    ; success
+    ; addr
+    ; expected
+    ; desired
+    ; success_order
+    ; failure_order
+    }
+    =
+    { dest = f dest
+    ; success = f success
+    ; addr = map_mem addr
+    ; expected = map_lit_or_var expected
+    ; desired = map_lit_or_var desired
+    ; success_order
+    ; failure_order
+    }
+  in
+  match t with
+  | Or a -> Or (map_arith a)
+  | And a -> And (map_arith a)
+  | Add a -> Add (map_arith a)
+  | Mul a -> Mul (map_arith a)
+  | Div a -> Div (map_arith a)
+  | Mod a -> Mod (map_arith a)
+  | Lt a -> Lt (map_arith a)
+  | Sub a -> Sub (map_arith a)
+  | Fadd a -> Fadd (map_arith a)
+  | Fsub a -> Fsub (map_arith a)
+  | Fmul a -> Fmul (map_arith a)
+  | Fdiv a -> Fdiv (map_arith a)
+  | Alloca a -> Alloca (map_alloca a)
+  | Store (a, b) -> Store (map_lit_or_var a, map_mem b)
+  | Load (a, b) -> Load (f a, map_mem b)
+  | Load_field a -> Load_field (map_load_field a)
+  | Store_field a -> Store_field (map_store_field a)
+  | Memcpy a -> Memcpy (map_memcpy a)
+  | Atomic_load a -> Atomic_load (map_atomic_load a)
+  | Atomic_store a -> Atomic_store (map_atomic_store a)
+  | Atomic_rmw a -> Atomic_rmw (map_atomic_rmw a)
+  | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg a)
+  | Return use -> Return (map_lit_or_var use)
+  | Move (var, b) -> Move (f var, map_lit_or_var b)
+  | Cast (var, b) -> Cast (f var, map_lit_or_var b)
+  | Call { fn; results; args } ->
+    Call
+      { fn; results = List.map results ~f; args = List.map args ~f:map_lit_or_var }
+  | Branch b -> Branch (Branch.map_uses b ~f)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_var_operands arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map arm64_irs ~f:(Arm64_ir.map_var_operands ~f))
+  | X86 x86_ir -> X86 (X86_ir.map_var_operands x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map x86_irs ~f:(X86_ir.map_var_operands ~f))
   | Unreachable | Noop -> t
 ;;
 
