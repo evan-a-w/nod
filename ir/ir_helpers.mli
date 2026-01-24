@@ -19,13 +19,13 @@ type 'var arith =
   }
 [@@deriving sexp, compare, equal, hash]
 
-val map_arith_defs : 'var arith -> f:('var -> 'var2) -> 'var2 arith
-val map_arith_uses : 'var arith -> f:('var -> 'var2) -> 'var2 arith
+val map_arith_defs : 'var arith -> f:('var -> 'var) -> 'var arith
+val map_arith_uses : 'var arith -> f:('var -> 'var) -> 'var arith
 
 val map_arith_lit_or_vars
   :  'var arith
-  -> f:('var Lit_or_var.t -> 'var2 Lit_or_var.t)
-  -> 'var2 arith
+  -> f:('var Lit_or_var.t -> 'var Lit_or_var.t)
+  -> 'var arith
 
 type 'var alloca =
   { dest : 'var
@@ -33,8 +33,8 @@ type 'var alloca =
   }
 [@@deriving sexp, compare, equal, hash]
 
-val map_alloca_defs : 'var alloca -> f:('var -> 'var2) -> 'var2 alloca
-val map_alloca_uses : 'var alloca -> f:('var -> 'var2) -> 'var2 alloca
+val map_alloca_defs : 'var alloca -> f:('var -> 'var) -> 'var alloca
+val map_alloca_uses : 'var alloca -> f:('var -> 'var) -> 'var alloca
 
 val map_alloca_lit_or_vars
   :  'var alloca
