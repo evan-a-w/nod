@@ -58,7 +58,6 @@ val x86_regs : ('var, 'block) t -> 'var X86_reg.t list
 val x86_reg_defs : ('var, 'block) t -> 'var X86_reg.t list
 val arm64_regs : ('var, 'block) t -> 'var Arm64_reg.t list
 val arm64_reg_defs : ('var, 'block) t -> 'var Arm64_reg.t list
-
 val map_defs : ('var, 'block) t -> f:('var -> 'var) -> ('var, 'block) t
 val map_uses : ('var, 'block) t -> f:('var -> 'var) -> ('var, 'block) t
 val map_vars : ('var, 'block) t -> f:('var -> 'var2) -> ('var2, 'block) t
@@ -69,7 +68,11 @@ val map_call_blocks
   -> f:(('var, 'block) Call_block.t -> ('var, 'block2) Call_block.t)
   -> ('var, 'block2) t
 
-val iter_call_blocks : ('var, 'block) t -> f:(('var, 'block) Call_block.t -> unit) -> unit
+val iter_call_blocks
+  :  ('var, 'block) t
+  -> f:(('var, 'block) Call_block.t -> unit)
+  -> unit
+
 val map_blocks : ('var, 'block) t -> f:('block -> 'block2) -> ('var, 'block2) t
 
 val map_lit_or_vars
@@ -90,4 +93,7 @@ val map_arm64_operands
   -> f:('var Arm64_ir.operand -> 'var Arm64_ir.operand)
   -> ('var, 'block) t
 
-val uses_ex_args : ('var, 'block) t -> 'var list
+val uses_ex_args
+  :  ('var, 'block) t
+  -> compare_var:('var -> 'var -> int)
+  -> 'var list
