@@ -109,14 +109,17 @@ module M (A : Arch.S) = struct
           if not Arg.treat_block_args_as_defs
           then Int.Set.empty
           else
-            List.filter_map (Vec.to_list block.args) ~f:(fun x ->
+            List.filter_map (Vec.to_list (Block.args block)) ~f:(fun x ->
               Arg.t_of_var x |> Option.map ~f:Arg.id_of_t)
             |> Int.Set.of_list
         in
         let acc =
-          Vec.fold block.instructions ~init:(~defs, ~uses:Int.Set.empty) ~f
+          Instr_state.fold
+            (Block.instructions block)
+            ~init:(~defs, ~uses:Int.Set.empty)
+            ~f:(fun acc instr -> f acc instr.Instr_state.ir)
         in
-        f acc block.terminal
+        f acc (Block.terminal block).Instr_state.ir
       ;;
 
       let calculate_intra_block_liveness t root =
@@ -133,17 +136,16 @@ module M (A : Arch.S) = struct
             ; live_out = block_liveness.overall.live_out
             }
           in
-          block_liveness.terminal <- f after_terminal block.terminal;
+          block_liveness.terminal <-
+            f after_terminal (Block.terminal block).Instr_state.ir;
           (* prob unnecessary *)
           Vec.clear block_liveness.instructions;
           let (_ : Liveness.t) =
-            Vec.foldr
-              block.instructions
-              ~init:block_liveness.terminal
-              ~f:(fun liveness ir ->
-                let liveness = f liveness ir in
-                Vec.push block_liveness.instructions liveness;
-                liveness)
+            Instr_state.to_ir_list (Block.instructions block)
+            |> List.fold_right ~init:block_liveness.terminal ~f:(fun ir liveness ->
+                 let liveness = f liveness ir in
+                 Vec.push block_liveness.instructions liveness;
+                 liveness)
           in
           Vec.reverse_inplace block_liveness.instructions)
       ;;
@@ -169,7 +171,7 @@ module M (A : Arch.S) = struct
           let block = Queue.dequeue_exn worklist in
           (* live_out[b] = U LIVE_IN[succ] *)
           let new_live_out =
-            block.children
+            Block.children block
             |> Vec.to_list
             |> List.map ~f:(fun block ->
               block_liveness t block |> overall |> Liveness.live_in)
@@ -204,10 +206,10 @@ module M (A : Arch.S) = struct
         let block_liveness = block_liveness t block in
         let instructions =
           List.zip_exn
-            (Vec.to_list block.instructions)
+            (Instr_state.to_ir_list (Block.instructions block))
             (Vec.to_list block_liveness.instructions)
         in
-        let terminal = block.terminal, block_liveness.terminal in
+        let terminal = (Block.terminal block).Instr_state.ir, block_liveness.terminal in
         ~instructions, ~terminal
       ;;
     end

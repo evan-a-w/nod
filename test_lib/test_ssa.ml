@@ -2,22 +2,42 @@ open! Core
 open! Import
 
 let test ?don't_opt s =
+  let state = Nod_core.State.create () in
   Test_cfg.test s;
   print_endline "=================================";
   Parser.parse_string s
-  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    { program with
+      Program.functions =
+        Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
+          Function0.map_root
+            fn
+            ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
+    })
   |> Result.map ~f:Eir.set_entry_block_args
-  |> Result.map ~f:(Test_cfg.map_function_roots ~f:Ssa.create)
+  |> Result.map ~f:(fun program ->
+    { program with
+      Program.functions =
+        Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
+          Function0.map_root
+            fn
+            ~f:(Ssa.create ~fn_state:(Nod_core.State.fn_state state name)))
+    })
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     let go program =
       Map.iter program.Program.functions ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
         Vec.iter ssa.in_order ~f:(fun block ->
-          let instrs = Vec.to_list block.instructions @ [ block.terminal ] in
+          let instrs =
+            Instr_state.to_ir_list (Block.instructions block)
+            @ [ (Block.terminal block).Instr_state.ir ]
+          in
           print_s
             [%message
-              block.id_hum ~args:(block.args : Var.t Vec.t) (instrs : Ir.t list)]))
+              (Block.id_hum block)
+                ~args:(Block.args block : Var.t Vec.t)
+                (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
@@ -49,11 +69,14 @@ let%expect_test "eir compile with args" =
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     Map.iter program.Program.functions ~f:(fun { Function.root = block; _ } ->
-      let instrs = Vec.to_list block.Block.instructions @ [ block.terminal ] in
+      let instrs =
+        Instr_state.to_ir_list (Block.instructions block)
+        @ [ (Block.terminal block).Instr_state.ir ]
+      in
       print_s
         [%message
-          block.Block.id_hum
-            ~args:(block.Block.args : Var.t Vec.t)
+          (Block.id_hum block)
+            ~args:(Block.args block : Var.t Vec.t)
             (instrs : Ir.t list)]);
     [%expect
       {|

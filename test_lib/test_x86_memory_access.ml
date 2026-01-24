@@ -10,12 +10,16 @@ let select_instructions fn =
 let%expect_test "load/store select into x86 mem operands" =
   let slot = Ir.Mem.Stack_slot 0 in
   let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
+  let fn_state = Fn_state.create () in
   let root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var tmp))
+    Block.create
+      ~id_hum:"%root"
+      ~terminal:
+        (Fn_state.alloc_instr fn_state ~ir:(Ir.return (Ir.Lit_or_var.Var tmp)))
   in
-  root.dfs_id <- Some 0;
-  Vec.push root.instructions (Ir.store (Ir.Lit_or_var.Lit 42L) slot);
-  Vec.push root.instructions (Ir.load tmp slot);
+  Block.set_dfs_id root (Some 0);
+  Fn_state.append_ir fn_state ~block:root ~ir:(Ir.store (Ir.Lit_or_var.Lit 42L) slot);
+  Fn_state.append_ir fn_state ~block:root ~ir:(Ir.load tmp slot);
   let fn = Function.create ~name:"root" ~args:[] ~root in
   select_instructions fn |> Function.print_verbose;
   [%expect

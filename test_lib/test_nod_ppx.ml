@@ -9,7 +9,7 @@ let block_of_instrs instrs =
   |> (function
         | Ok raw -> raw
         | Error err -> Nod_error.to_string err |> failwith)
-  |> Cfg.process
+  |> Cfg.process ~fn_state:(Fn_state.create ())
   |> fun (~root, ~blocks:_, ~in_order) ->
   Vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
   root
@@ -48,13 +48,14 @@ let%expect_test "nod seq embeds instruction list" =
       return (lit 0L)]
   in
   let root = block_of_instrs instrs in
-  let instrs = Vec.to_list root.instructions in
+  let instrs = Instr_state.to_ir_list (Block.instructions root) in
   let noop_count =
     List.count instrs ~f:(function
       | Ir0.Noop -> true
       | _ -> false)
   in
-  print_s [%sexp (Vec.length root.instructions : int)];
+  print_s
+    [%sexp (List.length (Instr_state.to_list (Block.instructions root)) : int)];
   print_s [%sexp (noop_count : int)];
   [%expect {|
     2
