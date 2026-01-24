@@ -25,7 +25,8 @@ module M (A : Arch.S) = struct
         edges
         ~key:function_.name
         ~data:(String.Hash_set.create ());
-      Block.iter_instructions function_.root ~f:(fun ir ->
+      Block.iter_instructions function_.root ~f:(fun instr ->
+        let ir = instr.Instr_state.ir in
         this_defs := Set.union !this_defs (arch_reg_defs ir);
         to_arch_irs ir
         |> List.iter ~f:(fun ir ->

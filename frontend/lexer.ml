@@ -1,6 +1,8 @@
+module Frontend_state = State
+
 open! Core
 open! Import
-open State.Result
+open Frontend_state.Result
 open Let_syntax
 
 type t =
@@ -10,14 +12,14 @@ type t =
   }
 [@@deriving fields]
 
-let peek : (Char.t option, _, _) State.Result.t =
+let peek : (Char.t option, _, _) Frontend_state.Result.t =
   let%map t = get in
   match Sequence.next t.characters with
   | Some (c, _) -> Some c
   | None -> None
 ;;
 
-let next : (Char.t option, _, _) State.Result.t =
+let next : (Char.t option, _, _) Frontend_state.Result.t =
   let%bind t = get in
   match Sequence.next t.characters with
   | Some (c, characters) ->
@@ -87,7 +89,7 @@ let lex_ident c =
   else Token.Ident s
 ;;
 
-let rec lex' () : (_, _, _) State.Result.t =
+let rec lex' () : (_, _, _) Frontend_state.Result.t =
   let%bind pos = get >>| fun t -> t.pos in
   let rep token = add pos token >> lex' () in
   match%bind next with

@@ -5,13 +5,14 @@ type t =
   ; mutable args : Var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
-  ; mutable instructions : t Ir0.t Vec.t
-  ; mutable terminal : t Ir0.t
+  ; mutable instructions : t Instr_state.t option
+  ; mutable terminal : t Instr_state.t
   ; mutable dfs_id : int option
   ; mutable insert_phi_moves : bool
   }
 [@@deriving fields]
 
+let args t = args t |> Vec.read
 let id_exn t = Option.value_exn t.dfs_id
 let compare t1 t2 = id_exn t1 - id_exn t2
 let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
@@ -29,7 +30,7 @@ let create ~id_hum ~terminal =
   ; args = Vec.create ()
   ; parents = Vec.create ()
   ; children = Vec.create ()
-  ; instructions = Vec.create ()
+  ; instructions = None
   ; terminal
   ; dfs_id = None
   ; insert_phi_moves = true
@@ -66,7 +67,7 @@ let iter_and_update_bookkeeping root ~f =
       set_dfs_id block None;
       f block;
       let children =
-        Ir0.call_blocks block.terminal
+        Ir0.call_blocks block.terminal.ir
         |> List.map ~f:Call_block.block
         |> Vec.of_list
       in
@@ -91,17 +92,18 @@ let iter_and_update_bookkeeping root ~f =
 
 let iter_instructions t ~f =
   iter t ~f:(fun block ->
-    Vec.iter block.instructions ~f;
+    Instr_state.iter block.instructions ~f;
     f block.terminal)
 ;;
 
 let to_sexp_verbose root =
   let ts = Vec.create () in
   iter root ~f:(fun t ->
-    let instrs = Vec.to_list t.instructions @ [ t.terminal ] in
+    let instrs = Instr_state.to_list t.instructions @ [ t.terminal ] in
     Vec.push
       ts
-      [%message t.id_hum ~args:(t.args : Var.t Vec.t) (instrs : t Ir0.t list)]);
+      [%message
+        t.id_hum ~args:(t.args : Var.t Vec.t) (instrs : t Instr_state.t list)]);
   [%sexp (ts : Sexp.t Vec.t)]
 ;;
 
@@ -111,3 +113,22 @@ module Pair = struct
   include functor Comparable.Make
   include functor Hashable.Make
 end
+
+module Expert = struct
+  let set_terminal = set_terminal
+  let set_instructions = set_instructions
+  let set_args = set_args
+  let set_insert_phi_moves = set_insert_phi_moves
+
+  let add_child t ~child =
+    Vec.push t.children child;
+    Vec.push child.parents t
+  ;;
+
+  let add_parent t ~parent = add_child parent ~child:t
+  let children = children
+  let parents = parents
+end
+
+let children t = children t |> Vec.read
+let parents t = parents t |> Vec.read

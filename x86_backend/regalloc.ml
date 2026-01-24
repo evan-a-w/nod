@@ -17,8 +17,8 @@ let note_var_class table var class_ =
 
 let collect_var_classes root =
   let classes = Var.Table.create () in
-  Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+  Block.iter_instructions root ~f:(fun instr ->
+    Ir.x86_regs instr.Instr_state.ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Unallocated var | Raw.Allocated (var, _) ->
@@ -43,8 +43,8 @@ let update_assignment ~assignments ~var ~to_ =
 let initialize_assignments root =
   let assignments = Var.Table.create () in
   let don't_spill = Var.Hash_set.create () in
-  Block.iter_instructions root ~f:(fun ir ->
-    Ir.x86_regs ir
+  Block.iter_instructions root ~f:(fun instr ->
+    Ir.x86_regs instr.Instr_state.ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Allocated (_, Some (Raw.Allocated _))
@@ -214,6 +214,7 @@ let run_sat
 let replace_regs
   (type a)
   (module Calc_liveness : Calc_liveness.S with type Liveness_state.t = a)
+  ~fn_state
   ~(liveness_state : a)
   ~fn
   ~assignments
@@ -302,17 +303,19 @@ let replace_regs
        update_slots
          ~which:`Both
          { live_in = live_out; live_out = block_liveness.overall.live_in });
-    let new_instructions =
-      Vec.zip_exn block.instructions block_liveness.instructions
-      |> Vec.map ~f:(fun (instruction, liveness) ->
-        update_slots ~which:`Open liveness;
-        let ir = map_ir instruction in
-        update_slots ~which:`Close liveness;
-        ir)
-    in
-    block.instructions <- new_instructions;
+    let instructions = Instr_state.to_list (Block.instructions block) in
+    let liveness = Vec.to_list block_liveness.instructions in
+    List.iter2_exn instructions liveness ~f:(fun instruction liveness ->
+      update_slots ~which:`Open liveness;
+      let ir = map_ir instruction.Instr_state.ir in
+      update_slots ~which:`Close liveness;
+      let new_instr = Fn_state.alloc_instr fn_state ~ir in
+      Fn_state.replace_instr fn_state ~block ~instr:instruction ~with_instrs:[ new_instr ]);
     update_slots ~which:`Both block_liveness.terminal;
-    block.terminal <- map_ir block.terminal;
+    Fn_state.replace_terminal_ir
+      fn_state
+      ~block
+      ~with_:(map_ir (Block.terminal block).Instr_state.ir);
     prev_liveness := Some block_liveness.terminal);
   let spill_slots_used =
     match Set.max_elt !free_spill_slots, Set.max_elt !used_spill_slots with
@@ -323,7 +326,7 @@ let replace_regs
   spill_slots_used
 ;;
 
-let run ?(dump_crap = false) (fn : Function.t) =
+let run ?(dump_crap = false) ~fn_state (fn : Function.t) =
   let var_classes = collect_var_classes fn.root in
   let class_of_var var = Hashtbl.find_exn var_classes var in
   let reg_numbering = Reg_numbering.create fn.root in
@@ -352,6 +355,7 @@ let run ?(dump_crap = false) (fn : Function.t) =
   let spill_slots_used =
     replace_regs
       (module Calc_liveness)
+      ~fn_state
       ~fn
       ~assignments
       ~liveness_state
