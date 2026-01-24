@@ -40,7 +40,7 @@ let test_ssa ?don't_opt s =
   Parser.parse_string s
   |> Result.map ~f:(fun program ->
     map_function_roots_with_state program ~state ~f:Cfg.process)
-  |> Result.map ~f:Eir.set_entry_block_args
+  |> Result.map ~f:(Eir.set_entry_block_args ~state)
   |> Result.map ~f:(fun program ->
     map_function_roots_with_state program ~state ~f:Ssa.create)
   |> function
@@ -114,9 +114,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
             ()
       | `Other -> ())
   in
-  let make_fn ~name ~args ~root =
+  let make_fn ~fn_state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    Block.Expert.set_args root (Vec.of_list args);
+    Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
     Block.set_dfs_id root (Some 0);
     Function.create ~name ~args ~root
   in
@@ -141,7 +141,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
         ~instrs:
           [ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
     in
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child =
+      make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
+    in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
     let root_root =
@@ -160,7 +162,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
               ~args:[ Ir.Lit_or_var.Var slot ]
           ]
     in
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    let root =
+      make_fn ~fn_state:root_state ~name:"root" ~args:[] ~root:root_root
+    in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "41"
@@ -271,9 +275,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (* ;; *)
 
 let%expect_test "print helper" =
-  let make_fn ~name ~args ~root =
+  let make_fn ~fn_state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    Block.Expert.set_args root (Vec.of_list args);
+    Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
     Block.set_dfs_id root (Some 0);
     Function.create ~name ~args ~root
   in
@@ -297,7 +301,9 @@ let%expect_test "print helper" =
       ~instrs:
         [ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
   in
-  let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+  let child =
+    make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
+  in
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let res = Var.create ~name:"res" ~type_:Type.I64 in
   let root_root =
@@ -316,7 +322,9 @@ let%expect_test "print helper" =
             ~args:[ Ir.Lit_or_var.Var slot ]
         ]
   in
-  let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+  let root =
+    make_fn ~fn_state:root_state ~name:"root" ~args:[] ~root:root_root
+  in
   let functions = String.Map.of_alist_exn [ "root", root; "child", child ] in
   print_s [%sexp (functions : Function.t String.Map.t)];
   [%expect
@@ -326,9 +334,11 @@ let%expect_test "print helper" =
        (root
         ((%root (args (((name p) (type_ Ptr))))
           (instrs
-           ((Load ((name loaded) (type_ I64))
-             (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))
-            (Return (Var ((name loaded) (type_ I64)))))))))
+           (((id (Instr_id 1))
+             (ir
+              (Load ((name loaded) (type_ I64))
+               (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))))
+            ((id (Instr_id 0)) (ir (Return (Var ((name loaded) (type_ I64)))))))))))
        (args (((name p) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0)))
@@ -337,12 +347,17 @@ let%expect_test "print helper" =
        (root
         ((%root (args ())
           (instrs
-           ((Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))
-            (Store (Lit 41)
-             (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))
-            (Call (fn child) (results (((name res) (type_ I64))))
-             (args ((Var ((name slot) (type_ Ptr))))))
-            (Return (Var ((name res) (type_ I64)))))))))
+           (((id (Instr_id 1))
+             (ir (Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))))
+            ((id (Instr_id 2))
+             (ir
+              (Store (Lit 41)
+               (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))))
+            ((id (Instr_id 3))
+             (ir
+              (Call (fn child) (results (((name res) (type_ I64))))
+               (args ((Var ((name slot) (type_ Ptr))))))))
+            ((id (Instr_id 0)) (ir (Return (Var ((name res) (type_ I64)))))))))))
        (args ()) (name root) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0))))
@@ -771,69 +786,110 @@ let%expect_test "debug borked opt x86" =
       (root
        ((root__prologue (args ())
          (instrs
-          ((Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))
-           (Arm64
-            (Store (src (Reg ((reg X28) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Store (src (Reg ((reg X29) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Store (src (Reg ((reg X30) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Move (dst ((reg X29) (class_ I64)))
-             (src (Reg ((reg SP) (class_ I64))))))
-           (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))
-           (Arm64 (Jump ((block ((id_hum %root) (args ()))) (args ())))))))
+          (((id (Instr_id 25))
+            (ir
+             (Arm64
+              (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
+               (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))))
+           ((id (Instr_id 28))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X28) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 0))))))
+           ((id (Instr_id 29))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X29) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 8))))))
+           ((id (Instr_id 30))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X30) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 16))))))
+           ((id (Instr_id 31))
+            (ir
+             (Arm64
+              (Move (dst ((reg X29) (class_ I64)))
+               (src (Reg ((reg SP) (class_ I64))))))))
+           ((id (Instr_id 32))
+            (ir (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))))
+           ((id (Instr_id 14))
+            (ir (Arm64 (Jump ((block ((id_hum %root) (args ()))) (args ())))))))))
         (%root (args ())
          (instrs
-          ((Arm64 (Move (dst ((reg X0) (class_ I64))) (src (Imm 1))))
-           (Arm64 (Move (dst ((reg X1) (class_ I64))) (src (Imm 2))))
-           (Arm64 (Move (dst ((reg X2) (class_ I64))) (src (Imm 3))))
-           (Arm64 (Move (dst ((reg X3) (class_ I64))) (src (Imm 4))))
-           (Arm64 (Move (dst ((reg X4) (class_ I64))) (src (Imm 5))))
-           (Arm64 (Move (dst ((reg X5) (class_ I64))) (src (Imm 6))))
-           (Arm64 (Move (dst ((reg X6) (class_ I64))) (src (Imm 7))))
-           (Arm64 (Move (dst ((reg X7) (class_ I64))) (src (Imm 8))))
-           (Arm64
-            (Call (fn sum8) (results (((reg X0) (class_ I64))))
-             (args
-              ((Imm 1) (Imm 2) (Imm 3) (Imm 4) (Imm 5) (Imm 6) (Imm 7) (Imm 8)))))
-           (Arm64
-            (Move (dst ((reg X28) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X28) (class_ I64))))))
-           (Arm64_terminal
-            ((Jump
-              ((block
-                ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
-               (args ()))))))))
+          (((id (Instr_id 13))
+            (ir (Arm64 (Move (dst ((reg X0) (class_ I64))) (src (Imm 1))))))
+           ((id (Instr_id 12))
+            (ir (Arm64 (Move (dst ((reg X1) (class_ I64))) (src (Imm 2))))))
+           ((id (Instr_id 11))
+            (ir (Arm64 (Move (dst ((reg X2) (class_ I64))) (src (Imm 3))))))
+           ((id (Instr_id 10))
+            (ir (Arm64 (Move (dst ((reg X3) (class_ I64))) (src (Imm 4))))))
+           ((id (Instr_id 9))
+            (ir (Arm64 (Move (dst ((reg X4) (class_ I64))) (src (Imm 5))))))
+           ((id (Instr_id 8))
+            (ir (Arm64 (Move (dst ((reg X5) (class_ I64))) (src (Imm 6))))))
+           ((id (Instr_id 7))
+            (ir (Arm64 (Move (dst ((reg X6) (class_ I64))) (src (Imm 7))))))
+           ((id (Instr_id 6))
+            (ir (Arm64 (Move (dst ((reg X7) (class_ I64))) (src (Imm 8))))))
+           ((id (Instr_id 5))
+            (ir
+             (Arm64
+              (Call (fn sum8) (results (((reg X0) (class_ I64))))
+               (args
+                ((Imm 1) (Imm 2) (Imm 3) (Imm 4) (Imm 5) (Imm 6) (Imm 7) (Imm 8)))))))
+           ((id (Instr_id 0))
+            (ir
+             (Arm64
+              (Move (dst ((reg X28) (class_ I64)))
+               (src (Reg ((reg X0) (class_ I64))))))))
+           ((id (Instr_id 4))
+            (ir
+             (Arm64
+              (Move (dst ((reg X0) (class_ I64)))
+               (src (Reg ((reg X28) (class_ I64))))))))
+           ((id (Instr_id 26))
+            (ir
+             (Arm64_terminal
+              ((Jump
+                ((block
+                  ((id_hum root__epilogue) (args (((name res__0) (type_ I64))))))
+                 (args ()))))))))))
         (root__epilogue (args (((name res__0) (type_ I64))))
          (instrs
-          ((Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg SP) (class_ I64)))
-             (src (Reg ((reg X29) (class_ I64))))))
-           (Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Load (dst ((reg X29) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Load (dst ((reg X30) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))
-           (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
+          (((id (Instr_id 27))
+            (ir
+             (Arm64
+              (Move (dst ((reg X0) (class_ I64)))
+               (src (Reg ((reg X0) (class_ I64))))))))
+           ((id (Instr_id 33))
+            (ir
+             (Arm64
+              (Move (dst ((reg SP) (class_ I64)))
+               (src (Reg ((reg X29) (class_ I64))))))))
+           ((id (Instr_id 34))
+            (ir
+             (Arm64
+              (Load (dst ((reg X28) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 0))))))
+           ((id (Instr_id 35))
+            (ir
+             (Arm64
+              (Load (dst ((reg X29) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 8))))))
+           ((id (Instr_id 36))
+            (ir
+             (Arm64
+              (Load (dst ((reg X30) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 16))))))
+           ((id (Instr_id 37))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
+               (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 32))))))
+           ((id (Instr_id 38))
+            (ir (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 24) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0))
@@ -846,179 +902,279 @@ let%expect_test "debug borked opt x86" =
            ((name e0) (type_ I64)) ((name f0) (type_ I64))
            ((name g0) (type_ I64)) ((name h0) (type_ I64))))
          (instrs
-          ((Arm64
-            (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
-           (Arm64
-            (Store (src (Reg ((reg X21) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Store (src (Reg ((reg X22) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Store (src (Reg ((reg X23) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Store (src (Reg ((reg X24) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 24))))
-           (Arm64
-            (Store (src (Reg ((reg X25) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 32))))
-           (Arm64
-            (Store (src (Reg ((reg X26) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 40))))
-           (Arm64
-            (Store (src (Reg ((reg X27) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 48))))
-           (Arm64
-            (Store (src (Reg ((reg X28) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 56))))
-           (Arm64
-            (Store (src (Reg ((reg X29) (class_ I64))))
-             (addr (Mem ((reg SP) (class_ I64)) 64))))
-           (Arm64
-            (Move (dst ((reg X29) (class_ I64)))
-             (src (Reg ((reg SP) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X1) (class_ I64)))
-             (src (Reg ((reg X1) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X2) (class_ I64)))
-             (src (Reg ((reg X2) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X3) (class_ I64)))
-             (src (Reg ((reg X3) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X4) (class_ I64)))
-             (src (Reg ((reg X4) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X5) (class_ I64)))
-             (src (Reg ((reg X5) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X6) (class_ I64)))
-             (src (Reg ((reg X6) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X7) (class_ I64)))
-             (src (Reg ((reg X7) (class_ I64))))))
-           (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))
-           (Arm64
-            (Move (dst ((reg X21) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X28) (class_ I64)))
-             (src (Reg ((reg X1) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X22) (class_ I64)))
-             (src (Reg ((reg X2) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X23) (class_ I64)))
-             (src (Reg ((reg X3) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X24) (class_ I64)))
-             (src (Reg ((reg X4) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X25) (class_ I64)))
-             (src (Reg ((reg X5) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X26) (class_ I64)))
-             (src (Reg ((reg X6) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X27) (class_ I64)))
-             (src (Reg ((reg X7) (class_ I64))))))
-           (Arm64
-            (Jump
-             ((block
-               ((id_hum %root)
-                (args
-                 (((name a) (type_ I64)) ((name b) (type_ I64))
-                  ((name c) (type_ I64)) ((name d) (type_ I64))
-                  ((name e) (type_ I64)) ((name f) (type_ I64))
-                  ((name g) (type_ I64)) ((name h) (type_ I64))))))
-              (args ())))))))
+          (((id (Instr_id 30))
+            (ir
+             (Arm64
+              (Int_binary (op Sub) (dst ((reg SP) (class_ I64)))
+               (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))))
+           ((id (Instr_id 29))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X21) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 0))))))
+           ((id (Instr_id 28))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X22) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 8))))))
+           ((id (Instr_id 27))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X23) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 16))))))
+           ((id (Instr_id 26))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X24) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 24))))))
+           ((id (Instr_id 25))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X25) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 32))))))
+           ((id (Instr_id 24))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X26) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 40))))))
+           ((id (Instr_id 12))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X27) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 48))))))
+           ((id (Instr_id 13))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X28) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 56))))))
+           ((id (Instr_id 14))
+            (ir
+             (Arm64
+              (Store (src (Reg ((reg X29) (class_ I64))))
+               (addr (Mem ((reg SP) (class_ I64)) 64))))))
+           ((id (Instr_id 15))
+            (ir
+             (Arm64
+              (Move (dst ((reg X29) (class_ I64)))
+               (src (Reg ((reg SP) (class_ I64))))))))
+           ((id (Instr_id 16))
+            (ir
+             (Arm64
+              (Move (dst ((reg X0) (class_ I64)))
+               (src (Reg ((reg X0) (class_ I64))))))))
+           ((id (Instr_id 17))
+            (ir
+             (Arm64
+              (Move (dst ((reg X1) (class_ I64)))
+               (src (Reg ((reg X1) (class_ I64))))))))
+           ((id (Instr_id 18))
+            (ir
+             (Arm64
+              (Move (dst ((reg X2) (class_ I64)))
+               (src (Reg ((reg X2) (class_ I64))))))))
+           ((id (Instr_id 19))
+            (ir
+             (Arm64
+              (Move (dst ((reg X3) (class_ I64)))
+               (src (Reg ((reg X3) (class_ I64))))))))
+           ((id (Instr_id 20))
+            (ir
+             (Arm64
+              (Move (dst ((reg X4) (class_ I64)))
+               (src (Reg ((reg X4) (class_ I64))))))))
+           ((id (Instr_id 36))
+            (ir
+             (Arm64
+              (Move (dst ((reg X5) (class_ I64)))
+               (src (Reg ((reg X5) (class_ I64))))))))
+           ((id (Instr_id 39))
+            (ir
+             (Arm64
+              (Move (dst ((reg X6) (class_ I64)))
+               (src (Reg ((reg X6) (class_ I64))))))))
+           ((id (Instr_id 40))
+            (ir
+             (Arm64
+              (Move (dst ((reg X7) (class_ I64)))
+               (src (Reg ((reg X7) (class_ I64))))))))
+           ((id (Instr_id 41))
+            (ir (Arm64 (Tag_def Nop (Reg ((reg X29) (class_ I64)))))))
+           ((id (Instr_id 42))
+            (ir
+             (Arm64
+              (Move (dst ((reg X21) (class_ I64)))
+               (src (Reg ((reg X0) (class_ I64))))))))
+           ((id (Instr_id 43))
+            (ir
+             (Arm64
+              (Move (dst ((reg X28) (class_ I64)))
+               (src (Reg ((reg X1) (class_ I64))))))))
+           ((id (Instr_id 44))
+            (ir
+             (Arm64
+              (Move (dst ((reg X22) (class_ I64)))
+               (src (Reg ((reg X2) (class_ I64))))))))
+           ((id (Instr_id 45))
+            (ir
+             (Arm64
+              (Move (dst ((reg X23) (class_ I64)))
+               (src (Reg ((reg X3) (class_ I64))))))))
+           ((id (Instr_id 46))
+            (ir
+             (Arm64
+              (Move (dst ((reg X24) (class_ I64)))
+               (src (Reg ((reg X4) (class_ I64))))))))
+           ((id (Instr_id 47))
+            (ir
+             (Arm64
+              (Move (dst ((reg X25) (class_ I64)))
+               (src (Reg ((reg X5) (class_ I64))))))))
+           ((id (Instr_id 48))
+            (ir
+             (Arm64
+              (Move (dst ((reg X26) (class_ I64)))
+               (src (Reg ((reg X6) (class_ I64))))))))
+           ((id (Instr_id 49))
+            (ir
+             (Arm64
+              (Move (dst ((reg X27) (class_ I64)))
+               (src (Reg ((reg X7) (class_ I64))))))))
+           ((id (Instr_id 61))
+            (ir
+             (Arm64
+              (Jump
+               ((block
+                 ((id_hum %root)
+                  (args
+                   (((name a) (type_ I64)) ((name b) (type_ I64))
+                    ((name c) (type_ I64)) ((name d) (type_ I64))
+                    ((name e) (type_ I64)) ((name f) (type_ I64))
+                    ((name g) (type_ I64)) ((name h) (type_ I64))))))
+                (args ())))))))))
         (%root
          (args
           (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
            ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
            ((name g) (type_ I64)) ((name h) (type_ I64))))
          (instrs
-          ((Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X21) (class_ I64))))
-             (rhs (Reg ((reg X28) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X22) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X23) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X24) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X25) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X26) (class_ I64))))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
-             (lhs (Reg ((reg X28) (class_ I64))))
-             (rhs (Reg ((reg X27) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X28) (class_ I64))))))
-           (Arm64_terminal
-            ((Jump
-              ((block
-                ((id_hum sum8__epilogue) (args (((name res__0) (type_ I64))))))
-               (args ()))))))))
+          (((id (Instr_id 37))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X21) (class_ I64))))
+               (rhs (Reg ((reg X28) (class_ I64))))))))
+           ((id (Instr_id 10))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X22) (class_ I64))))))))
+           ((id (Instr_id 9))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X23) (class_ I64))))))))
+           ((id (Instr_id 0))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X24) (class_ I64))))))))
+           ((id (Instr_id 1))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X25) (class_ I64))))))))
+           ((id (Instr_id 2))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X26) (class_ I64))))))))
+           ((id (Instr_id 3))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg X28) (class_ I64)))
+               (lhs (Reg ((reg X28) (class_ I64))))
+               (rhs (Reg ((reg X27) (class_ I64))))))))
+           ((id (Instr_id 4))
+            (ir
+             (Arm64
+              (Move (dst ((reg X0) (class_ I64)))
+               (src (Reg ((reg X28) (class_ I64))))))))
+           ((id (Instr_id 62))
+            (ir
+             (Arm64_terminal
+              ((Jump
+                ((block
+                  ((id_hum sum8__epilogue) (args (((name res__0) (type_ I64))))))
+                 (args ()))))))))))
         (sum8__epilogue (args (((name res__0) (type_ I64))))
          (instrs
-          ((Arm64
-            (Move (dst ((reg X0) (class_ I64)))
-             (src (Reg ((reg X0) (class_ I64))))))
-           (Arm64
-            (Move (dst ((reg SP) (class_ I64)))
-             (src (Reg ((reg X29) (class_ I64))))))
-           (Arm64
-            (Load (dst ((reg X21) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 0))))
-           (Arm64
-            (Load (dst ((reg X22) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 8))))
-           (Arm64
-            (Load (dst ((reg X23) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 16))))
-           (Arm64
-            (Load (dst ((reg X24) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 24))))
-           (Arm64
-            (Load (dst ((reg X25) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 32))))
-           (Arm64
-            (Load (dst ((reg X26) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 40))))
-           (Arm64
-            (Load (dst ((reg X27) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 48))))
-           (Arm64
-            (Load (dst ((reg X28) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 56))))
-           (Arm64
-            (Load (dst ((reg X29) (class_ I64)))
-             (addr (Mem ((reg SP) (class_ I64)) 64))))
-           (Arm64
-            (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
-             (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))
-           (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))
+          (((id (Instr_id 38))
+            (ir
+             (Arm64
+              (Move (dst ((reg X0) (class_ I64)))
+               (src (Reg ((reg X0) (class_ I64))))))))
+           ((id (Instr_id 50))
+            (ir
+             (Arm64
+              (Move (dst ((reg SP) (class_ I64)))
+               (src (Reg ((reg X29) (class_ I64))))))))
+           ((id (Instr_id 51))
+            (ir
+             (Arm64
+              (Load (dst ((reg X21) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 0))))))
+           ((id (Instr_id 52))
+            (ir
+             (Arm64
+              (Load (dst ((reg X22) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 8))))))
+           ((id (Instr_id 53))
+            (ir
+             (Arm64
+              (Load (dst ((reg X23) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 16))))))
+           ((id (Instr_id 54))
+            (ir
+             (Arm64
+              (Load (dst ((reg X24) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 24))))))
+           ((id (Instr_id 55))
+            (ir
+             (Arm64
+              (Load (dst ((reg X25) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 32))))))
+           ((id (Instr_id 56))
+            (ir
+             (Arm64
+              (Load (dst ((reg X26) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 40))))))
+           ((id (Instr_id 57))
+            (ir
+             (Arm64
+              (Load (dst ((reg X27) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 48))))))
+           ((id (Instr_id 58))
+            (ir
+             (Arm64
+              (Load (dst ((reg X28) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 56))))))
+           ((id (Instr_id 59))
+            (ir
+             (Arm64
+              (Load (dst ((reg X29) (class_ I64)))
+               (addr (Mem ((reg SP) (class_ I64)) 64))))))
+           ((id (Instr_id 60))
+            (ir
+             (Arm64
+              (Int_binary (op Add) (dst ((reg SP) (class_ I64)))
+               (lhs (Reg ((reg SP) (class_ I64)))) (rhs (Imm 80))))))
+           ((id (Instr_id 63))
+            (ir (Arm64 (Ret ((Reg ((reg X0) (class_ I64)))))))))))))
       (args
        (((name a) (type_ I64)) ((name b) (type_ I64)) ((name c) (type_ I64))
         ((name d) (type_ I64)) ((name e) (type_ I64)) ((name f) (type_ I64))
@@ -1042,7 +1198,7 @@ let%expect_test "debug borked" =
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
-      (block (block.id_hum root__prologue))
+      (block ("Block.id_hum block" root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |
       +--------------------------------------------------------+------------+
@@ -1050,7 +1206,7 @@ let%expect_test "debug borked" =
       +--------------------------------------------------------+------------+
       | (Arm64(Jump((block((id_hum %root)(args())))(args())))) | {}         |
       +--------------------------------------------------------+------------+
-      (block (block.id_hum %root))
+      (block ("Block.id_hum block" %root))
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       | ir                                                                                                                                                                        | Ir.defs ir                               |
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
@@ -1082,7 +1238,7 @@ let%expect_test "debug borked" =
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                               | {}                                       |
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      (block (block.id_hum root__epilogue))
+      (block ("Block.id_hum block" root__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+
@@ -1090,7 +1246,7 @@ let%expect_test "debug borked" =
       +----------------------------------------------------------------------------------------------------------------+------------+
       | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
       +----------------------------------------------------------------------------------------------------------------+------------+
-      (block (block.id_hum sum8__prologue))
+      (block ("Block.id_hum block" sum8__prologue))
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
       | ir                                                                                                                                                                                                                                                                                                                                                                                                             | Ir.defs ir               |
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
@@ -1130,7 +1286,7 @@ let%expect_test "debug borked" =
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
       | (Arm64(Jump((block((id_hum %root)(args(((name a)(type_ I64))((name b)(type_ I64))((name c)(type_ I64))((name d)(type_ I64))((name e)(type_ I64))((name f)(type_ I64))((name g)(type_ I64))((name h)(type_ I64))))))(args(((name a0)(type_ I64))((name b0)(type_ I64))((name c0)(type_ I64))((name d0)(type_ I64))((name e0)(type_ I64))((name f0)(type_ I64))((name g0)(type_ I64))((name h0)(type_ I64))))))) | {}                       |
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      (block (block.id_hum %root))
+      (block ("Block.id_hum block" %root))
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
       | ir                                                                                                                                                                                                                    | Ir.defs ir                   |
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
@@ -1152,7 +1308,7 @@ let%expect_test "debug borked" =
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
       | (Arm64_terminal((Jump((block((id_hum sum8__epilogue)(args(((name res__0)(type_ I64))))))(args(((name t6)(type_ I64))))))))                                                                                            | {}                           |
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      (block (block.id_hum sum8__epilogue))
+      (block ("Block.id_hum block" sum8__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+
@@ -1177,7 +1333,7 @@ let%expect_test "debug borked opt" =
      | `Other -> failwith "unexpected arch");
     [%expect
       {|
-      (block (block.id_hum root__prologue))
+      (block ("Block.id_hum block" root__prologue))
       +--------------------------------------------------------+------------+
       | ir                                                     | Ir.defs ir |
       +--------------------------------------------------------+------------+
@@ -1185,7 +1341,7 @@ let%expect_test "debug borked opt" =
       +--------------------------------------------------------+------------+
       | (Arm64(Jump((block((id_hum %root)(args())))(args())))) | {}         |
       +--------------------------------------------------------+------------+
-      (block (block.id_hum %root))
+      (block ("Block.id_hum block" %root))
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       | ir                                                                                                                                                                        | Ir.defs ir                               |
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
@@ -1217,7 +1373,7 @@ let%expect_test "debug borked opt" =
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
       | (Arm64_terminal((Jump((block((id_hum root__epilogue)(args(((name res__0)(type_ I64))))))(args(((name res)(type_ I64))))))))                                               | {}                                       |
       +---------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------------------+
-      (block (block.id_hum root__epilogue))
+      (block ("Block.id_hum block" root__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+
@@ -1225,7 +1381,7 @@ let%expect_test "debug borked opt" =
       +----------------------------------------------------------------------------------------------------------------+------------+
       | (Arm64(Ret((Reg((reg(Allocated((name res__0)(type_ I64))(X0)))(class_ I64))))))                                | {}         |
       +----------------------------------------------------------------------------------------------------------------+------------+
-      (block (block.id_hum sum8__prologue))
+      (block ("Block.id_hum block" sum8__prologue))
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
       | ir                                                                                                                                                                                                                                                                                                                                                                                                             | Ir.defs ir               |
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
@@ -1265,7 +1421,7 @@ let%expect_test "debug borked opt" =
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
       | (Arm64(Jump((block((id_hum %root)(args(((name a)(type_ I64))((name b)(type_ I64))((name c)(type_ I64))((name d)(type_ I64))((name e)(type_ I64))((name f)(type_ I64))((name g)(type_ I64))((name h)(type_ I64))))))(args(((name a0)(type_ I64))((name b0)(type_ I64))((name c0)(type_ I64))((name d0)(type_ I64))((name e0)(type_ I64))((name f0)(type_ I64))((name g0)(type_ I64))((name h0)(type_ I64))))))) | {}                       |
       +----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------------------+
-      (block (block.id_hum %root))
+      (block ("Block.id_hum block" %root))
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
       | ir                                                                                                                                                                                                                    | Ir.defs ir                   |
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
@@ -1287,7 +1443,7 @@ let%expect_test "debug borked opt" =
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
       | (Arm64_terminal((Jump((block((id_hum sum8__epilogue)(args(((name res__0)(type_ I64))))))(args(((name t6)(type_ I64))))))))                                                                                            | {}                           |
       +-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+------------------------------+
-      (block (block.id_hum sum8__epilogue))
+      (block ("Block.id_hum block" sum8__epilogue))
       +----------------------------------------------------------------------------------------------------------------+------------+
       | ir                                                                                                             | Ir.defs ir |
       +----------------------------------------------------------------------------------------------------------------+------------+

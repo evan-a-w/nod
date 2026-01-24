@@ -133,6 +133,21 @@ let of_cfg ~root =
   t
 ;;
 
+let set_block_args t ~(block : Block.t) ~(args : Var.t Vec.t) =
+  Vec.iter (Block.args block) ~f:(fun var ->
+    match value_by_var t var with
+    | None -> ()
+    | Some value ->
+      (match value.def with
+       | Block_arg { block = def_block; _ } when phys_equal def_block block ->
+         value.def <- Undefined
+       | _ -> ()));
+  Block.Expert.set_args block args;
+  Vec.iteri args ~f:(fun arg var ->
+    let value = ensure_value t ~var in
+    value.def <- Block_arg { block; arg })
+;;
+
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   clear_instr_value_relationships t ~instr;
   free_instr t instr;

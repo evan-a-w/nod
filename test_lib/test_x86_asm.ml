@@ -18,8 +18,8 @@ let compile_and_lower_functions functions =
   X86_backend.compile_to_asm ~system:`Linux functions
 ;;
 
-let make_fn ~name ~args ~root =
-  Block.Expert.set_args root (Vec.of_list args);
+let make_fn ~fn_state ~name ~args ~root =
+  Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
   Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
 ;;
@@ -115,7 +115,7 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let selected_map =
     X86_backend.For_testing.select_instructions
       (String.Map.of_alist_exn [ "root", fn ])
@@ -154,7 +154,7 @@ let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let asm =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
@@ -187,7 +187,7 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let asm =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
