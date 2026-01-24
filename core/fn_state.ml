@@ -243,3 +243,19 @@ let append_instr t ~(block : Block.t) ~instr =
 ;;
 
 let append_ir t ~block ~ir = append_instr t ~block ~instr:(alloc_instr t ~ir)
+
+let append_irs t ~(block : Block.t) ~irs =
+  List.iter irs ~f:(fun ir -> append_ir t ~block ~ir)
+;;
+
+let replace_irs t ~block ~irs =
+  let rec clear = function
+    | None -> ()
+    | Some instr ->
+      let next = instr.Instr_state.next in
+      remove_instr t ~block ~instr;
+      clear next
+  in
+  clear (Block.instructions block);
+  List.iter irs ~f:(fun ir -> append_ir t ~block ~ir)
+;;

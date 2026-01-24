@@ -57,10 +57,16 @@ let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
   | Load_field _
   | Store_field _
   | Memcpy _
-  | Atomic_load _ | Atomic_store _ | Atomic_rmw _ | Atomic_cmpxchg _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
   | Move _
   | Cast _
-  | Branch _ | Return _ | Unreachable | Call _ -> None
+  | Branch _
+  | Return _
+  | Unreachable
+  | Call _ -> None
 ;;
 
 let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
@@ -74,11 +80,36 @@ let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
   | Arm64_terminal terminals ->
     let new_ir =
       Ir0.Arm64_terminal
-        (List.take terminals (List.length terminals - 1)
-         @ [ new_true_terminal ])
+        (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ])
     in
     Fn_state.replace_terminal_ir fn_state ~block ~with_:new_ir
-  | _ -> ()
+  | Noop
+  | And _
+  | Or _
+  | Add _
+  | Sub _
+  | Mul _
+  | Div _
+  | Mod _
+  | Lt _
+  | Fadd _
+  | Fsub _
+  | Fmul _
+  | Fdiv _
+  | Alloca _
+  | Call _
+  | Load (_, _)
+  | Store (_, _)
+  | Load_field _
+  | Store_field _
+  | Memcpy _
+  | Atomic_load _
+  | Atomic_store _
+  | Atomic_rmw _
+  | Atomic_cmpxchg _
+  | Move (_, _)
+  | Cast (_, _)
+  | Branch _ | Return _ | X86 _ | X86_terminal _ | Unreachable -> ()
 ;;
 
 let ( >> ) f g = Fn.compose g f
