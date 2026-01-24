@@ -5,10 +5,22 @@ let map_function_roots ~f program =
   Program.map_function_roots program ~f
 ;;
 
+let map_function_roots_with_state program ~state ~f =
+  { program with
+    Program.functions =
+      Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
+        Function0.map_root
+          fn
+          ~f:(f ~fn_state:(Nod_core.State.fn_state state name)))
+  }
+;;
+
 let test s =
   s
   |> Parser.parse_string
-  |> Result.map ~f:(map_function_roots ~f:Cfg.process)
+  |> Result.map ~f:(fun program ->
+    let state = Nod_core.State.create () in
+    map_function_roots_with_state program ~state ~f:Cfg.process)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
@@ -17,9 +29,10 @@ let test s =
       ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
-            Vec.to_list block.Block.instructions @ [ block.terminal ]
+            Instr_state.to_ir_list (Block.instructions block)
+            @ [ (Block.terminal block).Instr_state.ir ]
           in
-          print_s [%message block.id_hum (instrs : Ir.t list)]))
+          print_s [%message (Block.id_hum block) (instrs : Ir.t list)]))
 ;;
 
 let%expect_test "f" =

@@ -17,6 +17,7 @@ val iter_instructions : t -> f:(t Instr_state.t -> unit) -> unit
 val instructions : t -> t Instr_state.t option
 val terminal : t -> t Instr_state.t
 val args : t -> Var.t Vec.t
+val insert_phi_moves : t -> bool
 val to_sexp_verbose : t -> Sexp.t
 val children : t -> t Vec.t
 val parents : t -> t Vec.t
@@ -26,6 +27,7 @@ module Expert : sig
   val set_terminal : t -> t Instr_state.t -> unit
   val set_instructions : t -> t Instr_state.t option -> unit
   val set_args : t -> Var.t Vec.t -> unit
+  val set_insert_phi_moves : t -> bool -> unit
 end
 
 module Pair : sig

@@ -117,4 +117,5 @@ module Expert = struct
   let set_terminal = set_terminal
   let set_instructions = set_instructions
   let set_args = set_args
+  let set_insert_phi_moves = set_insert_phi_moves
 end

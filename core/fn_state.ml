@@ -117,24 +117,42 @@ let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
   |> List.iter ~f:(fun var -> add_use (ensure_value t ~var) instr.id)
 ;;
 
+let of_cfg ~root =
+  let t = create () in
+  let register_instr instr =
+    let (Instr_id id) = instr.Instr_state.id in
+    Vec.fill_to_length t.instrs ~length:(id + 1) ~f:(fun _ -> None);
+    Vec.set t.instrs id (Some instr)
+  in
+  Block.iter_instructions root ~f:register_instr;
+  Block.iter root ~f:(fun block ->
+    Vec.iteri (Block.args block) ~f:(fun arg var ->
+      let value = ensure_value t ~var in
+      value.def <- Block_arg { block; arg }));
+  Block.iter_instructions root ~f:(fun instr -> add_instr_value_relationships t ~instr);
+  t
+;;
+
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   clear_instr_value_relationships t ~instr;
   free_instr t instr;
   List.iter with_instrs ~f:(fun instr -> add_instr_value_relationships t ~instr);
-  let rec go (prev : _ Instr_state.t option) l =
+  let rec link prev l =
     match l with
-    | [] -> ()
+    | [] -> prev
     | x :: xs ->
+      x.Instr_state.prev <- prev;
       (match prev with
-       | None -> ()
-       | Some prev -> prev.next <- Some x);
-      x.next <- instr.next;
-      go (Some x) xs
+       | None -> Block.Expert.set_instructions block (Some x)
+       | Some prev -> prev.Instr_state.next <- Some x);
+      link (Some x) xs
   in
-  go instr.prev with_instrs;
-  match instr.prev, List.hd with_instrs with
-  | None, head -> Block.Expert.set_instructions block head
-  | Some prev, head -> prev.next <- head
+  let last = link instr.Instr_state.prev with_instrs in
+  (match last with
+   | None -> Block.Expert.set_instructions block instr.Instr_state.next
+   | Some last -> last.Instr_state.next <- instr.Instr_state.next);
+  Option.iter instr.Instr_state.next ~f:(fun next ->
+    next.Instr_state.prev <- last)
 ;;
 
 let replace_instr_with_irs t ~block ~instr ~with_irs =
@@ -156,10 +174,22 @@ let replace_terminal_ir t ~(block : Block.t) ~with_ =
   Block.Expert.set_terminal block with_
 ;;
 
+let remove_instr t ~(block : Block.t) ~(instr : _ Instr_state.t) =
+  clear_instr_value_relationships t ~instr;
+  free_instr t instr;
+  (match instr.Instr_state.prev with
+   | None -> Block.Expert.set_instructions block instr.Instr_state.next
+   | Some prev -> prev.Instr_state.next <- instr.Instr_state.next);
+  Option.iter instr.Instr_state.next ~f:(fun next ->
+    next.Instr_state.prev <- instr.Instr_state.prev)
+;;
+
 let append_instr t ~(block : Block.t) ~instr =
   let rec go (curr : _ Instr_state.t) =
-    match curr.next with
-    | None -> curr.next <- Some instr
+    match curr.Instr_state.next with
+    | None ->
+      curr.Instr_state.next <- Some instr;
+      instr.Instr_state.prev <- Some curr
     | Some next -> go next
   in
   match Block.instructions block with

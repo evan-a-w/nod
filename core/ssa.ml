@@ -280,8 +280,8 @@ let insert_args t =
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
-          if not (Vec.mem block.args var ~compare:Var.compare)
-          then Vec.push block.args var;
+          if not (Vec.mem (Block.args block) var ~compare:Var.compare)
+          then Vec.push (Block.args block) var;
           Hash_set.add defs block)));
   t
 ;;
@@ -293,7 +293,7 @@ let add_args_to_calls t =
     Fn_state.replace_terminal_ir
       (fn_state t)
       ~block
-      ~with_:(Ir.add_block_args block.terminal.ir);
+      ~with_:(Ir.add_block_args (Block.terminal block).ir);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -311,10 +311,10 @@ let uses_in_block_ex_calls ~(block : Block.t) =
     defs, uses
   in
   let acc =
-    Instr_state.to_ir_list block.instructions
+    Instr_state.to_ir_list (Block.instructions block)
     |> List.fold ~init:(Var.Set.empty, Var.Set.empty) ~f
   in
-  let _defs, uses = f acc block.terminal.ir in
+  let _defs, uses = f acc (Block.terminal block).ir in
   uses
 ;;
 
@@ -330,15 +330,15 @@ let prune_args t =
   in
   let uses = go Var.Set.empty t.def_uses.root in
   let rec go' block =
-    let pre_len = Vec.length block.Block.args in
-    Vec.filter_inplace block.args ~f:(Set.mem uses);
-    if Vec.length block.args <> pre_len
+    let pre_len = Vec.length (Block.args block) in
+    Vec.filter_inplace (Block.args block) ~f:(Set.mem uses);
+    if Vec.length (Block.args block) <> pre_len
     then
-      Vec.iter block.parents ~f:(fun block' ->
+      Vec.iter (Block.parents block) ~f:(fun block' ->
         Fn_state.replace_terminal_ir
           (fn_state t)
           ~block:block'
-          ~with_:(Ir.add_block_args block'.terminal.ir));
+          ~with_:(Ir.add_block_args (Block.terminal block').ir));
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -370,11 +370,22 @@ let rename t =
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
-    block.Block.args <- Vec.map block.Block.args ~f:replace_def;
-    block.Block.instructions
-    <- Vec.map block.instructions ~f:(fun instr ->
-         instr |> replace_uses |> replace_defs);
-    Block.terminal block |> replace_uses |> Block.set_terminal block;
+    Block.Expert.set_args block (Vec.map (Block.args block) ~f:replace_def);
+    let rec rename_instrs instr =
+      match instr with
+      | None -> ()
+      | Some instr ->
+        let next = instr.Instr_state.next in
+        let new_ir = instr.Instr_state.ir |> replace_uses |> replace_defs in
+        let new_instr = Fn_state.alloc_instr (fn_state t) ~ir:new_ir in
+        Fn_state.replace_instr (fn_state t) ~block ~instr ~with_instrs:[ new_instr ];
+        rename_instrs next
+    in
+    rename_instrs (Block.instructions block);
+    Fn_state.replace_terminal_ir
+      (fn_state t)
+      ~block
+      ~with_:(replace_uses (Block.terminal block).ir);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -397,8 +408,8 @@ let create_uninit ~in_order def_uses =
   }
 ;;
 
-let create (~root, ~blocks:_, ~in_order) =
-  Def_uses.create root
+let create ~fn_state (~root, ~blocks:_, ~in_order) =
+  Def_uses.create ~fn_state root
   |> create_uninit ~in_order
   |> calculate_dominator_tree
   |> insert_args

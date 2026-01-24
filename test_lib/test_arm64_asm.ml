@@ -19,9 +19,19 @@ let compile_and_lower_functions functions =
 ;;
 
 let make_fn ~name ~args ~root =
-  List.iter args ~f:(Vec.push root.Block.args);
-  root.dfs_id <- Some 0;
+  Block.Expert.set_args root (Vec.of_list args);
+  Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
+;;
+
+let mk_block fn_state ~id_hum ~terminal =
+  Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+;;
+
+let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
+  let block = mk_block fn_state ~id_hum ~terminal in
+  List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+  block
 ;;
 
 let print_mnemonics_with_prefixes prefixes asm =
@@ -506,26 +516,26 @@ root() {
 let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let fn_state = Fn_state.create () in
   let root =
-    Block.create
+    mk_block_with_instrs
+      fn_state
       ~id_hum:"%root"
       ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
+      ~instrs:
+        [ Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }
+        ; Ir.atomic_store
+            { addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+            ; src = Ir.Lit_or_var.Lit 7L
+            ; order = Ir.Memory_order.Seq_cst
+            }
+        ; Ir.atomic_load
+            { dest = loaded
+            ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+            ; order = Ir.Memory_order.Seq_cst
+            }
+        ]
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
-    (Ir.atomic_store
-       { addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
-       ; src = Ir.Lit_or_var.Lit 7L
-       ; order = Ir.Memory_order.Seq_cst
-       });
-  Vec.push
-    root.instructions
-    (Ir.atomic_load
-       { dest = loaded
-       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
-       ; order = Ir.Memory_order.Seq_cst
-       });
   let fn = make_fn ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
@@ -544,21 +554,25 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
   let ok = Var.create ~name:"ok" ~type_:Type.I64 in
+  let fn_state = Fn_state.create () in
   let root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
+    mk_block_with_instrs
+      fn_state
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var ok))
+      ~instrs:
+        [ Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }
+        ; Ir.atomic_cmpxchg
+            { dest = old
+            ; success = ok
+            ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+            ; expected = Ir.Lit_or_var.Lit 1L
+            ; desired = Ir.Lit_or_var.Lit 2L
+            ; success_order = Ir.Memory_order.Acq_rel
+            ; failure_order = Ir.Memory_order.Acquire
+            }
+        ]
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
-    (Ir.atomic_cmpxchg
-       { dest = old
-       ; success = ok
-       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
-       ; expected = Ir.Lit_or_var.Lit 1L
-       ; desired = Ir.Lit_or_var.Lit 2L
-       ; success_order = Ir.Memory_order.Acq_rel
-       ; failure_order = Ir.Memory_order.Acquire
-       });
   let fn = make_fn ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes
@@ -579,19 +593,23 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
 let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
   let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
   let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let fn_state = Fn_state.create () in
   let root =
-    Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
+    mk_block_with_instrs
+      fn_state
+      ~id_hum:"%root"
+      ~terminal:(Ir.return (Ir.Lit_or_var.Var old))
+      ~instrs:
+        [ Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }
+        ; Ir.atomic_rmw
+            { dest = old
+            ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
+            ; src = Ir.Lit_or_var.Lit 1L
+            ; op = Ir.Rmw_op.Add
+            ; order = Ir.Memory_order.Relaxed
+            }
+        ]
   in
-  Vec.push root.instructions (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L });
-  Vec.push
-    root.instructions
-    (Ir.atomic_rmw
-       { dest = old
-       ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
-       ; src = Ir.Lit_or_var.Lit 1L
-       ; op = Ir.Rmw_op.Add
-       ; order = Ir.Memory_order.Relaxed
-       });
   let fn = make_fn ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;

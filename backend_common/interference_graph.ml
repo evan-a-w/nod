@@ -37,7 +37,7 @@ module M (A : Arch.S) = struct
       let block_liveness = Liveness_state.block_liveness liveness_state block in
       let live_in = block_liveness.overall.live_in in
       let block_arg_ids =
-        Vec.to_list block.args
+        Vec.to_list (Block.args block)
         |> List.filter_map ~f:(fun var ->
           Arg.t_of_var var |> Option.map ~f:Arg.id_of_t)
       in
@@ -45,7 +45,8 @@ module M (A : Arch.S) = struct
         Set.iter live_in ~f:(fun live_id -> add_edge arg_id live_id));
       let zipped =
         List.zip_exn
-          (Vec.to_list block.instructions @ [ block.terminal ])
+          (Instr_state.to_ir_list (Block.instructions block)
+           @ [ (Block.terminal block).Instr_state.ir ])
           (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
       in
       List.iter zipped ~f:(fun (ir, liveness (* , _) *)) ->
