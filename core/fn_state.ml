@@ -95,7 +95,14 @@ let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
   |> List.iter ~f:(fun var ->
     match value_by_var t var with
     | None -> ()
-    | Some var -> var.def <- Undefined);
+    | Some var ->
+      (match var.def with
+       | Undefined | Block_arg _ ->
+         (* do nothing, def is already not this ir *)
+         ()
+       | Instr id ->
+         (* only clear if this def is actually us. This is basically just so it's not funky if the thing isn't actually in ssa form *)
+         if [%compare.equal: Instr_id.t] id instr.id then var.def <- Undefined));
   Ir0.uses instr.ir
   |> List.iter ~f:(fun var ->
     match value_by_var t var with
@@ -112,6 +119,7 @@ let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
 
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   clear_instr_value_relationships t ~instr;
+  free_instr t instr;
   List.iter with_instrs ~f:(fun instr -> add_instr_value_relationships t ~instr);
   let rec go (prev : _ Instr_state.t option) l =
     match l with
@@ -129,8 +137,34 @@ let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
   | Some prev, head -> prev.next <- head
 ;;
 
+let replace_instr_with_irs t ~block ~instr ~with_irs =
+  let instrs = List.map with_irs ~f:(fun ir -> alloc_instr t ~ir) in
+  replace_instr t ~block ~instr ~with_instrs:instrs
+;;
+
 let replace_terminal t ~(block : Block.t) ~with_ =
+  clear_instr_value_relationships t ~instr:block.terminal;
+  free_instr t block.terminal;
+  add_instr_value_relationships t ~instr:with_;
+  block.terminal <- with_
+;;
+
+let replace_terminal_ir t ~(block : Block.t) ~with_ =
+  let with_ = alloc_instr t ~ir:with_ in
   clear_instr_value_relationships t ~instr:block.terminal;
   add_instr_value_relationships t ~instr:with_;
   block.terminal <- with_
 ;;
+
+let append_instr t ~(block : Block.t) ~instr =
+  let rec go (curr : _ Instr_state.t) =
+    match curr.next with
+    | None -> curr.next <- Some instr
+    | Some next -> go next
+  in
+  match block.instructions with
+  | None -> block.instructions <- Some instr
+  | Some head -> go head
+;;
+
+let append_ir t ~block ~ir = append_instr t ~block ~instr:(alloc_instr t ~ir)

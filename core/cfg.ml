@@ -44,9 +44,10 @@ let process ~fn_state (~instrs_by_label, ~labels) =
         else if Ir.is_terminal instr
         then add_terminal instr
         else
-          Vec.push
-            block.instructions
-            (Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+          Fn_state.append_ir
+            fn_state
+            ~block
+            ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) instr));
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with

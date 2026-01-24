@@ -10,9 +10,11 @@ module Dominator = struct
     ; ancestor : int Vec.t
     ; label : int Vec.t
     ; dominance_frontier : Int.Hash_set.t Vec.t
+    ; fn_state : Fn_state.t
     }
+  [@@deriving fields]
 
-  let dfs block =
+  let dfs ~fn_state block =
     let blocks = Vec.create () in
     let parent = Vec.create () in
     let semi = Vec.create () in
@@ -41,7 +43,16 @@ module Dominator = struct
     let dominance_frontier =
       Vec.map semi ~f:(fun _ -> Int.Hash_set.create ())
     in
-    { parent; blocks; bucket; dom; semi; ancestor; label; dominance_frontier }
+    { parent
+    ; blocks
+    ; bucket
+    ; dom
+    ; semi
+    ; ancestor
+    ; label
+    ; dominance_frontier
+    ; fn_state
+    }
   ;;
 
   let link st v w = Vec.set st.ancestor w v
@@ -112,7 +123,9 @@ module Dominator = struct
     st
   ;;
 
-  let create block = block |> dfs |> step_2_3 |> step_4 |> dominance_frontier
+  let create ~fn_state block =
+    block |> dfs ~fn_state |> step_2_3 |> step_4 |> dominance_frontier
+  ;;
 end
 
 module Def_uses = struct
@@ -125,6 +138,8 @@ module Def_uses = struct
     }
   [@@deriving fields]
 
+  let fn_state t = Dominator.fn_state t.dominator
+
   let update_def_uses t ~block =
     let update tbl x =
       Hash_set.add t.vars x;
@@ -133,9 +148,9 @@ module Def_uses = struct
         block
     in
     Vec.iter block.Block.args ~f:(update t.defs);
-    Vec.iter (Block.instructions block) ~f:(fun instr ->
-      let uses = Ir.uses instr in
-      let defs = Ir.defs instr in
+    Instr_state.iter (Block.instructions block) ~f:(fun instr ->
+      let uses = Ir.uses instr.ir in
+      let defs = Ir.defs instr.ir in
       List.iter uses ~f:(update t.uses);
       List.iter defs ~f:(update t.defs))
   ;;
@@ -153,9 +168,9 @@ module Def_uses = struct
     t
   ;;
 
-  let create root =
+  let create ~fn_state root =
     let t =
-      { dominator = Dominator.create root
+      { dominator = Dominator.create ~fn_state root
       ; vars = Var.Hash_set.create ()
       ; uses = Var.Table.create ()
       ; defs = Var.Table.create ()
@@ -271,9 +286,14 @@ let insert_args t =
   t
 ;;
 
+let fn_state t = Def_uses.fn_state t.def_uses
+
 let add_args_to_calls t =
   let rec go block =
-    Block.set_terminal block (Block.terminal block |> Ir.add_block_args);
+    Fn_state.replace_terminal_ir
+      (fn_state t)
+      ~block
+      ~with_:(Ir.add_block_args block.terminal.ir);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -284,16 +304,17 @@ let add_args_to_calls t =
   t
 ;;
 
-let uses_in_block_ex_calls ~block =
+let uses_in_block_ex_calls ~(block : Block.t) =
   let f (defs, uses) instr =
     let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
     let defs = Set.union defs (Ir.defs instr |> Var.Set.of_list) in
     defs, uses
   in
   let acc =
-    Vec.fold block.Block.instructions ~init:(Var.Set.empty, Var.Set.empty) ~f
+    Instr_state.to_ir_list block.instructions
+    |> List.fold ~init:(Var.Set.empty, Var.Set.empty) ~f
   in
-  let _defs, uses = f acc block.terminal in
+  let _defs, uses = f acc block.terminal.ir in
   uses
 ;;
 
@@ -314,7 +335,10 @@ let prune_args t =
     if Vec.length block.args <> pre_len
     then
       Vec.iter block.parents ~f:(fun block' ->
-        Block.set_terminal block' (Block.terminal block' |> Ir.add_block_args));
+        Fn_state.replace_terminal_ir
+          (fn_state t)
+          ~block:block'
+          ~with_:(Ir.add_block_args block'.terminal.ir));
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:

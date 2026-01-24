@@ -7,6 +7,7 @@ type 'block t =
   ; mutable next : 'block t option
   ; mutable prev : 'block t option
   }
+[@@deriving fields]
 
 let sexp_of_t sexp_of_block { id; ir; next = _; prev = _ } =
   [%message (id : Instr_id.t) (ir : block Ir0.t)]
@@ -25,6 +26,8 @@ let rec to_list t =
   | None -> []
   | Some x -> x :: to_list x.next
 ;;
+
+let to_ir_list t = to_list t |> List.map ~f:ir
 
 let rec fold t ~init ~f =
   match t with
