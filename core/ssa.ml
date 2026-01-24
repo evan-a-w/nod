@@ -281,7 +281,11 @@ let insert_args t =
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
           if not (Vec.mem (Block.args block) var ~compare:Var.compare)
-          then Vec.push (Block.args block) var;
+          then
+            Fn_state.set_block_args
+              (Def_uses.fn_state t.def_uses)
+              ~block
+              ~args:(Vec.of_list (Vec.to_list (Block.args block) @ [ var ]));
           Hash_set.add defs block)));
   t
 ;;
@@ -330,15 +334,15 @@ let prune_args t =
   in
   let uses = go Var.Set.empty t.def_uses.root in
   let rec go' block =
-    let pre_len = Vec.length (Block.args block) in
-    Vec.filter_inplace (Block.args block) ~f:(Set.mem uses);
-    if Vec.length (Block.args block) <> pre_len
+    let new_args = Vec.filter (Block.args block) ~f:(Set.mem uses) in
+    if Vec.length new_args <> Vec.length (Block.args block)
     then
-      Vec.iter (Block.parents block) ~f:(fun block' ->
-        Fn_state.replace_terminal_ir
-          (fn_state t)
-          ~block:block'
-          ~with_:(Ir.add_block_args (Block.terminal block').ir));
+      (Fn_state.set_block_args (fn_state t) ~block ~args:new_args;
+       Vec.iter (Block.parents block) ~f:(fun block' ->
+         Fn_state.replace_terminal_ir
+           (fn_state t)
+           ~block:block'
+           ~with_:(Ir.add_block_args (Block.terminal block').ir)));
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -370,7 +374,10 @@ let rename t =
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
-    Block.Expert.set_args block (Vec.map (Block.args block) ~f:replace_def);
+    Fn_state.set_block_args
+      (fn_state t)
+      ~block
+      ~args:(Vec.map (Block.args block) ~f:replace_def);
     let rec rename_instrs instr =
       match instr with
       | None -> ()

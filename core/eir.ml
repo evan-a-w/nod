@@ -316,9 +316,10 @@ module Opt = struct
         if Var.equal arg s then Some i else None)
       |> Option.value_exn
     in
-    Block.Expert.set_args
-      block
-      (Vec.filter (Block.args block) ~f:(Fn.non (Var.equal arg)));
+    Fn_state.set_block_args
+      (fn_state t.ssa)
+      ~block
+      ~args:(Vec.filter (Block.args block) ~f:(Fn.non (Var.equal arg)));
     Vec.iter (Block.parents block) ~f:(fun parent ->
       remove_arg_from_parent t ~parent ~idx ~from_block:block)
 
@@ -559,12 +560,15 @@ let map_program_roots_with_state program ~state ~f =
   }
 ;;
 
-let set_entry_block_args program =
-  Map.iter
+let set_entry_block_args program ~state =
+  Map.iteri
     program.Program.functions
-    ~f:(fun { Function.root = root_data; args; _ } ->
+    ~f:(fun ~key:name ~data:{ Function.root = root_data; args; _ } ->
       let ~root:block, ~blocks:_, ~in_order:_ = root_data in
-      List.iter args ~f:(Vec.push (Block.args block)));
+      Fn_state.set_block_args
+        (State.fn_state state name)
+        ~block
+        ~args:(Vec.of_list args));
   program
 ;;
 
@@ -631,7 +635,7 @@ let compile ?opt_flags (input : input) =
   let state = State.create () in
   match
     Result.map input ~f:(map_program_roots_with_state ~state ~f:Cfg.process)
-    |> Result.map ~f:set_entry_block_args
+    |> Result.map ~f:(set_entry_block_args ~state)
     |> Result.bind ~f:(fun program ->
       type_check_program program |> Result.map ~f:(fun () -> program))
     |> Result.bind ~f:(lower_aggregate_program ~state)

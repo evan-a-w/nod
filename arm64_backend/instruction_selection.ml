@@ -607,7 +607,7 @@ let make_prologue t =
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
-  Block.Expert.set_args block (Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
   replace_instructions
     t
     ~block
@@ -653,7 +653,7 @@ let make_epilogue t ~ret_shape =
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
-  Block.Expert.set_args block (Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
   replace_instructions t ~block (List.map ~f:Ir.arm64 reg_res_moves);
   block
 ;;

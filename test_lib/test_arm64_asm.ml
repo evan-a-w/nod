@@ -18,8 +18,8 @@ let compile_and_lower_functions functions =
   Arm64_backend.compile_to_asm ~system:`Linux functions
 ;;
 
-let make_fn ~name ~args ~root =
-  Block.Expert.set_args root (Vec.of_list args);
+let make_fn ~fn_state ~name ~args ~root =
+  Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
   Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
 ;;
@@ -536,7 +536,7 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
   [%expect
@@ -573,7 +573,7 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes
     [ "casal"; "eor x"; "sub x"; "orr x"; "asr x"; "and x" ]
@@ -610,7 +610,7 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
             }
         ]
   in
-  let fn = make_fn ~name:"root" ~args:[] ~root in
+  let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
   let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;
   [%expect

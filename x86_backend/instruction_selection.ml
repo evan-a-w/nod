@@ -629,7 +629,7 @@ let make_prologue t =
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   Block.set_dfs_id block (Some 0);
-  Block.Expert.set_args block (Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
   replace_instructions
     t
     ~block
@@ -677,7 +677,7 @@ let make_epilogue t ~ret_shape =
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
   Block.set_dfs_id block (Some 0);
-  Block.Expert.set_args block (Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
   replace_instructions
     t
     ~block

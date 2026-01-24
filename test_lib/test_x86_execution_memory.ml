@@ -28,9 +28,9 @@ let run_functions ?harness mk_functions expected =
     | `Other -> ())
 ;;
 
-let make_fn ~name ~args ~root =
+let make_fn ~fn_state ~name ~args ~root =
   (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-  List.iter args ~f:(Vec.push (Block.args root));
+  Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
   Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
 ;;
@@ -57,7 +57,9 @@ let%expect_test "alloca passed to child; child loads value" =
         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
         ~instrs:[ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
     in
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child =
+      make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
+    in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let res = Var.create ~name:"res" ~type_:Type.I64 in
     let root_state = Fn_state.create () in
@@ -74,7 +76,9 @@ let%expect_test "alloca passed to child; child loads value" =
           ; Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]
           ]
     in
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    let root =
+      make_fn ~fn_state:root_state ~name:"root" ~args:[] ~root:root_root
+    in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "41"
@@ -97,7 +101,9 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
           ; Ir.move child_ret (Ir.Lit_or_var.Lit 0L)
           ]
     in
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child =
+      make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
+    in
     let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
     let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
     let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
@@ -116,7 +122,9 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
           ; Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var slot))
           ]
     in
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    let root =
+      make_fn ~fn_state:root_state ~name:"root" ~args:[] ~root:root_root
+    in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "99"
@@ -134,7 +142,9 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded))
         ~instrs:[ Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p)) ]
     in
-    let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in
+    let child =
+      make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
+    in
     let base = Var.create ~name:"base" ~type_:Type.Ptr in
     let elem1 = Var.create ~name:"elem1" ~type_:Type.Ptr in
     let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
@@ -165,7 +175,9 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
           ; Ir.move res (Ir.Lit_or_var.Var tmp)
           ]
     in
-    let root = make_fn ~name:"root" ~args:[] ~root:root_root in
+    let root =
+      make_fn ~fn_state:root_state ~name:"root" ~args:[] ~root:root_root
+    in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
   run_functions mk_functions "123"
@@ -234,7 +246,7 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
              ~ir:(Ir.return (Ir.Lit_or_var.Var res)))
     in
     Block.set_dfs_id swap_block (Some 1);
-    Block.Expert.set_args swap_block (Vec.of_list [ a; b ]);
+    Fn_state.set_block_args fn_state ~block:swap_block ~args:(Vec.of_list [ a; b ]);
     Fn_state.append_ir
       fn_state
       ~block:swap_block

@@ -14,7 +14,7 @@ let test ?don't_opt s =
             fn
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
-  |> Result.map ~f:Eir.set_entry_block_args
+  |> Result.map ~f:(Eir.set_entry_block_args ~state)
   |> Result.map ~f:(fun program ->
     { program with
       Program.functions =
