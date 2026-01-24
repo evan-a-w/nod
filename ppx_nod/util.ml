@@ -65,12 +65,12 @@ let rec arg_type_of_core_type ~allow_expr ct =
 let rec type_expr ~loc =
   let open Builder in
   function
-  | I64 -> [%expr Nod_core.Type.I64]
-  | F64 -> [%expr Nod_core.Type.F64]
-  | Ptr -> [%expr Nod_core.Type.Ptr]
+  | I64 -> [%expr Nod_common.Type.I64]
+  | F64 -> [%expr Nod_common.Type.F64]
+  | Ptr -> [%expr Nod_common.Type.Ptr]
   | Tuple l ->
     let l = List.map (type_expr ~loc) l in
-    [%expr Nod_core.Type.Tuple [%e elist ~loc l]]
+    [%expr Nod_common.Type.Tuple [%e elist ~loc l]]
   | Lid (lid, loc) -> [%expr Dsl.Type_repr.type_ [%e ident lid loc]]
 ;;
 

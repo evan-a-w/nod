@@ -13,7 +13,7 @@ module Class = struct
 end
 
 module Raw = struct
-  type t =
+  type 'var t =
     | RBP (* frame pointer *)
     | RSP (* stack pointer *)
     | RAX
@@ -46,9 +46,9 @@ module Raw = struct
     | XMM13
     | XMM14
     | XMM15
-    | Unallocated of Var.t
+    | Unallocated of 'var
     | (* [t option] is [Some] if we force a particular reg, [None] if we force any reg *)
-      Allocated of Var.t * t option
+      Allocated of 'var * 'var t option
   [@@deriving sexp, equal, compare, hash, variants]
 
   let all_physical =
@@ -212,13 +212,10 @@ module Raw = struct
       let id = other - phys_reg_limit in
       unallocated (id_var id)
   ;;
-
-  include functor Comparable.Make
-  include functor Hashable.Make
 end
 
-type t =
-  { reg : Raw.t
+type 'var t =
+  { reg : 'var Raw.t
   ; class_ : Class.t
   }
 [@@deriving sexp, equal, compare, hash]
@@ -350,6 +347,3 @@ let allocable ~class_ =
     ; xmm15
     ]
 ;;
-
-include functor Comparable.Make
-include functor Hashable.Make
