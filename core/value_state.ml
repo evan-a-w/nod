@@ -7,4 +7,5 @@ type t =
   ; mutable def : Def_site.t
   ; mutable opt_tags : Opt_tags.t
   ; mutable uses : Instr_id.Set.t
+  ; mutable active : bool
   }
