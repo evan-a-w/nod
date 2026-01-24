@@ -24,18 +24,6 @@ let regs_to_save ~state ~call_fn ~live_out =
   Set.inter callee_clobbers live_out |> Set.to_list
 ;;
 
-let replace_instructions ~fn_state ~(block : Block.t) irs =
-  let rec clear = function
-    | None -> ()
-    | Some instr ->
-      let next = instr.Instr_state.next in
-      Fn_state.remove_instr fn_state ~block ~instr;
-      clear next
-  in
-  clear (Block.instructions block);
-  List.iter irs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir)
-;;
-
 let rec find_following_call ~start ~len ~instructions =
   if start >= len
   then None
@@ -153,10 +141,10 @@ let save_and_restore_in_prologue_and_epilogue
       Vec.append
         new_prologue
         (Instr_state.to_ir_list (Block.instructions prologue) |> Vec.of_list);
-      replace_instructions
-        ~fn_state
+      Fn_state.replace_irs
+        fn_state
         ~block:prologue
-        (Vec.to_list new_prologue)
+        ~irs:(Vec.to_list new_prologue)
     in
     let () =
       (* change epilogue *)
@@ -167,10 +155,7 @@ let save_and_restore_in_prologue_and_epilogue
       then (
         Vec.push new_epilogue move_sp_to_fp;
         if header_bytes_excl_clobber_saves > 0
-        then
-          Vec.push
-            new_epilogue
-            (add_sp header_bytes_excl_clobber_saves))
+        then Vec.push new_epilogue (add_sp header_bytes_excl_clobber_saves))
       else
         ([ move_sp_to_fp ]
          @ List.map save_slots ~f:(fun (reg, offset) ->
@@ -181,10 +166,10 @@ let save_and_restore_in_prologue_and_epilogue
          if aligned_stack_usage > 0 then [ add_sp aligned_stack_usage ] else []
         )
         |> List.iter ~f:(Vec.push new_epilogue);
-      replace_instructions
-        ~fn_state
+      Fn_state.replace_irs
+        fn_state
         ~block:epilogue
-        (Vec.to_list new_epilogue)
+        ~irs:(Vec.to_list new_epilogue)
     in
     ())
 ;;
@@ -220,21 +205,22 @@ let save_and_restore_around_calls
            | Some fn -> fn
            | None -> failwith "Save_clobbers without following CALL"
          in
-        let regs =
-          regs_to_save
-            ~state
-            ~call_fn
-            ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
-        in
-        let bytes, slots = layout_reg_saves regs in
-        let aligned_bytes = align_stack bytes in
-        Stack.push pending (slots, aligned_bytes);
-        if aligned_bytes > 0 then Vec.push new_instructions (sub_sp aligned_bytes);
-        List.iter slots ~f:(fun (reg, off) ->
-          Vec.push new_instructions (store_reg_at_sp reg off))
-      | Ir0.Arm64 Restore_clobbers ->
-        let slots, bytes =
-          match Stack.pop pending with
+         let regs =
+           regs_to_save
+             ~state
+             ~call_fn
+             ~live_out:(Liveness.live_out' liveness_at_instr |> Reg.Set.of_list)
+         in
+         let bytes, slots = layout_reg_saves regs in
+         let aligned_bytes = align_stack bytes in
+         Stack.push pending (slots, aligned_bytes);
+         if aligned_bytes > 0
+         then Vec.push new_instructions (sub_sp aligned_bytes);
+         List.iter slots ~f:(fun (reg, off) ->
+           Vec.push new_instructions (store_reg_at_sp reg off))
+       | Ir0.Arm64 Restore_clobbers ->
+         let slots, bytes =
+           match Stack.pop pending with
            | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in
@@ -247,10 +233,7 @@ let save_and_restore_around_calls
   loop 0;
   if not (Stack.is_empty pending)
   then failwith "Unbalanced Save_clobbers markers";
-  replace_instructions
-    ~fn_state
-    ~block
-    (Vec.to_list new_instructions);
+  Fn_state.replace_irs fn_state ~block ~irs:(Vec.to_list new_instructions);
   match (Block.terminal block).Instr_state.ir with
   | Ir0.Arm64 Save_clobbers | Ir0.Arm64 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
@@ -300,10 +283,9 @@ let process ~fn_state_by_name (functions : Function.t String.Map.t) =
           | x -> x)
       in
       let instructions =
-        Instr_state.to_ir_list (Block.instructions block)
-        |> List.map ~f:map_ir
+        Instr_state.to_ir_list (Block.instructions block) |> List.map ~f:map_ir
       in
-      replace_instructions ~fn_state ~block instructions;
+      Fn_state.replace_irs fn_state ~block ~irs:instructions;
       Fn_state.replace_terminal_ir
         fn_state
         ~block
