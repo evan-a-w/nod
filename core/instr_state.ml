@@ -3,14 +3,14 @@ open! Import
 
 type 'block t =
   { id : Instr_id.t
-  ; mutable ir : 'block Ir0.t
+  ; mutable ir : (Typed_var.t, 'block) Nod_ir.Ir.t
   ; mutable next : 'block t option
   ; mutable prev : 'block t option
   }
 [@@deriving fields]
 
 let sexp_of_t sexp_of_block { id; ir; next = _; prev = _ } =
-  [%message (id : Instr_id.t) (ir : block Ir0.t)]
+  [%message (id : Instr_id.t) (ir : (Typed_var.t, block) Nod_ir.Ir.t)]
 ;;
 
 let rec iter t ~(local_ f) =

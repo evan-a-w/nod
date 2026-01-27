@@ -1,10 +1,10 @@
 open! Core
 open! Import
-include Ir0
+include Nod_ir.Ir
 module Block = Block
 module Call_block = Call_block
 
-type nonrec t = Block.t t [@@deriving sexp, compare, equal, hash]
+type nonrec t = (Typed_var.t, Block.t) t [@@deriving sexp, compare, equal, hash]
 
 let add_block_args =
   let on_call_block { Call_block.block; args = _ } =
@@ -57,7 +57,7 @@ let add_block_args =
 ;;
 
 let remove_block_args =
-  let on_call_block (call_block : Block.t Call_block.t) =
+  let on_call_block (call_block : (Typed_var.t, Block.t) Call_block.t) =
     { call_block with args = [] }
   in
   function
@@ -136,15 +136,15 @@ module Aggregate = struct
     match operand with
     | Lit_or_var.Lit _ -> Ok ()
     | Var v ->
-      if Type.is_ptr (Var.type_ v)
+      if Type.is_ptr (Typed_var.type_ v)
       then Ok ()
       else
         type_error
           "%s expects %s pointer but got %s:%s"
           op
           position
-          (Var.name v)
-          (Type.to_string (Var.type_ v))
+          (Typed_var.name v)
+          (Type.to_string (Typed_var.type_ v))
     | Global _ -> Ok ()
   ;;
 
@@ -166,7 +166,7 @@ module Aggregate = struct
   let ensure_pointer_operand_target operand ~expected ~op ~position =
     match operand with
     | Lit_or_var.Lit _ -> Ok ()
-    | Var v -> ensure_pointer_target (Var.type_ v) ~expected ~op ~position
+    | Var v -> ensure_pointer_target (Typed_var.type_ v) ~expected ~op ~position
     | Global g ->
       ensure_pointer_target
         (Type.Ptr_typed g.Global.type_)
@@ -180,18 +180,20 @@ module Aggregate = struct
     || (Type.equal expected Type.Ptr && Type.is_ptr actual)
   ;;
 
-  let lower_load_field ({ dest; base; type_; indices } : load_field) =
+  let lower_load_field
+    ({ dest; base; type_; indices } : Typed_var.t Ir_helpers.load_field)
+    =
     let%bind () =
       ensure_pointer_operand base ~op:"load_field" ~position:"base"
     in
     let%bind offset, raw_field_type = field_offset type_ indices in
     match raw_field_type with
     | Tuple _ ->
-      if Type.is_ptr (Var.type_ dest)
+      if Type.is_ptr (Typed_var.type_ dest)
       then (
         let%bind () =
           ensure_pointer_target
-            (Var.type_ dest)
+            (Typed_var.type_ dest)
             ~expected:raw_field_type
             ~op:"load_field"
             ~position:"destination"
@@ -204,23 +206,23 @@ module Aggregate = struct
         type_error
           "load_field expected pointer destination for aggregate field but got \
            %s"
-          (Type.to_string (Var.type_ dest))
+          (Type.to_string (Typed_var.type_ dest))
     | _ ->
       let%bind field_type = ensure_value_type raw_field_type in
       let%bind () =
-        if Type.equal field_type (Var.type_ dest)
+        if Type.equal field_type (Typed_var.type_ dest)
         then Ok ()
         else
           type_error
             "load_field expected destination of type %s but got %s"
             (Type.to_string field_type)
-            (Type.to_string (Var.type_ dest))
+            (Type.to_string (Typed_var.type_ dest))
       in
       Ok [ load dest (Mem.address base ~offset) ]
   ;;
 
   let lower_store_field
-    ({ base; src; type_; indices } : store_field)
+    ({ base; src; type_; indices } : Typed_var.t Ir_helpers.store_field)
     ~fresh_temp
     =
     let%bind () =
@@ -250,13 +252,13 @@ module Aggregate = struct
         match src with
         | Lit_or_var.Lit _ -> Ok ()
         | Var v ->
-          if types_compatible ~expected:field_type ~actual:(Var.type_ v)
+          if types_compatible ~expected:field_type ~actual:(Typed_var.type_ v)
           then Ok ()
           else
             type_error
               "store_field expected source of type %s but got %s"
               (Type.to_string field_type)
-              (Type.to_string (Var.type_ v))
+              (Type.to_string (Typed_var.type_ v))
         | Global g ->
           let actual = Type.Ptr_typed g.Global.type_ in
           if types_compatible ~expected:field_type ~actual
@@ -270,7 +272,10 @@ module Aggregate = struct
       Ok [ store src (Mem.address base ~offset) ]
   ;;
 
-  let lower_memcpy ({ dest; src; type_ } : memcpy) ~fresh_temp =
+  let lower_memcpy
+    ({ dest; src; type_ } : Typed_var.t Ir_helpers.memcpy)
+    ~fresh_temp
+    =
     let%bind () =
       ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
     in
@@ -338,7 +343,7 @@ module Type_check = struct
           position
           (Type.to_string expected_type)
     | Var var ->
-      if types_compatible ~expected:expected_type ~actual:(Var.type_ var)
+      if types_compatible ~expected:expected_type ~actual:(Typed_var.type_ var)
       then Ok ()
       else
         type_error
@@ -346,8 +351,8 @@ module Type_check = struct
           op
           position
           (Type.to_string expected_type)
-          (Var.name var)
-          (Type.to_string (Var.type_ var))
+          (Typed_var.name var)
+          (Type.to_string (Typed_var.type_ var))
     | Global g ->
       let actual = Type.Ptr_typed g.Global.type_ in
       if types_compatible ~expected:expected_type ~actual
@@ -362,15 +367,15 @@ module Type_check = struct
   ;;
 
   let ensure_integer_var var ~op ~position =
-    if Type.is_integer (Var.type_ var)
+    if Type.is_integer (Typed_var.type_ var)
     then Ok ()
     else
       type_error
         "%s expects %s to be integer but %s:%s"
         op
         position
-        (Var.name var)
-        (Type.to_string (Var.type_ var))
+        (Typed_var.name var)
+        (Type.to_string (Typed_var.type_ var))
   ;;
 
   let ensure_integer_operand operand ~op ~position =
@@ -389,15 +394,15 @@ module Type_check = struct
     match operand with
     | Lit_or_var.Lit _ -> Ok ()
     | Var var ->
-      if Type.is_ptr (Var.type_ var)
+      if Type.is_ptr (Typed_var.type_ var)
       then Ok ()
       else
         type_error
           "%s expects %s pointer but got %s:%s"
           op
           position
-          (Var.name var)
-          (Type.to_string (Var.type_ var))
+          (Typed_var.name var)
+          (Type.to_string (Typed_var.type_ var))
     | Global _ -> Ok ()
   ;;
 
@@ -442,16 +447,16 @@ module Type_check = struct
     else or_error_to_result (Type.field_offset type_ indices)
   ;;
 
-  let check_arith ~op { dest; src1; src2 } =
-    let dest_type = Var.type_ dest in
+  let check_arith ~op ({ dest; src1; src2 } : Typed_var.t Ir_helpers.arith) =
+    let dest_type = Typed_var.type_ dest in
     let is_ptr = function
       | Lit_or_var.Lit _ -> false
-      | Lit_or_var.Var v -> Type.is_ptr (Var.type_ v)
+      | Lit_or_var.Var v -> Type.is_ptr (Typed_var.type_ v)
       | Lit_or_var.Global _ -> true
     in
     let is_i64 = function
       | Lit_or_var.Lit _ -> true
-      | Lit_or_var.Var v -> Type.equal (Var.type_ v) Type.I64
+      | Lit_or_var.Var v -> Type.equal (Typed_var.type_ v) Type.I64
       | Lit_or_var.Global _ -> false
     in
     match dest_type with
@@ -481,18 +486,21 @@ module Type_check = struct
       type_error
         "%s destination %s:%s must be integer or pointer"
         op
-        (Var.name dest)
+        (Typed_var.name dest)
         (Type.to_string dest_type)
   ;;
 
-  let check_float_arith ~op { dest; src1; src2 } =
-    let dest_type = Var.type_ dest in
+  let check_float_arith
+    ~op
+    ({ dest; src1; src2 } : Typed_var.t Ir_helpers.arith)
+    =
+    let dest_type = Typed_var.type_ dest in
     if not (Type.is_float dest_type)
     then
       type_error
         "%s destination %s:%s must be float (f32 or f64)"
         op
-        (Var.name dest)
+        (Typed_var.name dest)
         (Type.to_string dest_type)
     else (
       let%bind () =
@@ -501,15 +509,15 @@ module Type_check = struct
       ensure_operand_matches src2 ~expected_type:dest_type ~op ~position:"rhs")
   ;;
 
-  let check_alloca { dest; size } =
+  let check_alloca ({ dest; size } : Typed_var.t Ir_helpers.alloca) =
     let%bind () =
-      if Type.is_ptr (Var.type_ dest)
+      if Type.is_ptr (Typed_var.type_ dest)
       then Ok ()
       else
         type_error
           "alloca destination %s:%s must have ptr type"
-          (Var.name dest)
-          (Type.to_string (Var.type_ dest))
+          (Typed_var.name dest)
+          (Type.to_string (Typed_var.type_ dest))
     in
     ensure_integer_operand size ~op:"alloca" ~position:"size"
   ;;
@@ -517,37 +525,39 @@ module Type_check = struct
   let check_move (dest, src) =
     match src with
     | Lit_or_var.Lit _ ->
-      if literal_allowed (Var.type_ dest)
+      if literal_allowed (Typed_var.type_ dest)
       then Ok ()
       else
         type_error
           "cannot assign literal to %s:%s"
-          (Var.name dest)
-          (Type.to_string (Var.type_ dest))
+          (Typed_var.name dest)
+          (Type.to_string (Typed_var.type_ dest))
     | Var src_var ->
-      if types_compatible ~expected:(Var.type_ dest) ~actual:(Var.type_ src_var)
+      if types_compatible
+           ~expected:(Typed_var.type_ dest)
+           ~actual:(Typed_var.type_ src_var)
       then Ok ()
       else
         type_error
           "move destination %s:%s does not match source %s:%s"
-          (Var.name dest)
-          (Type.to_string (Var.type_ dest))
-          (Var.name src_var)
-          (Type.to_string (Var.type_ src_var))
+          (Typed_var.name dest)
+          (Type.to_string (Typed_var.type_ dest))
+          (Typed_var.name src_var)
+          (Type.to_string (Typed_var.type_ src_var))
     | Global g ->
       let actual = Type.Ptr_typed g.Global.type_ in
-      if types_compatible ~expected:(Var.type_ dest) ~actual
+      if types_compatible ~expected:(Typed_var.type_ dest) ~actual
       then Ok ()
       else
         type_error
           "move destination %s:%s does not match source %s"
-          (Var.name dest)
-          (Type.to_string (Var.type_ dest))
+          (Typed_var.name dest)
+          (Type.to_string (Typed_var.type_ dest))
           (Type.to_string actual)
   ;;
 
   let check_cast (dest, src) =
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     match src with
     | Lit_or_var.Lit _ ->
       (* Literals can be cast to compatible types *)
@@ -556,10 +566,10 @@ module Type_check = struct
       else
         type_error
           "cast cannot convert literal to %s:%s"
-          (Var.name dest)
+          (Typed_var.name dest)
           (Type.to_string dest_type)
     | Var src_var ->
-      let src_type = Var.type_ src_var in
+      let src_type = Typed_var.type_ src_var in
       (* Cast requires different types *)
       if Type.equal src_type dest_type
       then
@@ -574,9 +584,9 @@ module Type_check = struct
       else
         type_error
           "cast cannot convert %s:%s to %s:%s"
-          (Var.name src_var)
+          (Typed_var.name src_var)
           (Type.to_string src_type)
-          (Var.name dest)
+          (Typed_var.name dest)
           (Type.to_string dest_type)
     | Global g ->
       let src_type = Type.Ptr_typed g.Global.type_ in
@@ -592,7 +602,7 @@ module Type_check = struct
         type_error
           "cast cannot convert %s to %s:%s"
           (Type.to_string src_type)
-          (Var.name dest)
+          (Typed_var.name dest)
           (Type.to_string dest_type)
   ;;
 
@@ -604,13 +614,13 @@ module Type_check = struct
     let%bind () = ensure_pointer_mem mem ~op:"load" in
     match mem with
     | Mem.Global global ->
-      if Type.equal (Var.type_ dest) global.Global.type_
+      if Type.equal (Typed_var.type_ dest) global.Global.type_
       then Ok ()
       else
         type_error
           "load expected destination of type %s but got %s"
           (Type.to_string global.Global.type_)
-          (Type.to_string (Var.type_ dest))
+          (Type.to_string (Typed_var.type_ dest))
     | _ -> Ok ()
   ;;
 
@@ -627,13 +637,15 @@ module Type_check = struct
              "cannot assign literal to global of type %s"
              (Type.to_string global.Global.type_)
        | Var v ->
-         if types_compatible ~expected:global.Global.type_ ~actual:(Var.type_ v)
+         if types_compatible
+              ~expected:global.Global.type_
+              ~actual:(Typed_var.type_ v)
          then Ok ()
          else
            type_error
              "store expected source of type %s but got %s"
              (Type.to_string global.Global.type_)
-             (Type.to_string (Var.type_ v))
+             (Type.to_string (Typed_var.type_ v))
        | Global g ->
          let actual = Type.Ptr_typed g.Global.type_ in
          if types_compatible ~expected:global.Global.type_ ~actual
@@ -650,17 +662,19 @@ module Type_check = struct
        | Global _ -> Ok ())
   ;;
 
-  let check_load_field ({ dest; base; type_; indices } : load_field) =
+  let check_load_field
+    ({ dest; base; type_; indices } : Typed_var.t Ir_helpers.load_field)
+    =
     let%bind () =
       ensure_pointer_operand base ~op:"load_field" ~position:"base"
     in
     let%bind _offset, raw_field_type = field_offset type_ indices in
     match raw_field_type with
     | Tuple _ ->
-      if Type.is_ptr (Var.type_ dest)
+      if Type.is_ptr (Typed_var.type_ dest)
       then
         ensure_pointer_target
-          (Var.type_ dest)
+          (Typed_var.type_ dest)
           ~expected:raw_field_type
           ~op:"load_field"
           ~position:"destination"
@@ -668,19 +682,21 @@ module Type_check = struct
         type_error
           "load_field expected pointer destination for aggregate field but got \
            %s"
-          (Type.to_string (Var.type_ dest))
+          (Type.to_string (Typed_var.type_ dest))
     | _ ->
       let%bind field_type = ensure_value_type raw_field_type in
-      if Type.equal (Var.type_ dest) field_type
+      if Type.equal (Typed_var.type_ dest) field_type
       then Ok ()
       else
         type_error
           "load_field expected destination of type %s but got %s"
           (Type.to_string field_type)
-          (Type.to_string (Var.type_ dest))
+          (Type.to_string (Typed_var.type_ dest))
   ;;
 
-  let check_store_field ({ base; src; type_; indices } : store_field) =
+  let check_store_field
+    ({ base; src; type_; indices } : Typed_var.t Ir_helpers.store_field)
+    =
     let%bind () =
       ensure_pointer_operand base ~op:"store_field" ~position:"base"
     in
@@ -694,7 +710,7 @@ module Type_check = struct
        | Lit_or_var.Lit _ -> Ok ()
        | Var v ->
          ensure_pointer_target
-           (Var.type_ v)
+           (Typed_var.type_ v)
            ~expected:raw_field_type
            ~op:"store_field"
            ~position:"source"
@@ -708,13 +724,14 @@ module Type_check = struct
       let%bind field_type = ensure_value_type raw_field_type in
       (match src with
        | Lit_or_var.Lit _ -> Ok ()
-       | Var v when types_compatible ~expected:field_type ~actual:(Var.type_ v)
+       | Var v
+         when types_compatible ~expected:field_type ~actual:(Typed_var.type_ v)
          -> Ok ()
        | Var v ->
          type_error
            "store_field expected source of type %s but got %s"
            (Type.to_string field_type)
-           (Type.to_string (Var.type_ v))
+           (Type.to_string (Typed_var.type_ v))
        | Global g ->
          let actual = Type.Ptr_typed g.Global.type_ in
          if types_compatible ~expected:field_type ~actual
@@ -726,7 +743,7 @@ module Type_check = struct
              (Type.to_string actual))
   ;;
 
-  let check_memcpy ({ dest; src; type_ } : memcpy) =
+  let check_memcpy ({ dest; src; type_ } : Typed_var.t Ir_helpers.memcpy) =
     let%bind () =
       ensure_pointer_operand dest ~op:"memcpy" ~position:"destination"
     in
@@ -736,7 +753,7 @@ module Type_check = struct
       | Lit_or_var.Lit _ -> Ok ()
       | Var v ->
         ensure_pointer_target
-          (Var.type_ v)
+          (Typed_var.type_ v)
           ~expected:type_
           ~op:"memcpy"
           ~position:"destination"
@@ -752,7 +769,7 @@ module Type_check = struct
       | Lit_or_var.Lit _ -> Ok ()
       | Var v ->
         ensure_pointer_target
-          (Var.type_ v)
+          (Typed_var.type_ v)
           ~expected:type_
           ~op:"memcpy"
           ~position:"source"
@@ -769,44 +786,50 @@ module Type_check = struct
       ())
   ;;
 
-  let check_atomic_load ({ dest; addr; order = _ } : atomic_load) =
+  let check_atomic_load
+    ({ dest; addr; order = _ } : Typed_var.t Ir_helpers.atomic_load)
+    =
     let%bind () = ensure_pointer_mem addr ~op:"atomic_load" in
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     if Type.is_integer dest_type || Type.is_ptr dest_type
     then Ok ()
     else
       type_error
         "atomic_load destination %s:%s must be integer or pointer"
-        (Var.name dest)
+        (Typed_var.name dest)
         (Type.to_string dest_type)
   ;;
 
-  let check_atomic_store ({ addr; src; order = _ } : atomic_store) =
+  let check_atomic_store
+    ({ addr; src; order = _ } : Typed_var.t Ir_helpers.atomic_store)
+    =
     let%bind () = ensure_pointer_mem addr ~op:"atomic_store" in
     match src with
     | Lit_or_var.Lit _ -> Ok ()
     | Var v ->
-      let src_type = Var.type_ v in
+      let src_type = Typed_var.type_ v in
       if Type.is_integer src_type || Type.is_ptr src_type
       then Ok ()
       else
         type_error
           "atomic_store source %s:%s must be integer or pointer"
-          (Var.name v)
+          (Typed_var.name v)
           (Type.to_string src_type)
     | Global _ -> Ok ()
   ;;
 
-  let check_atomic_rmw ({ dest; addr; src; op = _; order = _ } : atomic_rmw) =
+  let check_atomic_rmw
+    ({ dest; addr; src; op = _; order = _ } : Typed_var.t Ir_helpers.atomic_rmw)
+    =
     let%bind () = ensure_pointer_mem addr ~op:"atomic_rmw" in
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     let%bind () =
       if Type.is_integer dest_type || Type.is_ptr dest_type
       then Ok ()
       else
         type_error
           "atomic_rmw destination %s:%s must be integer or pointer"
-          (Var.name dest)
+          (Typed_var.name dest)
           (Type.to_string dest_type)
     in
     ensure_operand_matches
@@ -825,27 +848,27 @@ module Type_check = struct
      ; success_order = _
      ; failure_order = _
      } :
-      atomic_cmpxchg)
+      Typed_var.t Ir_helpers.atomic_cmpxchg)
     =
     let%bind () = ensure_pointer_mem addr ~op:"atomic_cmpxchg" in
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     let%bind () =
       if Type.is_integer dest_type || Type.is_ptr dest_type
       then Ok ()
       else
         type_error
           "atomic_cmpxchg destination %s:%s must be integer or pointer"
-          (Var.name dest)
+          (Typed_var.name dest)
           (Type.to_string dest_type)
     in
     let%bind () =
-      if Type.equal (Var.type_ success) Type.I64
+      if Type.equal (Typed_var.type_ success) Type.I64
       then Ok ()
       else
         type_error
           "atomic_cmpxchg success flag %s:%s must be i64"
-          (Var.name success)
-          (Type.to_string (Var.type_ success))
+          (Typed_var.name success)
+          (Type.to_string (Typed_var.type_ success))
     in
     let%bind () =
       ensure_operand_matches
@@ -861,7 +884,7 @@ module Type_check = struct
       ~position:"desired"
   ;;
 
-  let check_call_block_args (call_block : Block.t Call_block.t) =
+  let check_call_block_args (call_block : (Typed_var.t, Block.t) Call_block.t) =
     let formal_args = Vec.to_list (Block.args call_block.block) in
     let actual_args = call_block.args in
     if Int.O.(List.length formal_args <> List.length actual_args)
@@ -878,16 +901,16 @@ module Type_check = struct
         ~init:(Ok ())
         ~f:(fun acc formal actual ->
           let%bind () = acc in
-          if Type.equal (Var.type_ formal) (Var.type_ actual)
+          if Type.equal (Typed_var.type_ formal) (Typed_var.type_ actual)
           then Ok ()
           else
             type_error
               "block %s expects arg %s:%s but received %s:%s"
               (Block.id_hum call_block.block)
-              (Var.name formal)
-              (Type.to_string (Var.type_ formal))
-              (Var.name actual)
-              (Type.to_string (Var.type_ actual)))
+              (Typed_var.name formal)
+              (Type.to_string (Typed_var.type_ formal))
+              (Typed_var.name actual)
+              (Type.to_string (Typed_var.type_ actual)))
   ;;
 
   let check = function
@@ -930,7 +953,7 @@ end
 let check_types = Type_check.check
 
 let lower_aggregates ~fn_state ~root =
-  let add_var used var = Core.Hash_set.add used (Var.name var) in
+  let add_var used var = Core.Hash_set.add used (Typed_var.name var) in
   let blocks =
     let seen = Core.Hash_set.Poly.create () in
     let rec collect acc block =
@@ -960,7 +983,7 @@ let lower_aggregates ~fn_state ~root =
     in
     let name = next_name () in
     Core.Hash_set.add used_names name;
-    Var.create ~name ~type_
+    Typed_var.create ~name ~type_
   in
   List.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
     let open Result.Let_syntax in

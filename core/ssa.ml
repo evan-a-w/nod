@@ -1,4 +1,5 @@
 open! Core
+open! Import
 
 module Dominator = struct
   type t =
@@ -131,9 +132,9 @@ end
 module Def_uses = struct
   type t =
     { dominator : Dominator.t
-    ; vars : Var.Hash_set.t
-    ; uses : Block.Hash_set.t Var.Table.t
-    ; defs : Block.Hash_set.t Var.Table.t
+    ; vars : Typed_var.Hash_set.t
+    ; uses : Block.Hash_set.t Typed_var.Table.t
+    ; defs : Block.Hash_set.t Typed_var.Table.t
     ; root : Block.t
     }
   [@@deriving fields]
@@ -171,9 +172,9 @@ module Def_uses = struct
   let create ~fn_state root =
     let t =
       { dominator = Dominator.create ~fn_state root
-      ; vars = Var.Hash_set.create ()
-      ; uses = Var.Table.create ()
-      ; defs = Var.Table.create ()
+      ; vars = Typed_var.Hash_set.create ()
+      ; uses = Typed_var.Table.create ()
+      ; defs = Typed_var.Table.create ()
       ; root
       }
     in
@@ -192,7 +193,7 @@ module Def_uses = struct
       Hash_set.add t.vars var;
       var)
     else (
-      let name = Var.name var in
+      let name = Typed_var.name var in
       let base = String.rstrip name ~drop:Char.is_digit in
       let suffix = String.drop_prefix name (String.length base) in
       let next_suffix =
@@ -201,7 +202,9 @@ module Def_uses = struct
         else Int.to_string (Int.of_string suffix + 1)
       in
       let next_name = base ^ next_suffix in
-      uniq_name t (Var.create ~name:next_name ~type_:(Var.type_ var)))
+      uniq_name
+        t
+        (Typed_var.create ~name:next_name ~type_:(Typed_var.type_ var)))
   ;;
 end
 
@@ -261,14 +264,16 @@ let rec dominates t block1 block2 =
 ;;
 
 let new_name t var =
-  let base = String.split (Var.name var) ~on:'%' |> List.hd_exn in
+  let base = String.split (Typed_var.name var) ~on:'%' |> List.hd_exn in
   match Hashtbl.find t.numbers base with
   | None ->
     Hashtbl.set t.numbers ~key:base ~data:0;
-    Var.create ~name:base ~type_:(Var.type_ var)
+    Typed_var.create ~name:base ~type_:(Typed_var.type_ var)
   | Some n ->
     Hashtbl.set t.numbers ~key:base ~data:(n + 1);
-    Var.create ~name:(base ^ "%" ^ Int.to_string n) ~type_:(Var.type_ var)
+    Typed_var.create
+      ~name:(base ^ "%" ^ Int.to_string n)
+      ~type_:(Typed_var.type_ var)
 ;;
 
 let insert_args t =
@@ -280,7 +285,7 @@ let insert_args t =
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
-          if not (Vec.mem (Block.args block) var ~compare:Var.compare)
+          if not (Vec.mem (Block.args block) var ~compare:Typed_var.compare)
           then
             Fn_state.set_block_args
               (Def_uses.fn_state t.def_uses)
@@ -311,12 +316,12 @@ let add_args_to_calls t =
 let uses_in_block_ex_calls ~(block : Block.t) =
   let f (defs, uses) instr =
     let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
-    let defs = Set.union defs (Ir.defs instr |> Var.Set.of_list) in
+    let defs = Set.union defs (Ir.defs instr |> Typed_var.Set.of_list) in
     defs, uses
   in
   let acc =
     Instr_state.to_ir_list (Block.instructions block)
-    |> List.fold ~init:(Var.Set.empty, Var.Set.empty) ~f
+    |> List.fold ~init:(Typed_var.Set.empty, Typed_var.Set.empty) ~f
   in
   let _defs, uses = f acc (Block.terminal block).ir in
   uses
@@ -332,7 +337,7 @@ let prune_args t =
         Hash_set.fold ~init ~f:(fun acc block' ->
           if phys_equal block' block then acc else go acc block'))
   in
-  let uses = go Var.Set.empty t.def_uses.root in
+  let uses = go Typed_var.Set.empty t.def_uses.root in
   let rec go' block =
     let new_args = Vec.filter (Block.args block) ~f:(Set.mem uses) in
     if Vec.length new_args <> Vec.length (Block.args block)
@@ -354,7 +359,7 @@ let prune_args t =
 ;;
 
 let rename t =
-  let stacks = ref Var.Map.empty in
+  let stacks = ref Typed_var.Map.empty in
   let push_name var renamed =
     let stack = Map.find !stacks var |> Option.value ~default:[] in
     stacks := Map.set !stacks ~key:var ~data:(renamed :: stack)

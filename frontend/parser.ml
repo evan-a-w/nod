@@ -4,19 +4,19 @@ module Parser_comb = Parser_comb.Make (Token)
 open Parser_comb
 
 type unprocessed_cfg =
-  { instrs_by_label : (Type.t Typed_var.t, string) Ir.t Vec.t Core.String.Map.t
+  { instrs_by_label : (Typed_var.t, string) Ir.t Vec.t Core.String.Map.t
   ; labels : string Vec.t
   }
 [@@deriving sexp]
 
-type output = (Type.t Typed_var.t, unprocessed_cfg) Program.t [@@deriving sexp]
+type output = (Typed_var.t, unprocessed_cfg) Program.t [@@deriving sexp]
 
 module State = struct
   type t =
-    { instrs_by_label : (Type.t Typed_var.t, string) Ir.t Vec.t String.Map.t
+    { instrs_by_label : (Typed_var.t, string) Ir.t Vec.t String.Map.t
     ; labels : string Vec.t
     ; current_block : string
-    ; current_instrs : (Type.t Typed_var.t, string) Ir.t Vec.t
+    ; current_instrs : (Typed_var.t, string) Ir.t Vec.t
     ; var_types : Type.t String.Table.t
     ; globals : Global.t String.Table.t
     }
