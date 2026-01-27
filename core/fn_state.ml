@@ -1,4 +1,5 @@
 open! Core
+open! Import
 
 (** per function ssa state to map between values and instrs etc. *)
 type t =
@@ -7,7 +8,7 @@ type t =
   ; instrs : Block.t Instr_state.t option Vec.t
   ; free_instrs : int Vec.t
   ; instr_block_by_id : Block.t option Vec.t
-  ; value_id_by_var : Value_id.t Var.Table.t
+  ; value_id_by_var : Value_id.t Typed_var.Table.t
   }
 
 let create () =
@@ -16,7 +17,7 @@ let create () =
   ; instrs = Vec.create ()
   ; free_instrs = Vec.create ()
   ; instr_block_by_id = Vec.create ()
-  ; value_id_by_var = Var.Table.create ()
+  ; value_id_by_var = Typed_var.Table.create ()
   }
 ;;
 
@@ -93,7 +94,7 @@ let free_instr t ({ id = Instr_id id; _ } : Block.t Instr_state.t) =
 let ensure_value t ~var =
   match value_by_var t var with
   | Some value -> value
-  | None -> alloc_value t ~type_:(Var.type_ var) ~var
+  | None -> alloc_value t ~type_:(Typed_var.type_ var) ~var
 ;;
 
 let add_use (value : Value_state.t) instr_id =
@@ -105,7 +106,7 @@ let remove_use (value : Value_state.t) instr_id =
 ;;
 
 let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
-  Ir0.defs instr.ir
+  Nod_ir.Ir.defs instr.ir
   |> List.iter ~f:(fun var ->
     match value_by_var t var with
     | None -> ()
@@ -117,7 +118,7 @@ let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
        | Instr id ->
          (* only clear if this def is actually us. This is basically just so it's not funky if the thing isn't actually in ssa form *)
          if [%compare.equal: Instr_id.t] id instr.id then var.def <- Undefined));
-  Ir0.uses instr.ir
+  Nod_ir.Ir.uses instr.ir
   |> List.iter ~f:(fun var ->
     match value_by_var t var with
     | None -> ()
@@ -125,9 +126,9 @@ let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
 ;;
 
 let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
-  Ir0.defs instr.ir
+  Nod_ir.Ir.defs instr.ir
   |> List.iter ~f:(fun var -> (ensure_value t ~var).def <- Instr instr.id);
-  Ir0.uses instr.ir
+  Nod_ir.Ir.uses instr.ir
   |> List.iter ~f:(fun var -> add_use (ensure_value t ~var) instr.id)
 ;;
 
@@ -158,7 +159,7 @@ let set_instr_block t ~(block : Block.t) ~(instr : _ Instr_state.t) =
   Vec.set t.instr_block_by_id id (Some block)
 ;;
 
-let set_block_args t ~(block : Block.t) ~(args : Var.t Vec.t) =
+let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Vec.t) =
   Vec.iter (Block.args block) ~f:(fun var ->
     match value_by_var t var with
     | None -> ()

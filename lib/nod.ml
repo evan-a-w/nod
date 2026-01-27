@@ -12,7 +12,6 @@ module Block = Nod_core.Block
 module Call_block = Nod_core.Call_block
 module Call_conv = Nod_common.Call_conv
 module Cfg = Nod_core.Cfg
-module Clobbers = Nod_core.Clobbers
 module Function = Nod_core.Function
 module Function0 = Nod_core.Function0
 module Import = Nod_core.Import
