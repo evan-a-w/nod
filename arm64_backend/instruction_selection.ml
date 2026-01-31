@@ -2,7 +2,9 @@ open! Core
 open! Import
 open! Common
 module Ir_helpers = Nod_ir.Ir_helpers
+
 let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
 open Arm64_ir
 module Reg = Arm64_reg
 module Class = Arm64_reg.Class
@@ -122,7 +124,10 @@ let expand_atomic_rmw t =
     in
     loop 0
   in
-  let rmw_loop_instrs ({ dest; addr; src; op; order = _ } : Typed_var.t Nod_ir.Ir_helpers.atomic_rmw) =
+  let rmw_loop_instrs
+    ({ dest; addr; src; op; order = _ } :
+      Typed_var.t Nod_ir.Ir_helpers.atomic_rmw)
+    =
     require_class t dest Class.I64;
     let pre_addr, addr_op = mem_operand t addr in
     let pre_src, src_op = operand_of_lit_or_var t ~class_:Class.I64 src in
@@ -133,7 +138,8 @@ let expand_atomic_rmw t =
     let new_reg = reg_of_var t new_val in
     let compute =
       match op with
-      | Nod_ir.Ir_helpers.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
+      | Nod_ir.Ir_helpers.Rmw_op.Xchg ->
+        [ Move { dst = new_reg; src = src_op } ]
       | Add ->
         [ Int_binary
             { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
@@ -200,10 +206,7 @@ let expand_atomic_rmw t =
         List.map loop_instrs ~f:(fun ir ->
           Fn_state.value_ir t.fn_state (Ir0.arm64 ir))
       in
-      Fn_state.replace_irs
-        t.fn_state
-        ~block:loop_block
-        ~irs:loop_instrs;
+      Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
       let status_var = Fn_state.ensure_value t.fn_state ~var:status_var in
@@ -246,7 +249,8 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let int_operand = operand_of_lit_or_var t ~class_:Class.I64 in
   let float_operand = operand_of_lit_or_var t ~class_:Class.F64 in
-  let make_int_arith op
+  let make_int_arith
+    op
     ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
     =
     require_class t dest Class.I64;
@@ -254,7 +258,8 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let pre2, rhs = int_operand src2 in
     pre1 @ pre2 @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
-  let make_float_arith op
+  let make_float_arith
+    op
     ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
     =
     require_class t dest Class.F64;
@@ -727,16 +732,16 @@ let split_blocks_and_add_prologue_and_epilogue t =
               (match Arm64_ir.var_of_reg reg with
                | Some v -> v
                | None ->
-                let v = fresh_like_var t arg in
-                Fn_state.append_ir
-                  t.fn_state
-                  ~block
-                  ~ir:
-                    (Fn_state.value_ir
-                       t.fn_state
-                       (Nod_ir.Ir.Arm64
-                          (Move { dst = reg_of_var t v; src = operand })));
-                v)
+                 let v = fresh_like_var t arg in
+                 Fn_state.append_ir
+                   t.fn_state
+                   ~block
+                   ~ir:
+                     (Fn_state.value_ir
+                        t.fn_state
+                        (Nod_ir.Ir.Arm64
+                           (Move { dst = reg_of_var t v; src = operand })));
+                 v)
             | other ->
               let v = fresh_like_var t arg in
               Fn_state.append_ir
@@ -924,8 +929,8 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
       |> List.concat_map ~f:(fun ir ->
-           lower_ir (var_ir ir)
-           |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.arm64 ir)))
+        lower_ir (var_ir ir)
+        |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.arm64 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir

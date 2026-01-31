@@ -10,7 +10,7 @@ let test s =
     print_s
       [%sexp
         (output.Program.functions
-          : Parser.unprocessed_cfg Function0.t' String.Map.t)]
+         : Parser.unprocessed_cfg Function0.t' String.Map.t)]
 ;;
 
 let%expect_test "globals parse" =
@@ -30,8 +30,8 @@ root() {
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok output ->
     print_s [%sexp (output.Program.globals : Nod_ir.Global.t list)];
-  [%expect
-    {|
+    [%expect
+      {|
     (((name g) (type_ I64) (init (Int 42)))
      ((name pair) (type_ (Tuple (I64 I64)))
       (init (Aggregate ((Int 10) (Int 32)))))
@@ -49,15 +49,16 @@ root() {
   |> Parser.parse_string
   |> function
   | Error e ->
-      Nod_error.to_string e |> print_endline;
-      [%expect {|
+    Nod_error.to_string e |> print_endline;
+    [%expect
+      {|
         Error: errors in choices `Error: unknown instruction 'global'
         , Error: type mismatch: pointer globals can only be initialized to zero
         `
         |}]
   | Ok _ ->
-      print_endline "OK";
-      [%expect.unreachable]
+    print_endline "OK";
+    [%expect.unreachable]
 ;;
 
 let%expect_test "simple" =
@@ -167,8 +168,7 @@ let%expect_test "typed ptr parses" =
   {|
 alloca %buf:ptr(i64), 8
 ret %buf
-|}
-  |> test;
+|} |> test;
   [%expect
     {|
     ((root

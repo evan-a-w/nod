@@ -5,7 +5,8 @@ open Ir
 module Reg = struct
   include Arm64_reg
 
-  type nonrec t = Typed_var.t Arm64_reg.t [@@deriving sexp, compare, hash, equal]
+  type nonrec t = Typed_var.t Arm64_reg.t
+  [@@deriving sexp, compare, hash, equal]
 
   module Raw = struct
     include Arm64_reg.Raw
@@ -90,10 +91,7 @@ let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
   match terminal_ir with
   | Arm64 _terminal ->
     let with_ir = Fn_state.value_ir fn_state (Arm64 new_true_terminal) in
-    Fn_state.replace_terminal_ir
-      fn_state
-      ~block
-      ~with_:with_ir
+    Fn_state.replace_terminal_ir fn_state ~block ~with_:with_ir
   | Arm64_terminal terminals ->
     let new_true_terminal =
       match Fn_state.value_ir fn_state (Arm64 new_true_terminal) with
@@ -105,7 +103,8 @@ let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
       ~block
       ~with_:
         (Arm64_terminal
-           (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ]))
+           (List.take terminals (List.length terminals - 1)
+            @ [ new_true_terminal ]))
   | Noop
   | And _
   | Or _

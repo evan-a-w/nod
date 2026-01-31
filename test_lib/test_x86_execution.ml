@@ -3,9 +3,7 @@ open! Import
 
 let check_program ?harness ?opt_flags program expected =
   List.iter test_architectures ~f:(fun arch ->
-    let output =
-      compile_and_execute_on_arch arch ?harness ?opt_flags program
-    in
+    let output = compile_and_execute_on_arch arch ?harness ?opt_flags program in
     if not (String.equal output expected)
     then
       failwithf
@@ -48,11 +46,7 @@ zero:
 let%expect_test "recursive fib" =
   check_program
     ~harness:
-      (make_harness_source
-         ~fn_name:"fib"
-         ~fn_arg_type:"int64_t"
-         ~fn_arg:"6"
-         ())
+      (make_harness_source ~fn_name:"fib" ~fn_arg_type:"int64_t" ~fn_arg:"6" ())
     Examples.Textual.fib_recursive
     "13"
 ;;
@@ -309,13 +303,11 @@ ret %result
 ;;
 
 let%expect_test "cast with float literal to i64" =
-  check_program
-    {|
+  check_program {|
 cast %f:f64, 7
 cast %i:i64, %f
 ret %i
-|}
-    "7"
+|} "7"
 ;;
 
 let%expect_test "complex float calculation" =

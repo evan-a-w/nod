@@ -1,5 +1,4 @@
 module Frontend_state = State
-
 open! Core
 include Frontend_state.Result
 

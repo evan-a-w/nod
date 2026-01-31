@@ -26,9 +26,7 @@ module M (A : Arch.S) = struct
         ~key:function_.name
         ~data:(String.Hash_set.create ());
       Block.iter_instructions function_.root ~f:(fun instr ->
-        let ir =
-          Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var
-        in
+        let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
         this_defs := Set.union !this_defs (arch_reg_defs ir);
         to_arch_irs ir
         |> List.iter ~f:(fun ir ->

@@ -10,7 +10,8 @@ module Reg = struct
   module Raw = struct
     include X86_reg.Raw
 
-    type nonrec t = Typed_var.t X86_reg.Raw.t [@@deriving sexp, compare, hash, equal]
+    type nonrec t = Typed_var.t X86_reg.Raw.t
+    [@@deriving sexp, compare, hash, equal]
   end
 
   include functor Comparable.Make
@@ -48,7 +49,8 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
   Int.max (List.length args - List.length gp_args) 0
 ;;
 
-let true_terminal (x86_block : Block.t) : (Typed_var.t, Block.t) X86_ir.t option =
+let true_terminal (x86_block : Block.t) : (Typed_var.t, Block.t) X86_ir.t option
+  =
   match var_ir (Block.terminal x86_block).Instr_state.ir with
   | X86 terminal -> Some terminal
   | X86_terminal terminals -> List.last terminals
@@ -86,10 +88,7 @@ let replace_true_terminal ~fn_state (x86_block : Block.t) new_true_terminal =
   match terminal_ir with
   | X86 _terminal ->
     let with_ir = Fn_state.value_ir fn_state (X86 new_true_terminal) in
-    Fn_state.replace_terminal_ir
-      fn_state
-      ~block:x86_block
-      ~with_:with_ir
+    Fn_state.replace_terminal_ir fn_state ~block:x86_block ~with_:with_ir
   | X86_terminal terminals ->
     let new_true_terminal =
       match Fn_state.value_ir fn_state (X86 new_true_terminal) with
@@ -101,7 +100,8 @@ let replace_true_terminal ~fn_state (x86_block : Block.t) new_true_terminal =
       ~block:x86_block
       ~with_:
         (X86_terminal
-           (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ]))
+           (List.take terminals (List.length terminals - 1)
+            @ [ new_true_terminal ]))
   | Noop
   | And _
   | Or _

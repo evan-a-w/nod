@@ -15,6 +15,7 @@ type 'var t =
 
 val vars : 'var t -> 'var list
 val map_vars : 'var t -> f:('var -> 'var2) -> 'var2 t
+
 val map_lit_or_vars
   :  'var t
   -> f:('var Lit_or_var.t -> 'var2 Lit_or_var.t)

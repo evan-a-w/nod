@@ -55,9 +55,7 @@ let layout_reg_saves regs =
 ;;
 
 let align_stack (bytes : int) =
-  if Int.(bytes % 16 = 0)
-  then bytes
-  else bytes + (16 - (bytes % 16))
+  if Int.(bytes % 16 = 0) then bytes else bytes + (16 - (bytes % 16))
 ;;
 
 let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
@@ -125,7 +123,7 @@ let save_and_restore_in_prologue_and_epilogue
       header_bytes_excl_clobber_saves + bytes_for_clobber_saves
     in
     let aligned_stack_usage =
-    if Int.(total_stack_usage % 16 = 0)
+      if Int.(total_stack_usage % 16 = 0)
       then total_stack_usage
       else total_stack_usage + (16 - (total_stack_usage % 16))
     in
@@ -167,7 +165,9 @@ let save_and_restore_in_prologue_and_epilogue
         Vec.push new_epilogue (to_value move_sp_to_fp);
         if Int.(header_bytes_excl_clobber_saves > 0)
         then
-          Vec.push new_epilogue (to_value (add_sp header_bytes_excl_clobber_saves)))
+          Vec.push
+            new_epilogue
+            (to_value (add_sp header_bytes_excl_clobber_saves)))
       else
         ([ move_sp_to_fp ]
          @ List.map save_slots ~f:(fun (reg, offset) ->
@@ -177,8 +177,7 @@ let save_and_restore_in_prologue_and_epilogue
          @
          if Int.(aligned_stack_usage > 0)
          then [ add_sp aligned_stack_usage ]
-         else []
-        )
+         else [])
         |> List.iter ~f:(fun ir -> Vec.push new_epilogue (to_value ir));
       Fn_state.replace_irs
         fn_state
@@ -230,22 +229,22 @@ let save_and_restore_around_calls
          in
          let bytes, slots = layout_reg_saves regs in
          let aligned_bytes = align_stack bytes in
-        Stack.push pending (slots, aligned_bytes);
-        if Int.(aligned_bytes > 0)
-        then Vec.push new_instructions (to_value (sub_sp aligned_bytes));
-        List.iter slots ~f:(fun (reg, off) ->
-          Vec.push new_instructions (to_value (store_reg_at_sp reg off)))
-      | Nod_ir.Ir.Arm64 Restore_clobbers ->
+         Stack.push pending (slots, aligned_bytes);
+         if Int.(aligned_bytes > 0)
+         then Vec.push new_instructions (to_value (sub_sp aligned_bytes));
+         List.iter slots ~f:(fun (reg, off) ->
+           Vec.push new_instructions (to_value (store_reg_at_sp reg off)))
+       | Nod_ir.Ir.Arm64 Restore_clobbers ->
          let slots, bytes =
            match Stack.pop pending with
            | Some layout -> layout
            | None -> failwith "Restore_clobbers without matching save"
          in
-        List.iter (List.rev slots) ~f:(fun (reg, off) ->
-          Vec.push new_instructions (to_value (load_reg_from_sp reg off)));
-        if Int.(bytes > 0)
-        then Vec.push new_instructions (to_value (add_sp bytes))
-      | _ -> Vec.push new_instructions ir);
+         List.iter (List.rev slots) ~f:(fun (reg, off) ->
+           Vec.push new_instructions (to_value (load_reg_from_sp reg off)));
+         if Int.(bytes > 0)
+         then Vec.push new_instructions (to_value (add_sp bytes))
+       | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
   loop 0;

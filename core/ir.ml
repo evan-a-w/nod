@@ -1007,9 +1007,7 @@ let lower_aggregates ~fn_state ~root =
         | Ok irs ->
           let instrs =
             List.map irs ~f:(fun ir ->
-              Fn_state.alloc_instr
-                fn_state
-                ~ir:(Fn_state.value_ir fn_state ir))
+              Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state ir))
           in
           Fn_state.replace_instr fn_state ~block ~instr ~with_instrs:instrs;
           Ok ()

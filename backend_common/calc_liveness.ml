@@ -4,6 +4,7 @@ open! Import
 module M (A : Arch.S) = struct
   module Reg_numbering = Reg_numbering.M (A)
   module Util = Util.M (A)
+
   let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
 
   module type Arg = sig
@@ -110,8 +111,9 @@ module M (A : Arch.S) = struct
           if not Arg.treat_block_args_as_defs
           then Int.Set.empty
           else
-            List.filter_map (Vec.to_list (Block.args block)) ~f:(fun x ->
-              Arg.t_of_var x |> Option.map ~f:Arg.id_of_t)
+            List.filter_map
+              (Vec.to_list (Block.args block))
+              ~f:(fun x -> Arg.t_of_var x |> Option.map ~f:Arg.id_of_t)
             |> Int.Set.of_list
         in
         let acc =
@@ -137,17 +139,19 @@ module M (A : Arch.S) = struct
             ; live_out = block_liveness.overall.live_out
             }
           in
-          block_liveness.terminal <-
-            f after_terminal (var_ir (Block.terminal block).Instr_state.ir);
+          block_liveness.terminal
+          <- f after_terminal (var_ir (Block.terminal block).Instr_state.ir);
           (* prob unnecessary *)
           Vec.clear block_liveness.instructions;
           let (_ : Liveness.t) =
             Instr_state.to_ir_list (Block.instructions block)
             |> List.map ~f:var_ir
-            |> List.fold_right ~init:block_liveness.terminal ~f:(fun ir liveness ->
-                 let liveness = f liveness ir in
-                 Vec.push block_liveness.instructions liveness;
-                 liveness)
+            |> List.fold_right
+                 ~init:block_liveness.terminal
+                 ~f:(fun ir liveness ->
+                   let liveness = f liveness ir in
+                   Vec.push block_liveness.instructions liveness;
+                   liveness)
           in
           Vec.reverse_inplace block_liveness.instructions)
       ;;
@@ -208,7 +212,8 @@ module M (A : Arch.S) = struct
         let block_liveness = block_liveness t block in
         let instructions =
           List.zip_exn
-            (Instr_state.to_ir_list (Block.instructions block) |> List.map ~f:var_ir)
+            (Instr_state.to_ir_list (Block.instructions block)
+             |> List.map ~f:var_ir)
             (Vec.to_list block_liveness.instructions)
         in
         let terminal =

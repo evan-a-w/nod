@@ -1,4 +1,3 @@
-open! Ssa
 open! Core
 open! Import
 
@@ -17,34 +16,112 @@ module Opt_flags = struct
   ;;
 end
 
+module Dominance = struct
+  let immediate_dominees root =
+    Block.iter_and_update_bookkeeping root ~f:(fun _ -> ());
+    let blocks = Block.to_list root in
+    let order block = Block.id_exn block in
+    let idom = Block.Table.create () in
+    Hashtbl.set idom ~key:root ~data:root;
+    let intersect a b =
+      let block_a = ref a in
+      let block_b = ref b in
+      while not (phys_equal !block_a !block_b) do
+        while order !block_a > order !block_b do
+          block_a := Hashtbl.find_exn idom !block_a
+        done;
+        while order !block_b > order !block_a do
+          block_b := Hashtbl.find_exn idom !block_b
+        done;
+        if not (phys_equal !block_a !block_b)
+        then (
+          block_a := Hashtbl.find_exn idom !block_a;
+          block_b := Hashtbl.find_exn idom !block_b)
+      done;
+      !block_a
+    in
+    let changed = ref true in
+    while !changed do
+      changed := false;
+      List.iter blocks ~f:(fun block ->
+        begin
+          if phys_equal block root
+          then ()
+          else
+            let preds = Block.parents block |> Vec.to_list in
+            if List.is_empty preds
+            then ()
+            else
+              match List.find preds ~f:(fun pred -> Hashtbl.mem idom pred) with
+              | None -> ()
+              | Some first_processed ->
+                let new_idom =
+                  List.fold preds ~init:first_processed ~f:(fun acc pred ->
+                    if phys_equal pred acc
+                    then acc
+                    else (
+                      match Hashtbl.find idom pred with
+                      | None -> acc
+                      | Some _ -> intersect acc pred))
+                in
+                let should_update =
+                  match Hashtbl.find idom block with
+                  | None -> true
+                  | Some prev -> not (phys_equal prev new_idom)
+                in
+                if should_update
+                then (
+                  Hashtbl.set idom ~key:block ~data:new_idom;
+                  changed := true)
+        end)
+    done;
+    let immediate_dominees = Block.Table.create () in
+    Hashtbl.iteri idom ~f:(fun ~key:block ~data:idom_block ->
+      if phys_equal block root
+      then ()
+      else (
+        let bucket =
+          Hashtbl.find immediate_dominees idom_block
+          |> Option.value_or_thunk ~default:(fun () ->
+            let set = Block.Hash_set.create () in
+            Hashtbl.set immediate_dominees ~key:idom_block ~data:set;
+            set)
+        in
+        Hash_set.add bucket block));
+    immediate_dominees
+  ;;
+end
+
 type block_tracker =
   { mutable needed : Value_state.Set.t Block.Map.t
   ; once_ready : Block.t -> unit
   }
 
 type context =
-  { ssa : Ssa.t
+  { root : Block.t
   ; fn_state : Fn_state.t
   ; opt_flags : Opt_flags.t
   ; block_by_id : Block.t String.Table.t
+  ; immediate_dominees : Block.Hash_set.t Block.Table.t
   ; mutable block_tracker : block_tracker option
   }
 
-let create_context ~opt_flags ssa =
+let create_context ~opt_flags ~fn_state root =
   let block_by_id = String.Table.create () in
-  Block.iter (Ssa.root ssa) ~f:(fun block ->
+  Block.iter root ~f:(fun block ->
     Hashtbl.set block_by_id ~key:(Block.id_hum block) ~data:block);
-  { ssa
-  ; fn_state = Ssa.fn_state ssa
+  { root
+  ; fn_state
   ; opt_flags
   ; block_by_id
+  ; immediate_dominees = Dominance.immediate_dominees root
   ; block_tracker = None
   }
 ;;
 
 let rec iter_blocks ctx ~block ~f =
   f block;
-  Hashtbl.find ctx.ssa.immediate_dominees block
+  Hashtbl.find ctx.immediate_dominees block
   |> Option.iter
        ~f:
          (Hash_set.iter ~f:(fun block' ->
@@ -53,7 +130,7 @@ let rec iter_blocks ctx ~block ~f =
             else iter_blocks ctx ~block:block' ~f))
 ;;
 
-let iter_blocks ctx ~f = iter_blocks ctx ~block:(Ssa.root ctx.ssa) ~f
+let iter_blocks ctx ~f = iter_blocks ctx ~block:ctx.root ~f
 
 let value_of_var ctx var = Fn_state.value_by_var ctx.fn_state var
 let value_of_var_exn ctx var = Fn_state.ensure_value ctx.fn_state ~var
@@ -86,7 +163,7 @@ module Block_tracker = struct
     let t = { needed = Block.Map.empty; once_ready } in
     iter_blocks ctx ~f:(fun block ->
       let data =
-        Ssa.uses_values ctx.ssa (Block.terminal block).Instr_state.ir
+        Ir.uses (Block.terminal block).Instr_state.ir
         |> List.filter_map ~f:active_value
         |> Value_state.Set.of_list
       in
@@ -133,7 +210,7 @@ let defining_values_for_block_arg ctx ~block ~arg_index =
 
 (* --- Dead code elimination helpers --- *)
 let rec remove_instr ctx ~block ~instr =
-  let used_values = Ssa.uses_values ctx.ssa instr.Instr_state.ir in
+  let used_values = Ir.uses instr.Instr_state.ir in
   Fn_state.remove_instr ctx.fn_state ~block ~instr;
   List.iter used_values ~f:(fun value ->
     match active_value value with
@@ -223,8 +300,8 @@ and try_kill_value ctx ~(value : Value_state.t) =
 ;;
 
 let update_uses ctx ~old_ir ~new_ir =
-  let old_values = Value_state.Set.of_list (Ssa.uses_values ctx.ssa old_ir) in
-  let new_values = Value_state.Set.of_list (Ssa.uses_values ctx.ssa new_ir) in
+  let old_values = Value_state.Set.of_list (Ir.uses old_ir) in
+  let new_values = Value_state.Set.of_list (Ir.uses new_ir) in
   Set.iter (Set.diff old_values new_values)
     ~f:(fun value ->
       match active_value value with
@@ -323,9 +400,7 @@ and refine_type_instr ctx ~value ~instr_id =
   | Some _ as constant ->
     value.Value_state.opt_tags <- { constant };
     let terminal_uses =
-      Ssa.uses_values
-        ctx.ssa
-        (Block.terminal (def_block_exn ctx value)).Instr_state.ir
+      Ir.uses (Block.terminal (def_block_exn ctx value)).Instr_state.ir
     in
     if List.exists terminal_uses ~f:(fun use ->
          Value_state.equal use value)
@@ -376,7 +451,7 @@ let sweep_values ?on_terminal ctx ~on_value =
        | Def_site.Instr instr_id ->
          let instr = instr_exn instr_id in
          List.iter
-           (Ssa.uses_values ctx.ssa instr.Instr_state.ir)
+           (Ir.uses instr.Instr_state.ir)
            ~f:(fun use -> Option.iter (active_value use) ~f:go);
          on_value value
        | Def_site.Undefined -> ());
@@ -437,13 +512,16 @@ let run ctx =
   sweep_values ctx ~on_value ?on_terminal
 ;;
 
-let optimize_root ?(opt_flags = Opt_flags.default) ssa =
-  let ctx = create_context ~opt_flags ssa in
+let optimize_root ?(opt_flags = Opt_flags.default) ~fn_state root =
+  let ctx = create_context ~opt_flags ~fn_state root in
   run ctx
 ;;
 
-let optimize ?opt_flags program =
-  Map.iter
-    ~f:(fun ({ root; _ } : _ Function.t') -> optimize_root ?opt_flags root)
+let optimize ?opt_flags ~state program =
+  Map.iteri
     program.Program.functions
+    ~f:(fun ~key:name ~data:fn ->
+      let fn_state = State.fn_state state name in
+      optimize_root ?opt_flags ~fn_state (Function.root fn));
+  program
 ;;

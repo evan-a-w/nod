@@ -17,8 +17,7 @@ let%expect_test "load/store select into x86 mem operands" =
       ~terminal:
         (Fn_state.alloc_instr
            fn_state
-           ~ir:
-             (Fn_state.value_ir fn_state (Ir.return (Ir.Lit_or_var.Var tmp))))
+           ~ir:(Fn_state.value_ir fn_state (Ir.return (Ir.Lit_or_var.Var tmp))))
   in
   Block.set_dfs_id root (Some 0);
   Fn_state.append_ir

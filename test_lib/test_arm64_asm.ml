@@ -255,7 +255,8 @@ root() {
   ret %z
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -311,7 +312,8 @@ root() {
   ret %y
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -356,7 +358,8 @@ root() {
   ret %x
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     buf:
@@ -403,7 +406,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -469,7 +473,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     f:
@@ -541,10 +546,11 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
-  [%expect
-    {|
+  [%expect {|
     dmb
     stlr
     dmb
@@ -578,12 +584,13 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes
     [ "casal"; "eor x"; "sub x"; "orr x"; "asr x"; "and x" ]
     asm;
-  [%expect
-    {|
+  [%expect {|
     casal
     eor
     sub
@@ -615,10 +622,11 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;
-  [%expect
-    {|
+  [%expect {|
     ldaxr
     stlxr
     |}]
