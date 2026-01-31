@@ -20,7 +20,6 @@ Nod consumes a textual IR, lowers it into SSA form, applies a handful of optimis
 
 ## Key Modules & Data Structures
 - **`Block.t`** – CFG node holding instruction lists, a terminal instruction, and φ-parameters (`args`).
-- **`Typed_var.t`** – the canonical “variable” type (the old `Var` alias no longer exists). Use `Typed_var.create` whenever you need a new SSA name.
 - **`Call_block.t`** – a `{ block; args }` pair where `args : Typed_var.t list`, used for branch targets and successors.
 - **`Fn_state.t` / `State.t`** – allocator/state-tracker for per-function values/instructions. `State.t` maps function names to their mutable `Fn_state.t`.
 - **`Program.t` and `Function.t`** – `Nod_ir` functors instantiated with `Typed_var.t` (vars) and `Block.t` (blocks). Most helpers use `Function.map_root` or `Program.map_function_roots`.
@@ -46,7 +45,7 @@ Nod consumes a textual IR, lowers it into SSA form, applies a handful of optimis
 - Use `open! Core` (and other Jane Street libraries) at the top of each file; avoid `open`ing project modules broadly—refer to them via explicit module prefixes.
 - Let `.ocamlformat` handle indentation and alignment; do not manually line up code.
 - Modules follow the OCaml naming convention (`foo_bar.ml` → `Foo_bar`), filenames stay lowercase_with_underscores.
-- Construct new SSA variables with `Typed_var.create ~name ~type_` and threads them through helper APIs (e.g., `Fn_state.ensure_value`).
+- Write interface (mli) files with minimal interfaces and safe apis.
 
 ## Source Language Quick Reference
 - Variables: `%name:type` (e.g., `%x:i64`)
