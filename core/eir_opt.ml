@@ -692,6 +692,8 @@ let passes =
   ; pass_terminal_simplify
   ; pass_dce
   ; pass_gvn
+  ; pass_constant_propagation_values
+  ; pass_copy_propagation
   ]
 ;;
 

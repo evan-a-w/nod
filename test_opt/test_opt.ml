@@ -310,10 +310,7 @@ let%expect_test "arithmetic simplification canonicalizes identities" =
          (src2 (Var ((name mul_zero) (type_ I64))))))
        (Return (Var ((name same) (type_ I64)))))))
     after
-    (%entry (args ())
-     (instrs
-      ((Move ((name same) (type_ I64)) (Lit 0))
-       (Return (Var ((name same) (type_ I64)))))))
+    (%entry (args ()) (instrs ((Return (Lit 0)))))
     |}]
 ;;
 
@@ -409,10 +406,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
          (src1 (Var ((name merged) (type_ I64)))) (src2 (Lit -1))))
        (Return (Var ((name saturated) (type_ I64)))))))
     after
-    (%entry (args ())
-     (instrs
-      ((Move ((name saturated) (type_ I64)) (Lit -1))
-       (Return (Var ((name saturated) (type_ I64)))))))
+    (%entry (args ()) (instrs ((Return (Lit -1)))))
     |}]
 ;;
 
@@ -445,13 +439,6 @@ let%expect_test "mod and comparisons fold to constants" =
          (src2 (Var ((name rem) (type_ I64))))))
        (Return (Var ((name total) (type_ I64)))))))
     after
-    (%entry (args ())
-     (instrs
-      ((Move ((name cmp) (type_ I64)) (Lit 0))
-       (Move ((name rem) (type_ I64)) (Lit 0))
-       (Add
-        ((dest ((name total) (type_ I64))) (src1 (Var ((name cmp) (type_ I64))))
-         (src2 (Var ((name rem) (type_ I64))))))
-       (Return (Var ((name total) (type_ I64)))))))
+    (%entry (args ()) (instrs ((Return (Lit 0)))))
     |}]
 ;;
