@@ -200,7 +200,7 @@ let%expect_test "copy propagation eliminates redundant moves" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
     [ fn ];
   [%expect
     {|
@@ -294,7 +294,7 @@ let%expect_test "arithmetic simplification canonicalizes identities" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
     [ fn ];
   [%expect
     {|
@@ -310,10 +310,9 @@ let%expect_test "arithmetic simplification canonicalizes identities" =
          (src2 (Var ((name mul_zero) (type_ I64))))))
        (Return (Var ((name same) (type_ I64)))))))
     after
-    (%entry (args (((name input) (type_ I64))))
+    (%entry (args ())
      (instrs
-      ((Move ((name mul_zero) (type_ I64)) (Lit 0))
-       (Move ((name same) (type_ I64)) (Lit 0))
+      ((Move ((name same) (type_ I64)) (Lit 0))
        (Return (Var ((name same) (type_ I64)))))))
     |}]
 ;;
@@ -344,5 +343,115 @@ let%expect_test "constant branches simplify to jumps" =
     (entry (args ())
      (instrs ((Branch (Uncond ((block ((id_hum left) (args ()))) (args ())))))))
     (left (args ()) (instrs ((Return (Lit 1)))))
+    |}]
+;;
+
+let%expect_test "peephole identities simplify arithmetic chains" =
+  let fn =
+    [%nod
+      fun (input : int64) ->
+        let sum = add input (lit 0L) in
+        let prod = mul sum (lit 1L) in
+        return prod]
+  in
+  run_dsl
+    ~opt_flags:
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+    [ fn ];
+  [%expect
+    {|
+    before
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name sum) (type_ I64))) (src1 (Var ((name input) (type_ I64))))
+         (src2 (Lit 0))))
+       (Mul
+        ((dest ((name prod) (type_ I64))) (src1 (Var ((name sum) (type_ I64))))
+         (src2 (Lit 1))))
+       (Return (Var ((name prod) (type_ I64)))))))
+    after
+    (%entry (args (((name input) (type_ I64))))
+     (instrs ((Return (Var ((name input) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "bitwise and/or peepholes fold constants" =
+  let fn =
+    [%nod
+      fun (input : int64) ->
+        let cleared = and_ input (lit 0L) in
+        let masked = and_ input (lit (-1L)) in
+        let merged = or_ masked (lit 0L) in
+        let saturated = or_ merged (lit (-1L)) in
+        return saturated]
+  in
+  run_dsl
+    ~opt_flags:
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+    [ fn ];
+  [%expect
+    {|
+    before
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((And
+        ((dest ((name cleared) (type_ I64)))
+         (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 0))))
+       (And
+        ((dest ((name masked) (type_ I64)))
+         (src1 (Var ((name input) (type_ I64)))) (src2 (Lit -1))))
+       (Or
+        ((dest ((name merged) (type_ I64)))
+         (src1 (Var ((name masked) (type_ I64)))) (src2 (Lit 0))))
+       (Or
+        ((dest ((name saturated) (type_ I64)))
+         (src1 (Var ((name merged) (type_ I64)))) (src2 (Lit -1))))
+       (Return (Var ((name saturated) (type_ I64)))))))
+    after
+    (%entry (args ())
+     (instrs
+      ((Move ((name saturated) (type_ I64)) (Lit -1))
+       (Return (Var ((name saturated) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "mod and comparisons fold to constants" =
+  let fn =
+    [%nod
+      fun (input : int64) ->
+        let cmp = lt input input in
+        let rem = mod_ input (lit 1L) in
+        let total = add cmp rem in
+        return total]
+  in
+  run_dsl
+    ~opt_flags:
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+    [ fn ];
+  [%expect
+    {|
+    before
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Lt
+        ((dest ((name cmp) (type_ I64))) (src1 (Var ((name input) (type_ I64))))
+         (src2 (Var ((name input) (type_ I64))))))
+       (Mod
+        ((dest ((name rem) (type_ I64))) (src1 (Var ((name input) (type_ I64))))
+         (src2 (Lit 1))))
+       (Add
+        ((dest ((name total) (type_ I64))) (src1 (Var ((name cmp) (type_ I64))))
+         (src2 (Var ((name rem) (type_ I64))))))
+       (Return (Var ((name total) (type_ I64)))))))
+    after
+    (%entry (args ())
+     (instrs
+      ((Move ((name cmp) (type_ I64)) (Lit 0))
+       (Move ((name rem) (type_ I64)) (Lit 0))
+       (Add
+        ((dest ((name total) (type_ I64))) (src1 (Var ((name cmp) (type_ I64))))
+         (src2 (Var ((name rem) (type_ I64))))))
+       (Return (Var ((name total) (type_ I64)))))))
     |}]
 ;;
