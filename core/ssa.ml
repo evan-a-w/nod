@@ -503,5 +503,5 @@ let convert_program program ~state =
         let ssa = create ~fn_state:(State.fn_state state name) root_data in
         root ssa))
   in
-  state, { program with Program.functions }
+  { program with Program.functions }
 ;;

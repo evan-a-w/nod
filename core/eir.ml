@@ -100,7 +100,7 @@ let compile ?opt_flags (input : input) =
     |> Result.map ~f:(fun program -> convert_program program ~state)
   with
   | Error _ as e -> e
-  | Ok (state, program) ->
+  | Ok program ->
     let program = optimize ?opt_flags ~state program in
     Ok program
 ;;
