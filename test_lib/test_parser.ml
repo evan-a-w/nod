@@ -10,7 +10,7 @@ let test s =
     print_s
       [%sexp
         (output.Program.functions
-         : Parser.unprocessed_cfg Function0.t' String.Map.t)]
+         : Parser.unprocessed_cfg Function.t' String.Map.t)]
 ;;
 
 let%expect_test "globals parse" =

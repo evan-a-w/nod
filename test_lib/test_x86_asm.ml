@@ -97,8 +97,8 @@ let%expect_test "super triv lowers to assembly" =
 ;;
 
 let%expect_test "atomic load/store seq_cst lower to mfence" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -135,9 +135,9 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
 ;;
 
 let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
-  let ok = Var.create ~name:"ok" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
+  let ok = Typed_var.create ~name:"ok" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -170,8 +170,8 @@ let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
 ;;
 
 let%expect_test "atomic rmw lowers to cmpxchg loop" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs

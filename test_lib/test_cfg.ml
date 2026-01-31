@@ -7,7 +7,7 @@ let map_function_roots_with_state program ~state ~f =
   { program with
     Program.functions =
       Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-        Function0.map_root
+        Function.map_root
           fn
           ~f:(f ~fn_state:(Nod_core.State.fn_state state name)))
   }

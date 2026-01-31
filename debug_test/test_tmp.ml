@@ -7,7 +7,7 @@ let map_function_roots_with_state program ~state ~f =
   { program with
     Program.functions =
       Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-        Function0.map_root
+        Function.map_root
           fn
           ~f:(f ~fn_state:(Nod_core.State.fn_state state name)))
   }
@@ -61,7 +61,7 @@ let test_ssa ?don't_opt s =
           print_s
             [%message
               (Block.id_hum block)
-                ~args:(Block.args block : Var.t Vec.read)
+                ~args:(Block.args block : Typed_var.t Vec.read)
                 (instrs : Ir.t list)]))
     in
     go program;
@@ -140,8 +140,8 @@ let%expect_test "temp alloca passed to child; child loads value" =
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
     let child_state = Fn_state.create () in
     let root_state = Fn_state.create () in
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
     let child_root =
       mk_block_with_instrs
         child_state
@@ -152,8 +152,8 @@ let%expect_test "temp alloca passed to child; child loads value" =
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
     in
-    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+    let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
     let root_root =
       mk_block_with_instrs
         root_state
@@ -305,8 +305,8 @@ let%expect_test "print helper" =
   in
   let child_state = Fn_state.create () in
   let root_state = Fn_state.create () in
-  let p = Var.create ~name:"p" ~type_:Type.Ptr in
-  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+  let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
   let child_root =
     mk_block_with_instrs
       child_state
@@ -317,8 +317,8 @@ let%expect_test "print helper" =
   let child =
     make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
   in
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let res = Var.create ~name:"res" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
   let root_root =
     mk_block_with_instrs
       root_state

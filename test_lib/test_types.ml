@@ -9,7 +9,7 @@ let test s =
     { program with
       Program.functions =
         Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-          Function0.map_root
+          Function.map_root
             fn
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
