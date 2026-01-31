@@ -1,8 +1,9 @@
 open! Core
+open! Import
 
 (* go from
 
-     [string Ir0.t Vec.t String.Map.t * string Vec.t]
+     [string Nod_ir.Ir.t Vec.t String.Map.t * string Vec.t]
      describing sequences of instructions
 
      to an actual cfg, [Ir.t]
@@ -58,7 +59,7 @@ let process ~fn_state (~instrs_by_label, ~labels) =
 let process'
   ~is_label
   ~add_fall_through_to_terminal
-  (instrs : string Ir0.t Vec.t)
+  (instrs : (Typed_var.t, string) Nod_ir.Ir.t Vec.t)
   =
   let labels = Vec.create () in
   let label_n = ref 0 in
