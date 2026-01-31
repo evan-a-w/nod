@@ -44,36 +44,34 @@ module Dominance = struct
     while !changed do
       changed := false;
       List.iter blocks ~f:(fun block ->
-        begin
-          if phys_equal block root
+        if phys_equal block root
+        then ()
+        else (
+          let preds = Block.parents block |> Vec.to_list in
+          if List.is_empty preds
           then ()
-          else
-            let preds = Block.parents block |> Vec.to_list in
-            if List.is_empty preds
-            then ()
-            else
-              match List.find preds ~f:(fun pred -> Hashtbl.mem idom pred) with
-              | None -> ()
-              | Some first_processed ->
-                let new_idom =
-                  List.fold preds ~init:first_processed ~f:(fun acc pred ->
-                    if phys_equal pred acc
-                    then acc
-                    else (
-                      match Hashtbl.find idom pred with
-                      | None -> acc
-                      | Some _ -> intersect acc pred))
-                in
-                let should_update =
-                  match Hashtbl.find idom block with
-                  | None -> true
-                  | Some prev -> not (phys_equal prev new_idom)
-                in
-                if should_update
-                then (
-                  Hashtbl.set idom ~key:block ~data:new_idom;
-                  changed := true)
-        end)
+          else (
+            match List.find preds ~f:(fun pred -> Hashtbl.mem idom pred) with
+            | None -> ()
+            | Some first_processed ->
+              let new_idom =
+                List.fold preds ~init:first_processed ~f:(fun acc pred ->
+                  if phys_equal pred acc
+                  then acc
+                  else (
+                    match Hashtbl.find idom pred with
+                    | None -> acc
+                    | Some _ -> intersect acc pred))
+              in
+              let should_update =
+                match Hashtbl.find idom block with
+                | None -> true
+                | Some prev -> not (phys_equal prev new_idom)
+              in
+              if should_update
+              then (
+                Hashtbl.set idom ~key:block ~data:new_idom;
+                changed := true))))
     done;
     let immediate_dominees = Block.Table.create () in
     Hashtbl.iteri idom ~f:(fun ~key:block ~data:idom_block ->
@@ -131,16 +129,15 @@ let rec iter_blocks ctx ~block ~f =
 ;;
 
 let iter_blocks ctx ~f = iter_blocks ctx ~block:ctx.root ~f
-
 let value_of_var ctx var = Fn_state.value_by_var ctx.fn_state var
 let value_of_var_exn ctx var = Fn_state.ensure_value ctx.fn_state ~var
 
 let active_value (value : Value_state.t) =
   if value.Value_state.active then Some value else None
+;;
 
 let active_value_of_var ctx var =
   value_of_var ctx var |> Option.bind ~f:active_value
-;;
 ;;
 
 module Block_tracker = struct
@@ -240,17 +237,15 @@ and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   List.iter !removed ~f:(fun value ->
     match active_value value with
     | None -> ()
-    | Some value -> if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
+    | Some value ->
+      if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
 
 and remove_arg ctx ~block ~arg_index =
   let args = Block.args block in
   let new_args = Vec.create () in
   Vec.iteri args ~f:(fun i arg ->
     if not (Int.equal i arg_index) then Vec.push new_args arg);
-  Fn_state.set_block_args
-    ctx.fn_state
-    ~block
-    ~args:new_args;
+  Fn_state.set_block_args ctx.fn_state ~block ~args:new_args;
   Vec.iter (Block.parents block) ~f:(fun parent ->
     remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
 
@@ -258,7 +253,7 @@ and kill_definition ctx (value : Value_state.t) =
   if not value.Value_state.active
   then ()
   else (
-    value.Value_state.active <- false;
+    Value_state.Expert.set_active value false;
     let def_block =
       match value.Value_state.def with
       | Def_site.Undefined -> None
@@ -302,13 +297,13 @@ and try_kill_value ctx ~(value : Value_state.t) =
 let update_uses ctx ~old_ir ~new_ir =
   let old_values = Value_state.Set.of_list (Ir.uses old_ir) in
   let new_values = Value_state.Set.of_list (Ir.uses new_ir) in
-  Set.iter (Set.diff old_values new_values)
-    ~f:(fun value ->
-      match active_value value with
-      | None -> ()
-      | Some value ->
-        if Opt_flags.unused_vars ctx.opt_flags && Set.is_empty value.Value_state.uses
-        then try_kill_value ctx ~value)
+  Set.iter (Set.diff old_values new_values) ~f:(fun value ->
+    match active_value value with
+    | None -> ()
+    | Some value ->
+      if Opt_flags.unused_vars ctx.opt_flags
+         && Set.is_empty value.Value_state.uses
+      then try_kill_value ctx ~value)
 ;;
 
 (* --- Constant propagation helpers --- *)
@@ -389,7 +384,7 @@ and refine_type_block_arg ctx ~value ~block ~arg_index =
         | Some a, Some b when Int64.equal a b -> acc
         | _ -> None)
     in
-    value.Value_state.opt_tags <- { constant }
+    Value_state.Expert.set_opt_tags value { constant }
 
 and refine_type_instr ctx ~value ~instr_id =
   let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
@@ -398,12 +393,11 @@ and refine_type_instr ctx ~value ~instr_id =
   match Ir.constant new_ir with
   | None -> ()
   | Some _ as constant ->
-    value.Value_state.opt_tags <- { constant };
+    Value_state.Expert.set_opt_tags value { constant };
     let terminal_uses =
       Ir.uses (Block.terminal (def_block_exn ctx value)).Instr_state.ir
     in
-    if List.exists terminal_uses ~f:(fun use ->
-         Value_state.equal use value)
+    if List.exists terminal_uses ~f:(fun use -> Value_state.equal use value)
     then refine_terminal ctx ~block:(def_block_exn ctx value)
 
 and refine_terminal ctx ~block =
@@ -450,9 +444,8 @@ let sweep_values ?on_terminal ctx ~on_value =
        | Def_site.Block_arg _ -> on_value value
        | Def_site.Instr instr_id ->
          let instr = instr_exn instr_id in
-         List.iter
-           (Ir.uses instr.Instr_state.ir)
-           ~f:(fun use -> Option.iter (active_value use) ~f:go);
+         List.iter (Ir.uses instr.Instr_state.ir) ~f:(fun use ->
+           Option.iter (active_value use) ~f:go);
          on_value value
        | Def_site.Undefined -> ());
       Option.iter ctx.block_tracker ~f:(fun tracker ->
@@ -484,7 +477,8 @@ let pass_dce =
 let pass_gvn =
   { name = "gvn"
   ; enabled = Opt_flags.gvn
-  ; on_value = Some (fun ctx value -> if value.Value_state.active then gvn ctx ~value)
+  ; on_value =
+      Some (fun ctx value -> if value.Value_state.active then gvn ctx ~value)
   ; on_terminal = None
   }
 ;;
@@ -518,10 +512,8 @@ let optimize_root ?(opt_flags = Opt_flags.default) ~fn_state root =
 ;;
 
 let optimize ?opt_flags ~state program =
-  Map.iteri
-    program.Program.functions
-    ~f:(fun ~key:name ~data:fn ->
-      let fn_state = State.fn_state state name in
-      optimize_root ?opt_flags ~fn_state (Function.root fn));
+  Map.iteri program.Program.functions ~f:(fun ~key:name ~data:fn ->
+    let fn_state = State.fn_state state name in
+    optimize_root ?opt_flags ~fn_state (Function.root fn));
   program
 ;;
