@@ -40,14 +40,14 @@ let value_by_var t var =
 let alloc_value t ~type_ ~var =
   let res id : Value_state.t =
     Hashtbl.set t.value_id_by_var ~key:var ~data:(Value_id id);
-    { id = Value_id id
-    ; var
-    ; type_
-    ; def = Undefined
-    ; opt_tags = Opt_tags.empty
-    ; uses = Instr_id.Set.empty
-    ; active = true
-    }
+    Value_state.create
+      ~id:(Value_id id)
+      ~var
+      ~type_
+      ~def:Undefined
+      ~opt_tags:Opt_tags.empty
+      ~uses:Instr_id.Set.empty
+      ~active:true
   in
   match Vec.pop t.free_values with
   | Some id ->
@@ -103,11 +103,11 @@ let value_ir t ir = Nod_ir.Ir.map_vars ir ~f:(fun var -> ensure_value t ~var)
 let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
 
 let add_use (value : Value_state.t) instr_id =
-  value.Value_state.uses <- Set.add value.Value_state.uses instr_id
+  Value_state.Expert.set_uses value (Set.add value.Value_state.uses instr_id)
 ;;
 
 let remove_use (value : Value_state.t) instr_id =
-  value.Value_state.uses <- Set.remove value.Value_state.uses instr_id
+  Value_state.Expert.set_uses value (Set.remove value.Value_state.uses instr_id)
 ;;
 
 let clear_instr_value_relationships _t ~(instr : _ Instr_state.t) =
@@ -117,14 +117,15 @@ let clear_instr_value_relationships _t ~(instr : _ Instr_state.t) =
     | Undefined | Block_arg _ -> ()
     | Instr id ->
       if [%compare.equal: Instr_id.t] id instr.id
-      then value.Value_state.def <- Undefined);
+      then Value_state.Expert.set_def value Undefined);
   Nod_ir.Ir.uses instr.ir
   |> List.iter ~f:(fun value -> remove_use value instr.id)
 ;;
 
 let add_instr_value_relationships _t ~(instr : _ Instr_state.t) =
   Nod_ir.Ir.defs instr.ir
-  |> List.iter ~f:(fun value -> value.Value_state.def <- Instr instr.id);
+  |> List.iter ~f:(fun value ->
+    Value_state.Expert.set_def value (Instr instr.id));
   Nod_ir.Ir.uses instr.ir |> List.iter ~f:(fun value -> add_use value instr.id)
 ;;
 
@@ -143,7 +144,9 @@ let of_cfg ~root =
   Block.iter root ~f:(fun block ->
     Vec.iteri (Block.args block) ~f:(fun arg var ->
       let value = ensure_value t ~var in
-      value.Value_state.def <- Block_arg { block_id = Block.id_hum block; arg }));
+      Value_state.Expert.set_def
+        value
+        (Block_arg { block_id = Block.id_hum block; arg })));
   Block.iter_instructions root ~f:(fun instr ->
     add_instr_value_relationships t ~instr);
   t
@@ -163,12 +166,14 @@ let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Vec.t) =
       (match value.Value_state.def with
        | Block_arg { block_id; _ }
          when String.equal block_id (Block.id_hum block) ->
-         value.Value_state.def <- Undefined
+         Value_state.Expert.set_def value Undefined
        | _ -> ()));
   Block.Expert.set_args block args;
   Vec.iteri args ~f:(fun arg var ->
     let value = ensure_value t ~var in
-    value.Value_state.def <- Block_arg { block_id = Block.id_hum block; arg })
+    Value_state.Expert.set_def
+      value
+      (Block_arg { block_id = Block.id_hum block; arg }))
 ;;
 
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =
