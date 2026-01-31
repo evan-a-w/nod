@@ -44,14 +44,14 @@ let%expect_test "nod block from let" =
 let%expect_test "nod seq embeds instruction list" =
   let instrs =
     [%nod
-      seq [ Instr.ir Ir0.Noop; Instr.ir Ir0.Noop ];
+      seq [ Instr.ir Ir.noop; Instr.ir Ir.noop ];
       return (lit 0L)]
   in
   let root = block_of_instrs instrs in
   let instrs = Instr_state.to_ir_list (Block.instructions root) in
   let noop_count =
     List.count instrs ~f:(function
-      | Ir0.Noop -> true
+      | Noop -> true
       | _ -> false)
   in
   print_s
@@ -99,7 +99,7 @@ let%expect_test "nod calculator with labels" =
       let sum = add x y in
       let diff = sub x y in
       let prod = mul sum diff in
-      seq [ Instr.ir (Ir0.jump_to "final") ];
+      seq [ Instr.ir (Ir.jump_to "final") ];
       label skipped;
       seq [ return (lit 0L) ];
       label final;

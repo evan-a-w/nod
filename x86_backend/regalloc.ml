@@ -10,13 +10,13 @@ let note_var_class table var class_ =
     Error.raise_s
       [%message
         "register class mismatch"
-          (var : Var.t)
+          (var : Typed_var.t)
           (existing : Reg.Class.t)
           (class_ : Reg.Class.t)]
 ;;
 
 let collect_var_classes root =
-  let classes = Var.Table.create () in
+  let classes = Typed_var.Table.create () in
   Block.iter_instructions root ~f:(fun instr ->
     let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
     Ir.x86_regs ir
@@ -36,14 +36,14 @@ let update_assignment ~assignments ~var ~to_ =
       Error.raise_s
         [%message
           "Want to assign phys reg but already found"
-            (var : Var.t)
+            (var : Typed_var.t)
             (from : Assignment.t)
             (to_ : Assignment.t)])
 ;;
 
 let initialize_assignments root =
-  let assignments = Var.Table.create () in
-  let don't_spill = Var.Hash_set.create () in
+  let assignments = Typed_var.Table.create () in
+  let don't_spill = Typed_var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun instr ->
     let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
     Ir.x86_regs ir
@@ -85,7 +85,7 @@ let run_sat
   (*       var.var, Reg_numbering.var_id reg_numbering var.var) *)
   (*   in *)
   (*   print_s *)
-  (*     [%message (sat_vars_per_var_id : int) (var_to_id : (Var.t * int) list)]); *)
+  (*     [%message (sat_vars_per_var_id : int) (var_to_id : (Typed_var.t * int) list)]); *)
   let var_ids_list = List.map var_states ~f:Reg_numbering.id in
   let var_ids = Array.of_list var_ids_list in
   if Array.is_empty var_ids
@@ -170,14 +170,15 @@ let run_sat
           [%message
             "LOOP"
               (assumptions
-               : (Var.t * [ `Spill | `Assignment of Reg.t ] * int * bool) array)
+               : (Typed_var.t * [ `Spill | `Assignment of Reg.t ] * int * bool)
+                   array)
               (raw : int array)]);
       match Feel.Solver.solve solver ~assumptions, !to_spill with
       | Unsat { unsat_core }, [] ->
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
-              (assignments : Assignment.t Var.Table.t)
+              (assignments : Assignment.t Typed_var.Table.t)
               (Feel.Clause.to_int_array unsat_core : int array)]
       | Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
         ->
@@ -201,7 +202,8 @@ let run_sat
           in
           print_s
             [%message
-              (res : (Var.t * [ `Spill | `Assignment of Reg.t ] * int) list)
+              (res
+               : (Typed_var.t * [ `Spill | `Assignment of Reg.t ] * int) list)
                 (raw : int list)]);
         List.iter res ~f:(fun sat_var ->
           let var_id, x = backout_sat_var sat_var in
@@ -225,7 +227,7 @@ let replace_regs
   =
   let open Calc_liveness in
   let root = Nod_ir.Function.root fn in
-  let spill_slot_by_var = Var.Table.create () in
+  let spill_slot_by_var = Typed_var.Table.create () in
   let free_spill_slots = ref Int.Set.empty in
   let used_spill_slots = ref Int.Set.empty in
   let get_spill_slot () =
@@ -362,7 +364,8 @@ let run ?(dump_crap = false) ~fn_state (fn : Function.t) =
       ~don't_spill
       ~class_of_var
       ~class_);
-  if dump_crap then print_s [%sexp (assignments : Assignment.t Var.Table.t)];
+  if dump_crap
+  then print_s [%sexp (assignments : Assignment.t Typed_var.Table.t)];
   let spill_slots_used =
     replace_regs
       (module Calc_liveness)

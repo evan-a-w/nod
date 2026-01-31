@@ -13,14 +13,14 @@ module Atom : sig
   type _ t
 
   val type_ : 'a t -> Type.t
-  val lit_or_var : _ t -> Var.t Ir.Lit_or_var.t
-  val var : _ t -> Var.t option
+  val lit_or_var : _ t -> Typed_var.t Ir.Lit_or_var.t
+  val var : _ t -> Typed_var.t option
 end
 
 module Instr : sig
   type 'ret t
 
-  val ir : (Var.t, string) Ir0.t -> 'ret t
+  val ir : (Typed_var.t, string) Nod_ir.Ir.t -> 'ret t
 
   val process
     :  ?root_name:string
@@ -79,7 +79,7 @@ module Fn : sig
 
   val function_
     :  ('fn, 'ret) t
-    -> (Eir.raw_block Function0.t', Nod_error.t) Result.t
+    -> (Eir.raw_block Function.t', Nod_error.t) Result.t
 
   module Unnamed : sig
     type ('fn, 'ret) t
@@ -90,10 +90,10 @@ module Fn : sig
     val with_arg
       :  ('fn, 'ret) t
       -> 'a Type_repr.t
-      -> Var.t
+      -> Typed_var.t
       -> ('a -> 'fn, 'ret) t
 
-    val args : ('fn, 'ret) t -> Var.t list
+    val args : ('fn, 'ret) t -> Typed_var.t list
     val ret : ('fn, 'ret) t -> Type.t
     val instrs : ('fn, 'ret) t -> 'ret Instr.t list
   end
@@ -124,7 +124,7 @@ val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t'
 val return : 'a Atom.t -> 'a Instr.t
 val label : string -> 'ret Instr.t
 val lit : Int64.t -> int64 Atom.t
-val var : Var.t -> 'a Atom.t
+val var : Typed_var.t -> 'a Atom.t
 val global : Nod_ir.Global.t -> ptr Atom.t
 val mov : string -> 'a Atom.t -> 'a Atom.t * 'ret Instr.t
 val add : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
