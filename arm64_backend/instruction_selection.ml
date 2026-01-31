@@ -68,7 +68,7 @@ let lower_aggregates_exn ~fn_state (fn : Function.t) =
   | Error err -> failwith (Nod_error.to_string err)
 ;;
 
-let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
+let operand_of_lit_or_var t ~class_ (lit_or_var : Typed_var.t Ir.Lit_or_var.t) =
   match lit_or_var with
   | Ir.Lit_or_var.Lit l -> [], Imm l
   | Ir.Lit_or_var.Var v ->
@@ -79,7 +79,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
     then failwith "global addresses are only supported in integer contexts";
     let tmp = fresh_var t "global_addr" in
     let reg = Reg.unallocated ~class_:Class.I64 tmp in
-    [ Adr { dst = reg; target = Jump_target.Label g.Global.name } ], Reg reg
+    [ Adr { dst = reg; target = Jump_target.Label g.name } ], Reg reg
 ;;
 
 let rec mem_operand t mem =
@@ -120,7 +120,7 @@ let expand_atomic_rmw t =
     in
     loop 0
   in
-  let rmw_loop_instrs ({ dest; addr; src; op; order = _ } : Ir.atomic_rmw) =
+  let rmw_loop_instrs ({ dest; addr; src; op; order = _ } : Typed_var.t Nod_ir.Ir_helpers.atomic_rmw) =
     require_class t dest Class.I64;
     let pre_addr, addr_op = mem_operand t addr in
     let pre_src, src_op = operand_of_lit_or_var t ~class_:Class.I64 src in
@@ -131,7 +131,7 @@ let expand_atomic_rmw t =
     let new_reg = reg_of_var t new_val in
     let compute =
       match op with
-      | Ir.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
+      | Nod_ir.Ir_helpers.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
       | Add ->
         [ Int_binary
             { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }

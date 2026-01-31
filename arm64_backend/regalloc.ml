@@ -215,13 +215,13 @@ let replace_regs
   (module Calc_liveness : Calc_liveness.S with type Liveness_state.t = a)
   ~fn_state
   ~(liveness_state : a)
-  ~fn
+  ~(fn : Function.t)
   ~assignments
   ~reg_numbering
   ~class_of_var
   =
   let open Calc_liveness in
-  let root = fn.Function.root in
+  let root = fn.root in
   let spill_slot_by_var = Var.Table.create () in
   let free_spill_slots = ref Int.Set.empty in
   let used_spill_slots = ref Int.Set.empty in
@@ -285,7 +285,7 @@ let replace_regs
     s := Set.add !s reg
   in
   let map_ir ir =
-    let on_ir (ir : 'a Arm64_ir.t) : 'a Arm64_ir.t list =
+    let on_ir (ir : ('a, 'b) Arm64_ir.t) : ('a, 'b) Arm64_ir.t list =
       let scratch_mapping = Var.Table.create () in
       let map var =
         let class_ = class_of_var var in

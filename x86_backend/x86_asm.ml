@@ -8,6 +8,9 @@ type symbol =
   }
 [@@deriving sexp, equal]
 
+type operand = unit X86_ir.operand [@@deriving sexp, equal]
+type reg = unit Reg.t [@@deriving sexp, equal]
+
 type instr =
   | Mov of operand * operand
   | Movsd of operand * operand
@@ -30,7 +33,7 @@ type instr =
   | Setl of operand (* set if less than, signed *)
   | Call of symbol
   | Push of operand
-  | Pop of Reg.t
+  | Pop of reg
   | Jmp of string
   | Je of string
   | Jne of string

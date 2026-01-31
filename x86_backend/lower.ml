@@ -102,7 +102,9 @@ type lower_action =
   | Set_pending of (Int64.t * Int64.t) option
   | Emit_label of string
   | Branch of
-      [ `Je | `Jne ] * Block.t Call_block.t * Block.t Call_block.t option
+      [ `Je | `Jne ]
+      * (Typed_var.t, Block.t) Call_block.t
+      * (Typed_var.t, Block.t) Call_block.t option
   | Emit of Asm.instr list
 
 let lower_to_items ~system (functions : Function.t String.Map.t) =
@@ -164,7 +166,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         label_of_block call_block.Call_block.block
       in
       let lower_move' ~dst ~src make_instr =
-        if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+        if (not (is_valid_move_dest dst)) || [%equal: unit X86_ir.operand] dst src
         then []
         else (
           match dst, src with

@@ -49,8 +49,9 @@ let rec string_of_raw = function
   | Raw.XMM13 -> "xmm13"
   | Raw.XMM14 -> "xmm14"
   | Raw.XMM15 -> "xmm15"
-  | Raw.Unallocated v | Raw.Allocated (v, None) ->
-    sanitize_identifier (Var.name v)
+  | Raw.Unallocated (_ : unit) -> failwith "unallocated register in asm output"
+  | Raw.Allocated ((_ : unit), None) ->
+    failwith "unallocated register in asm output"
   | Raw.Allocated (_, Some reg) -> string_of_raw reg
 ;;
 
@@ -89,8 +90,9 @@ let rec string_of_raw8 = function
   | Raw.XMM13
   | Raw.XMM14
   | Raw.XMM15 -> failwith "expected gpr for byte register"
-  | Raw.Unallocated v | Raw.Allocated (v, None) ->
-    sanitize_identifier (Var.name v) ^ "b"
+  | Raw.Unallocated (_ : unit) -> failwith "unallocated register in asm output"
+  | Raw.Allocated ((_ : unit), None) ->
+    failwith "unallocated register in asm output"
   | Raw.Allocated (_, Some reg) -> string_of_raw8 reg
 ;;
 
