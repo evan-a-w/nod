@@ -88,7 +88,8 @@ let%expect_test "alloca passed to child; child loads value" =
     in
     String.Map.of_alist_exn [ "root", root; "child", child ]
   in
-  run_functions mk_functions "41"
+  run_functions mk_functions "41";
+  [%expect {| |}]
 ;;
 
 let%expect_test "alloca passed to child; child stores value; parent observes" =
