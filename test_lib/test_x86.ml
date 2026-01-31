@@ -2215,7 +2215,7 @@ let%expect_test "call_chains" =
       (bytes_statically_alloca'd 0))
      ((call_conv Default)
       (root
-       ((second__prologue (args (((name y2) (type_ I64))))
+       ((second__prologue (args (((name y3) (type_ I64))))
          (instrs
           (((id (Instr_id 14)) (ir (X86 (PUSH (Reg ((reg RBP) (class_ I64)))))))
            ((id (Instr_id 13))

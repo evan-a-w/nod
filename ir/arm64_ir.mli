@@ -71,6 +71,7 @@ type 'var operand =
 [@@deriving sexp, equal, compare, hash]
 
 val reg_of_operand_exn : 'var operand -> 'var Reg.t
+val var_of_reg : 'var Reg.t -> 'var option
 
 type ('var, 'block) t =
   | Nop
@@ -204,3 +205,15 @@ val defs : ('var, 'block) t -> 'var list
 val uses : ('var, 'block) t -> 'var list
 val vars : ('var, 'block) t -> 'var list
 val unreachable : ('var, 'block) t
+
+module For_backend : sig
+  val map_use_regs
+    :  ('var, 'block) t
+    -> f:(must_be_reg:bool -> 'var Reg.t -> 'var operand)
+    -> ('var, 'block) t
+
+  val map_def_regs
+    :  ('var, 'block) t
+    -> f:(must_be_reg:bool -> 'var Reg.t -> 'var operand)
+    -> ('var, 'block) t
+end

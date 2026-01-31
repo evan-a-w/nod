@@ -18,6 +18,7 @@ type 'var operand =
 [@@deriving sexp, equal, compare, hash]
 
 val reg_of_operand_exn : 'var operand -> 'var Reg.t
+val var_of_reg : 'var Reg.t -> 'var option
 
 type ('var, 'block) t =
   | NOOP

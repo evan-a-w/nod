@@ -24,7 +24,7 @@ let test_cfg s =
   | Ok program ->
     Map.iter
       program.Program.functions
-      ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+      ~f:(fun { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
@@ -49,7 +49,7 @@ let test_ssa ?don't_opt s =
     let go program =
       Map.iter
         program.Program.functions
-        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+        ~f:(fun { Nod_ir.Function.root = (ssa : Ssa.t); _ } ->
           Vec.iter ssa.in_order ~f:(fun block ->
             let instrs =
               Instr_state.to_ir_list (Block.instructions block)

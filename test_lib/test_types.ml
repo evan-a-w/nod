@@ -16,7 +16,7 @@ let test s =
   |> Result.bind ~f:(fun program ->
     Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
       let%bind.Result () = acc in
-      let { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } = data in
+      let { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } = data in
       Vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
         let%bind.Result () = acc in
         List.fold

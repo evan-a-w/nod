@@ -2,9 +2,9 @@ open! Core
 open! Import
 
 type unprocessed_cfg =
-  { instrs_by_label : (Typed_var.t, string) Ir.t Vec.t String.Map.t
-  ; labels : string Vec.t
-  }
+  instrs_by_label:(Typed_var.t, string) Ir.t Vec.t String.Map.t
+  * labels:string Vec.t
+[@@deriving sexp]
 
 type output = (Typed_var.t, unprocessed_cfg) Program.t [@@deriving sexp]
 

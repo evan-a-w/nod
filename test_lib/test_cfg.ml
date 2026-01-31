@@ -26,7 +26,7 @@ let test s =
   | Ok program ->
     Map.iter
       program.Program.functions
-      ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+      ~f:(fun { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)

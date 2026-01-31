@@ -3,7 +3,8 @@ open! Core
 open! Import
 
 type raw_block =
-  instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t
+  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Vec.t String.Map.t
+  * labels:string Vec.t
 
 type input = (raw_block Program.t', Nod_error.t) Result.t
 
