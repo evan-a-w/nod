@@ -22,7 +22,8 @@ mov %b:i64, 7
 add %res:i64, %a, %b
 ret %res
 |}
-    "12"
+    "12";
+  [%expect {| |}]
 ;;
 
 let%expect_test "branch execution" =
