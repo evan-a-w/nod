@@ -20,7 +20,11 @@ val blocks : ('var, 'block) t -> 'block list
 val uses : ('var, 'block) t -> 'var list
 val map_uses : ('var, 'block) t -> f:('var -> 'var2) -> ('var2, 'block) t
 val map_blocks : ('var, 'block) t -> f:('block -> 'block2) -> ('var, 'block2) t
-val iter_call_blocks : ('var, 'block) t -> f:(('var, 'block) Call_block.t -> unit) -> unit
+
+val iter_call_blocks
+  :  ('var, 'block) t
+  -> f:(('var, 'block) Call_block.t -> unit)
+  -> unit
 
 val map_call_blocks
   :  ('var, 'block) t

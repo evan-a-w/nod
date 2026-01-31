@@ -118,22 +118,18 @@ ret %out
 
 let%test_unit "jit external call" =
   run_if_x86 (fun () ->
-    let program =
-      {|
+    let program = {|
 root(%x:i64) {
   call add3(%x) -> %y:i64
   ret %y
 }
-|}
-    in
+|} in
     let externals name =
       if String.equal name "add3"
       then Some (Nod_backend_common.Jit_runtime.add3_ptr ())
       else None
     in
-    let jit =
-      Nod.compile_and_jit_x86 ~system:host_system ~externals program
-    in
+    let jit = Nod.compile_and_jit_x86 ~system:host_system ~externals program in
     let entry = X86_jit.entry jit "root" |> Option.value_exn in
     let result = X86_jit.call1_i64 entry 39L in
     [%test_eq: int64] result 42L)

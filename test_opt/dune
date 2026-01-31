@@ -3,6 +3,14 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix vec nod nod_core nod_dsl nod_backend_common nod_runtime)
+ (libraries
+  core
+  core_unix
+  vec
+  nod
+  nod_core
+  nod_dsl
+  nod_backend_common
+  nod_runtime)
  (flags
   (:standard -extension-universe beta)))

@@ -113,7 +113,8 @@ let save_and_restore_in_prologue_and_epilogue
                  (Imm (fn.bytes_for_clobber_saves |> Int64.of_int)))));
       Vec.push new_epilogue (to_value (X86 (mov (Reg Reg.rsp) (Reg Reg.rbp))));
       List.rev to_restore
-      |> List.iter ~f:(fun reg -> Vec.push new_epilogue (to_value (X86 (pop reg))));
+      |> List.iter ~f:(fun reg ->
+        Vec.push new_epilogue (to_value (X86 (pop reg))));
       Vec.push new_epilogue (to_value (X86 (pop Reg.rbp)));
       Fn_state.replace_irs
         fn_state
@@ -174,9 +175,7 @@ let save_and_restore_around_calls
              new_instructions
              (to_value
                 (Nod_ir.Ir.X86
-                   (X86_ir.sub
-                      (Reg Reg.rsp)
-                      (Imm (Int64.of_int sub_for_align)))));
+                   (X86_ir.sub (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align)))));
          List.iter regs ~f:(fun reg ->
            Vec.push new_instructions (to_value (Nod_ir.Ir.X86 (push (Reg reg)))))
        | Nod_ir.Ir.X86 Restore_clobbers ->
@@ -193,9 +192,7 @@ let save_and_restore_around_calls
              new_instructions
              (to_value
                 (Nod_ir.Ir.X86
-                   (X86_ir.add
-                      (Reg Reg.rsp)
-                      (Imm (Int64.of_int sub_for_align)))))
+                   (X86_ir.add (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align)))))
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
@@ -246,13 +243,14 @@ let process ~fn_state_by_name (functions : Function.t String.Map.t) =
         in
         let ir =
           Ir.map_x86_operands ir ~f:(function
-          | Spill_slot i ->
-            let offset =
-              -(fn.bytes_for_padding + fn.bytes_for_clobber_saves + ((i + 1) * 8)
-               )
-            in
-            Mem (Reg.rbp, offset)
-          | x -> x)
+            | Spill_slot i ->
+              let offset =
+                -(fn.bytes_for_padding
+                  + fn.bytes_for_clobber_saves
+                  + ((i + 1) * 8))
+              in
+              Mem (Reg.rbp, offset)
+            | x -> x)
         in
         Fn_state.value_ir fn_state ir
       in

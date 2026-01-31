@@ -24,7 +24,9 @@ let test_cfg s =
   | Ok program ->
     Map.iter
       program.Program.functions
-      ~f:(fun { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+      ~f:
+        (fun
+          { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
@@ -43,34 +45,31 @@ let test_ssa ?don't_opt s =
   |> Result.map ~f:(fun program ->
     map_function_roots_with_state program ~state ~f:Cfg.process)
   |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program ->
-    map_function_roots_with_state program ~state ~f:Ssa.create)
+  |> Result.map ~f:(fun program -> Ssa.convert_program program ~state)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok (state, program) ->
     let go program =
-      Map.iter
-        program.Program.functions
-        ~f:(fun { Nod_ir.Function.root = (ssa : Ssa.t); _ } ->
-          Vec.iter ssa.in_order ~f:(fun block ->
-            let instrs =
-              Instr_state.to_ir_list (Block.instructions block)
-              |> List.map ~f:Fn_state.var_ir
-              |> fun instrs ->
-              instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
-            in
-            print_s
-              [%message
-                (Block.id_hum block)
-                  ~args:(Block.args block : Var.t Vec.read)
-                  (instrs : Ir.t list)]))
+      Map.iter program.Program.functions ~f:(fun fn ->
+        Block.iter (Function.root fn) ~f:(fun block ->
+          let instrs =
+            Instr_state.to_ir_list (Block.instructions block)
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
+          in
+          print_s
+            [%message
+              (Block.id_hum block)
+                ~args:(Block.args block : Var.t Vec.read)
+                (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize program;
+       ignore (Eir.optimize ~state program);
        go program)
 ;;
 
@@ -128,7 +127,9 @@ let%expect_test "temp alloca passed to child; child loads value" =
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
+        (Fn_state.alloc_instr
+           fn_state
+           ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in
@@ -292,7 +293,9 @@ let%expect_test "print helper" =
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
+        (Fn_state.alloc_instr
+           fn_state
+           ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in

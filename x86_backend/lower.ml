@@ -47,11 +47,11 @@ let order_blocks root =
        | false ->
          Hash_set.add seen block;
          try_push block;
-        Vec.iter (Block.children block) ~f:(fun child ->
-          if Vec.length (Block.parents child) = 1
-             && not (Hashtbl.mem idx_by_block child)
-          then try_push child);
-        Vec.iter (Block.children block) ~f:(Queue.enqueue q);
+         Vec.iter (Block.children block) ~f:(fun child ->
+           if Vec.length (Block.parents child) = 1
+              && not (Hashtbl.mem idx_by_block child)
+           then try_push child);
+         Vec.iter (Block.children block) ~f:(Queue.enqueue q);
          go ())
   in
   go ();
@@ -166,7 +166,8 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         label_of_block call_block.Call_block.block
       in
       let lower_move' ~dst ~src make_instr =
-        if (not (is_valid_move_dest dst)) || [%equal: unit X86_ir.operand] dst src
+        if (not (is_valid_move_dest dst))
+           || [%equal: unit X86_ir.operand] dst src
         then []
         else (
           match dst, src with

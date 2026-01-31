@@ -302,13 +302,11 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
     Fn_state.append_ir
       fn_state
       ~block:start
-      ~ir:
-        (Fn_state.value_ir fn_state (Ir.move a (Ir.Lit_or_var.Lit 1L)));
+      ~ir:(Fn_state.value_ir fn_state (Ir.move a (Ir.Lit_or_var.Lit 1L)));
     Fn_state.append_ir
       fn_state
       ~block:start
-      ~ir:
-        (Fn_state.value_ir fn_state (Ir.move b (Ir.Lit_or_var.Lit 2L)));
+      ~ir:(Fn_state.value_ir fn_state (Ir.move b (Ir.Lit_or_var.Lit 2L)));
     Block.Expert.add_child start ~child:swap_block;
     let fn = Function.create ~name:"root" ~args:[] ~root:start in
     String.Map.of_alist_exn [ "root", fn ]

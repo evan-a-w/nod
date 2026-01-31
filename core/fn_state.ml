@@ -116,12 +116,15 @@ let clear_instr_value_relationships _t ~(instr : _ Instr_state.t) =
     match value.Value_state.def with
     | Undefined | Block_arg _ -> ()
     | Instr id ->
-      if [%compare.equal: Instr_id.t] id instr.id then value.Value_state.def <- Undefined);
-  Nod_ir.Ir.uses instr.ir |> List.iter ~f:(fun value -> remove_use value instr.id)
+      if [%compare.equal: Instr_id.t] id instr.id
+      then value.Value_state.def <- Undefined);
+  Nod_ir.Ir.uses instr.ir
+  |> List.iter ~f:(fun value -> remove_use value instr.id)
 ;;
 
 let add_instr_value_relationships _t ~(instr : _ Instr_state.t) =
-  Nod_ir.Ir.defs instr.ir |> List.iter ~f:(fun value -> value.Value_state.def <- Instr instr.id);
+  Nod_ir.Ir.defs instr.ir
+  |> List.iter ~f:(fun value -> value.Value_state.def <- Instr instr.id);
   Nod_ir.Ir.uses instr.ir |> List.iter ~f:(fun value -> add_use value instr.id)
 ;;
 

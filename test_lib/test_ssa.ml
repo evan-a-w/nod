@@ -15,40 +15,31 @@ let test ?don't_opt s =
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
   |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program ->
-    { program with
-      Program.functions =
-        Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-          Function0.map_root
-            fn
-            ~f:(Ssa.create ~fn_state:(Nod_core.State.fn_state state name)))
-    })
+  |> Result.map ~f:(fun program -> Ssa.convert_program program ~state)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok (state, program) ->
     let go program =
-      Map.iter
-        program.Program.functions
-        ~f:(fun { Nod_ir.Function.root = (ssa : Ssa.t); _ } ->
-          Vec.iter ssa.in_order ~f:(fun block ->
-            let instrs =
-              Instr_state.to_ir_list (Block.instructions block)
-              |> List.map ~f:Fn_state.var_ir
-              |> fun instrs ->
-              instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
-            in
-            print_s
-              [%message
-                (Block.id_hum block)
-                  ~args:(Block.args block : Var.t Vec.read)
-                  (instrs : Ir.t list)]))
+      Map.iter program.Program.functions ~f:(fun fn ->
+        Block.iter (Function.root fn) ~f:(fun block ->
+          let instrs =
+            Instr_state.to_ir_list (Block.instructions block)
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
+          in
+          print_s
+            [%message
+              (Block.id_hum block)
+                ~args:(Block.args block : Var.t Vec.read)
+                (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize program;
+       ignore (Eir.optimize ~state program);
        go program)
 ;;
 
@@ -72,18 +63,20 @@ let%expect_test "eir compile with args" =
   match Eir.compile {| a(%x:i64, %y:i64) {add %z:i64, %x, %y return %z} |} with
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
-    Map.iter program.Program.functions ~f:(fun { Nod_ir.Function.root = block; _ } ->
-      let instrs =
-        Instr_state.to_ir_list (Block.instructions block)
-        |> List.map ~f:Fn_state.var_ir
-        |> fun instrs ->
-        instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
-      in
-      print_s
-        [%message
-          (Block.id_hum block)
-            ~args:(Block.args block : Var.t Vec.read)
-            (instrs : Ir.t list)]);
+    Map.iter
+      program.Program.functions
+      ~f:(fun { Nod_ir.Function.root = block; _ } ->
+        let instrs =
+          Instr_state.to_ir_list (Block.instructions block)
+          |> List.map ~f:Fn_state.var_ir
+          |> fun instrs ->
+          instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
+        in
+        print_s
+          [%message
+            (Block.id_hum block)
+              ~args:(Block.args block : Var.t Vec.read)
+              (instrs : Ir.t list)]);
     [%expect
       {|
       (%root (args (((name x) (type_ I64)) ((name y) (type_ I64))))

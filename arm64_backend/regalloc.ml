@@ -376,7 +376,11 @@ let replace_regs
       let new_instrs =
         List.map irs ~f:(fun ir -> Fn_state.alloc_instr fn_state ~ir)
       in
-      Fn_state.replace_instr fn_state ~block ~instr:instruction ~with_instrs:new_instrs);
+      Fn_state.replace_instr
+        fn_state
+        ~block
+        ~instr:instruction
+        ~with_instrs:new_instrs);
     update_slots ~which:`Both block_liveness.terminal;
     (match map_ir (Block.terminal block).Instr_state.ir with
      | [ x ] -> Fn_state.replace_terminal_ir fn_state ~block ~with_:x

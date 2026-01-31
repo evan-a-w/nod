@@ -2,7 +2,9 @@ open! Core
 open! Import
 open! Common
 module Ir_helpers = Nod_ir.Ir_helpers
+
 let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
 module Class = X86_reg.Class
 
 type t =
@@ -80,7 +82,9 @@ let expand_atomic_rmw t =
     in
     loop 0
   in
-  let rmw_loop_instrs ({ dest; addr; src; op; order } : Typed_var.t Nod_ir.Ir_helpers.atomic_rmw) =
+  let rmw_loop_instrs
+    ({ dest; addr; src; op; order } : Typed_var.t Nod_ir.Ir_helpers.atomic_rmw)
+    =
     require_class t dest Class.I64;
     let new_val = fresh_var t "rmw_new" in
     let success = fresh_var t "rmw_success" in
@@ -195,7 +199,11 @@ let expand_atomic_rmw t =
   t
 ;;
 
-let operand_of_lit_or_var t ~class_ (lit_or_var : Typed_var.t Nod_ir.Lit_or_var.t) =
+let operand_of_lit_or_var
+  t
+  ~class_
+  (lit_or_var : Typed_var.t Nod_ir.Lit_or_var.t)
+  =
   match lit_or_var with
   | Lit l -> [], Imm l
   | Var v ->
@@ -691,9 +699,8 @@ let make_epilogue t ~ret_shape =
     t.fn_state
     ~block
     ~irs:
-      (List.map
-         reg_res_moves
-         ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.x86 ir)));
+      (List.map reg_res_moves ~f:(fun ir ->
+         Fn_state.value_ir t.fn_state (Ir.x86 ir)));
   block
 ;;
 
@@ -943,8 +950,8 @@ let simple_translation_to_x86_ir ~this_call_conv t =
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
       |> List.concat_map ~f:(fun ir ->
-           lower_ir (var_ir ir)
-           |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.x86 ir)))
+        lower_ir (var_ir ir)
+        |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.x86 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir

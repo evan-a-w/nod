@@ -50,7 +50,8 @@ let initialize_assignments root =
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match Reg.raw reg with
       | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Allocated _))
-      | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Unallocated _)) -> failwith "bug"
+      | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Unallocated _)) ->
+        failwith "bug"
       | X86_reg.Raw.Allocated (var, Some forced_raw) ->
         let forced = Reg.create ~class_:reg.class_ ~raw:forced_raw in
         update_assignment ~assignments ~var ~to_:(Reg forced)
@@ -290,14 +291,14 @@ let replace_regs
     in
     let ir =
       Ir.map_x86_operands ir ~f:(function
-      | Reg r -> map_reg r
-      | Mem (r, offset) ->
-        Mem
-          ( map_reg r
-            |> (* safe because we enforce no spills on the mem regs *)
-            reg_of_operand_exn
-          , offset )
-      | (Imm _ | Spill_slot _ | Symbol _) as t -> t)
+        | Reg r -> map_reg r
+        | Mem (r, offset) ->
+          Mem
+            ( map_reg r
+              |> (* safe because we enforce no spills on the mem regs *)
+              reg_of_operand_exn
+            , offset )
+        | (Imm _ | Spill_slot _ | Symbol _) as t -> t)
     in
     Fn_state.value_ir fn_state ir
   in
@@ -316,7 +317,11 @@ let replace_regs
       let ir = map_ir instruction.Instr_state.ir in
       update_slots ~which:`Close liveness;
       let new_instr = Fn_state.alloc_instr fn_state ~ir in
-      Fn_state.replace_instr fn_state ~block ~instr:instruction ~with_instrs:[ new_instr ]);
+      Fn_state.replace_instr
+        fn_state
+        ~block
+        ~instr:instruction
+        ~with_instrs:[ new_instr ]);
     update_slots ~which:`Both block_liveness.terminal;
     Fn_state.replace_terminal_ir
       fn_state
