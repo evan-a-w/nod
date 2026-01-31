@@ -442,3 +442,35 @@ let create ~fn_state (~root, ~blocks:_, ~in_order) =
 ;;
 
 let root t = t.def_uses.root
+
+type value_ir = (Value_state.t, Block.t) Nod_ir.Ir.t
+
+let value_of_var t var = Fn_state.ensure_value (fn_state t) ~var
+let value_of_var_exn t var = Fn_state.value_by_var (fn_state t) var |> Option.value_exn
+
+let value_ir t (ir : Ir.t) : value_ir =
+  Nod_ir.Ir.map_vars ir ~f:(value_of_var t)
+;;
+
+let var_ir (ir : value_ir) : Ir.t =
+  Nod_ir.Ir.map_vars ir ~f:(fun value -> value.var)
+;;
+
+let uses_values t ir = value_ir t ir |> Nod_ir.Ir.uses
+let defs_values t ir = value_ir t ir |> Nod_ir.Ir.defs
+
+let block_args_values t block =
+  Vec.map (Block.args block) ~f:(value_of_var t)
+;;
+
+let replace_instr_value_ir t ~block ~instr ~with_ir =
+  Fn_state.replace_instr_with_irs
+    (fn_state t)
+    ~block
+    ~instr
+    ~with_irs:[ var_ir with_ir ]
+;;
+
+let replace_terminal_value_ir t ~block ~with_ir =
+  Fn_state.replace_terminal_ir (fn_state t) ~block ~with_:(var_ir with_ir)
+;;

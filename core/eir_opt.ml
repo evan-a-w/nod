@@ -18,7 +18,7 @@ module Opt_flags = struct
 end
 
 type block_tracker =
-  { mutable needed : Var.Set.t Block.Map.t
+  { mutable needed : Value_state.Set.t Block.Map.t
   ; once_ready : Block.t -> unit
   }
 
@@ -45,12 +45,16 @@ let rec iter_blocks ctx ~block ~f =
 ;;
 
 let iter_blocks ctx ~f = iter_blocks ctx ~block:(Ssa.root ctx.ssa) ~f
-let value_by_var ctx var = Fn_state.value_by_var ctx.fn_state var
 
-let active_value ctx var =
-  match value_by_var ctx var with
-  | Some value when value.active -> Some value
-  | _ -> None
+let value_of_var ctx var = Fn_state.value_by_var ctx.fn_state var
+let value_of_var_exn ctx var = Fn_state.ensure_value ctx.fn_state ~var
+
+let active_value (value : Value_state.t) =
+  if value.active then Some value else None
+
+let active_value_of_var ctx var =
+  value_of_var ctx var |> Option.bind ~f:active_value
+;;
 ;;
 
 module Block_tracker = struct
@@ -73,10 +77,9 @@ module Block_tracker = struct
     let t = { needed = Block.Map.empty; once_ready } in
     iter_blocks ctx ~f:(fun block ->
       let data =
-        Ir.uses (Block.terminal block).Instr_state.ir
-        |> List.filter_map ~f:(fun var ->
-          active_value ctx var |> Option.map ~f:(fun _ -> var))
-        |> Var.Set.of_list
+        Ssa.uses_values ctx.ssa (Block.terminal block).Instr_state.ir
+        |> List.filter_map ~f:active_value
+        |> Value_state.Set.of_list
       in
       if Set.length data = 0
       then once_ready block
@@ -101,34 +104,33 @@ let def_block_exn ctx (value : Value_state.t) =
 (* if [block] is unnecessary, remove it *)
 let kill_block (_ : context) ~block:_ = ()
 
-let defining_vars_for_block_arg ~block ~arg =
-  let idx =
-    Vec.findi (Block.args block) ~f:(fun i s ->
-      if Var.equal arg s then Some i else None)
-    |> Option.value_exn
-  in
+let defining_values_for_block_arg ctx ~block ~arg_index =
   Vec.filter_map (Block.parents block) ~f:(fun parent ->
     let parent_terminal = Block.terminal parent in
     match
       Ir.filter_map_call_blocks
         parent_terminal.Instr_state.ir
         ~f:(fun { Ir.Call_block.block = block'; args } ->
-          if phys_equal block' block then Some (List.nth_exn args idx) else None)
+          if phys_equal block' block
+          then Some (List.nth_exn args arg_index)
+          else None)
     with
     | [] -> None
     | xs -> Some xs)
   |> Vec.to_list
   |> List.concat
+  |> List.map ~f:(value_of_var_exn ctx)
 ;;
 
 (* --- Dead code elimination helpers --- *)
 let rec remove_instr ctx ~block ~instr =
-  let used_vars = Ir.uses instr.Instr_state.ir in
+  let used_values = Ssa.uses_values ctx.ssa instr.Instr_state.ir in
   Fn_state.remove_instr ctx.fn_state ~block ~instr;
-  List.iter used_vars ~f:(fun var ->
-    match active_value ctx var with
+  List.iter used_values ~f:(fun value ->
+    match active_value value with
     | None -> ()
-    | Some value -> if Set.is_empty value.uses then try_kill_value ctx ~value)
+    | Some value ->
+      if Set.is_empty value.uses then try_kill_value ctx ~value)
 
 and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   let removed = ref [] in
@@ -150,22 +152,21 @@ and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   in
   Fn_state.replace_terminal_ir ctx.fn_state ~block:parent ~with_:new_ir;
   List.iter !removed ~f:(fun var ->
-    match active_value ctx var with
+    match active_value_of_var ctx var with
     | None -> ()
     | Some value -> if Set.is_empty value.uses then try_kill_value ctx ~value)
 
-and remove_arg ctx ~block ~arg =
-  let idx =
-    Vec.findi (Block.args block) ~f:(fun i s ->
-      if Var.equal arg s then Some i else None)
-    |> Option.value_exn
-  in
+and remove_arg ctx ~block ~arg_index =
+  let args = Block.args block in
+  let new_args = Vec.create () in
+  Vec.iteri args ~f:(fun i arg ->
+    if not (Int.equal i arg_index) then Vec.push new_args arg);
   Fn_state.set_block_args
     ctx.fn_state
     ~block
-    ~args:(Vec.filter (Block.args block) ~f:(Fn.non (Var.equal arg)));
+    ~args:new_args;
   Vec.iter (Block.parents block) ~f:(fun parent ->
-    remove_arg_from_parent ctx ~parent ~idx ~from_block:block)
+    remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
 
 and kill_definition ctx (value : Value_state.t) =
   if not value.active
@@ -181,13 +182,11 @@ and kill_definition ctx (value : Value_state.t) =
      | Def_site.Instr instr_id ->
        let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
        Option.iter def_block ~f:(fun block -> remove_instr ctx ~block ~instr)
-     | Def_site.Block_arg { block; arg } ->
-       let arg_var = Vec.get (Block.args block) arg in
-       remove_arg ctx ~block ~arg:arg_var
+     | Def_site.Block_arg { block; arg } -> remove_arg ctx ~block ~arg_index:arg
      | Def_site.Undefined -> ());
     Option.iter ctx.block_tracker ~f:(fun tracker ->
       Option.iter def_block ~f:(fun block ->
-        Block_tracker.ready tracker ~var:value.var ~block)))
+        Block_tracker.ready tracker ~var:value ~block)))
 
 and try_kill_value ctx ~(value : Value_state.t) =
   if not value.active
@@ -198,12 +197,12 @@ and try_kill_value ctx ~(value : Value_state.t) =
     | 1, Def_site.Block_arg { block; arg } ->
       (* weird case in our ssa algo that is borked, fix it here *)
       let use_id = Set.min_elt_exn value.uses in
-      let arg_var = Vec.get (Block.args block) arg in
+      let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
       if Instr_id.equal use_id (Block.terminal block).Instr_state.id
          && List.equal
-              Var.equal
-              [ arg_var ]
-              (defining_vars_for_block_arg ~block ~arg:arg_var)
+              Value_state.equal
+              [ arg_value ]
+              (defining_values_for_block_arg ctx ~block ~arg_index:arg)
       then kill_definition ctx value
       else ()
     | _, _ ->
@@ -212,28 +211,27 @@ and try_kill_value ctx ~(value : Value_state.t) =
 ;;
 
 let update_uses ctx ~old_ir ~new_ir =
-  let old_vars = Var.Set.of_list (Ir.uses old_ir) in
-  let new_vars = Var.Set.of_list (Ir.uses new_ir) in
-  Set.iter (Set.diff old_vars new_vars) ~f:(fun var ->
-    match active_value ctx var with
-    | None -> ()
-    | Some value ->
-      if Opt_flags.unused_vars ctx.opt_flags && Set.is_empty value.uses
-      then try_kill_value ctx ~value)
+  let old_values = Value_state.Set.of_list (Ssa.uses_values ctx.ssa old_ir) in
+  let new_values = Value_state.Set.of_list (Ssa.uses_values ctx.ssa new_ir) in
+  Set.iter (Set.diff old_values new_values)
+    ~f:(fun value ->
+      match active_value value with
+      | None -> ()
+      | Some value ->
+        if Opt_flags.unused_vars ctx.opt_flags && Set.is_empty value.uses
+        then try_kill_value ctx ~value)
 ;;
 
 (* --- Constant propagation helpers --- *)
 let constant_fold ctx ~instr =
   let instr =
-    Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
+    Ssa.value_ir ctx.ssa instr
+    |> Ir.map_lit_or_vars ~f:(fun lit_or_var ->
       match lit_or_var with
       | Lit _ -> lit_or_var
-      | Var var ->
-        (match value_by_var ctx var with
-         | Some value ->
-           (match value.opt_tags.constant with
-            | Some i -> Lit i
-            | None -> lit_or_var)
+      | Var value ->
+        (match value.opt_tags.constant with
+         | Some i -> Lit i
          | None -> lit_or_var)
       | Global _ -> lit_or_var)
   in
@@ -253,6 +251,7 @@ let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
   let old_instr =
     Fn_state.instr ctx.fn_state old_instr_id |> Option.value_exn
   in
+  let new_ir = Ssa.var_ir new_ir in
   let new_instr = Fn_state.alloc_instr ctx.fn_state ~ir:new_ir in
   Fn_state.replace_instr
     ctx.fn_state
@@ -266,6 +265,7 @@ let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
 let replace_terminal ctx ~block ~new_terminal_ir =
   let old_terminal = Block.terminal block in
   let old_blocks = Ir.blocks old_terminal.Instr_state.ir in
+  let new_terminal_ir = Ssa.var_ir new_terminal_ir in
   let new_blocks = Ir.blocks new_terminal_ir in
   let diff =
     List.filter old_blocks ~f:(fun block' ->
@@ -286,17 +286,13 @@ let rec refine_type ctx ~(value : Value_state.t) =
   | None ->
     (match value.def with
      | Def_site.Block_arg { block; arg } ->
-       let arg_var = Vec.get (Block.args block) arg in
-       refine_type_block_arg ctx ~value ~block ~arg:arg_var
+       refine_type_block_arg ctx ~value ~block ~arg_index:arg
      | Def_site.Instr instr_id -> refine_type_instr ctx ~value ~instr_id
      | Def_site.Undefined -> ())
 
-and refine_type_block_arg ctx ~value ~block ~arg =
-  let constant var =
-    Option.map (value_by_var ctx var) ~f:(fun x -> x.opt_tags.constant)
-  in
-  defining_vars_for_block_arg ~block ~arg
-  |> List.filter_map ~f:constant
+and refine_type_block_arg ctx ~value ~block ~arg_index =
+  defining_values_for_block_arg ctx ~block ~arg_index
+  |> List.map ~f:(fun x -> x.opt_tags.constant)
   |> function
   | [] -> ()
   | constant :: xs ->
@@ -317,10 +313,12 @@ and refine_type_instr ctx ~value ~instr_id =
   | Some _ as constant ->
     value.opt_tags <- { constant };
     let terminal_uses =
-      Ir.uses (Block.terminal (def_block_exn ctx value)).Instr_state.ir
+      Ssa.uses_values
+        ctx.ssa
+        (Block.terminal (def_block_exn ctx value)).Instr_state.ir
     in
     if List.exists terminal_uses ~f:(fun use ->
-         String.equal (Var.name use) (Var.name value.var))
+         Value_state.equal use value)
     then refine_terminal ctx ~block:(def_block_exn ctx value)
 
 and refine_terminal ctx ~block =
@@ -366,13 +364,14 @@ let sweep_values ?on_terminal ctx ~on_value =
        | Def_site.Block_arg _ -> on_value value
        | Def_site.Instr instr_id ->
          let instr = instr_exn instr_id in
-         List.iter (Ir.uses instr.Instr_state.ir) ~f:(fun use ->
-           Option.iter (active_value ctx use) ~f:go);
+         List.iter
+           (Ssa.uses_values ctx.ssa instr.Instr_state.ir)
+           ~f:(fun use -> Option.iter (active_value use) ~f:go);
          on_value value
        | Def_site.Undefined -> ());
       Option.iter ctx.block_tracker ~f:(fun tracker ->
         Option.iter def_block ~f:(fun block ->
-          Block_tracker.ready tracker ~var:value.var ~block)))
+          Block_tracker.ready tracker ~var:value ~block)))
   in
   Vec.iter ctx.fn_state.values ~f:(function
     | None -> ()
