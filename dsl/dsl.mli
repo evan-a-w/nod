@@ -113,7 +113,7 @@ end
 (** meta functions *)
 
 val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
-val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t
+val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t'
 
 (** builder functions *)
 

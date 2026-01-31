@@ -2,7 +2,14 @@ open! Core
 open! Import
 include Nod_ir.Ir
 module Block = Block
-module Call_block = Call_block
+module Branch = Nod_ir.Branch
+module Call_block = Nod_ir.Call_block
+module Global = Nod_ir.Global
+module Lit_or_var = Nod_ir.Lit_or_var
+module Mem = Nod_ir.Mem
+module Memory_order = Nod_ir.Memory_order
+module X86_ir = Nod_ir.X86_ir
+module Arm64_ir = Nod_ir.Arm64_ir
 
 type nonrec t = (Typed_var.t, Block.t) t [@@deriving sexp, compare, equal, hash]
 

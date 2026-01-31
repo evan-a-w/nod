@@ -315,7 +315,14 @@ let add_args_to_calls t =
 
 let uses_in_block_ex_calls ~(block : Block.t) =
   let f (defs, uses) instr =
-    let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
+    let uses =
+      Set.union
+        uses
+        (Set.diff
+           (Ir.uses_ex_args instr ~compare_var:Typed_var.compare
+            |> Typed_var.Set.of_list)
+           defs)
+    in
     let defs = Set.union defs (Ir.defs instr |> Typed_var.Set.of_list) in
     defs, uses
   in
