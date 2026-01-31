@@ -1,8 +1,9 @@
 open! Core
+open! Import
 
 (* go from
 
-     [string Ir0.t Vec.t String.Map.t * string Vec.t]
+     [string Nod_ir.Ir.t Vec.t String.Map.t * string Vec.t]
      describing sequences of instructions
 
      to an actual cfg, [Ir.t]
@@ -30,7 +31,9 @@ let process ~fn_state (~instrs_by_label, ~labels) =
       let new_terminal =
         Fn_state.alloc_instr
           fn_state
-          ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) ir)
+          ~ir:
+            (Ir.map_blocks ~f:(Map.find_exn blocks) ir
+             |> Fn_state.value_ir fn_state)
       in
       Fn_state.replace_terminal fn_state ~block ~with_:new_terminal
     in
@@ -46,7 +49,9 @@ let process ~fn_state (~instrs_by_label, ~labels) =
           Fn_state.append_ir
             fn_state
             ~block
-            ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+            ~ir:
+              (Ir.map_blocks ~f:(Map.find_exn blocks) instr
+               |> Fn_state.value_ir fn_state));
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with
@@ -58,7 +63,7 @@ let process ~fn_state (~instrs_by_label, ~labels) =
 let process'
   ~is_label
   ~add_fall_through_to_terminal
-  (instrs : string Ir0.t Vec.t)
+  (instrs : (Typed_var.t, string) Nod_ir.Ir.t Vec.t)
   =
   let labels = Vec.create () in
   let label_n = ref 0 in

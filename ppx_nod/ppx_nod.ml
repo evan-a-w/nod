@@ -632,7 +632,7 @@ let expand_fn expr =
       (fun arg acc ->
         let var_expr =
           [%expr
-            Nod_core.Var.create
+            Nod_common.Typed_var.create
               ~name:[%e estring ~loc arg.name]
               ~type_:[%e type_expr ~loc arg.type_]]
         in

@@ -1,447 +1,50 @@
 open! Core
 open! Import
+open! Ir_helpers
 
-module Lit = struct
-  type t = Int64.t [@@deriving sexp, compare, equal, hash]
-end
-
-module Lit_or_var = struct
-  type t =
-    | Lit of Lit.t
-    | Var of Var.t
-    | Global of Global.t
-  [@@deriving sexp, compare, equal, hash]
-
-  let vars = function
-    | Lit _ -> []
-    | Var v -> [ v ]
-    | Global _ -> []
-  ;;
-
-  let map_vars t ~f =
-    match t with
-    | Lit _ -> t
-    | Var v -> Var (f v)
-    | Global _ -> t
-  ;;
-
-  let to_x86_ir_operand t : X86_ir.operand =
-    match t with
-    | Lit l -> Imm l
-    | Var v -> Reg (X86_reg.unallocated v)
-    | Global _ -> failwith "cannot convert global operand without lowering"
-  ;;
-
-  let to_arm64_ir_operand t : Arm64_ir.operand =
-    match t with
-    | Lit l -> Arm64_ir.Imm l
-    | Var v -> Arm64_ir.Reg (Arm64_reg.unallocated v)
-    | Global _ -> failwith "cannot convert global operand without lowering"
-  ;;
-end
-
-module Memory_order = struct
-  type t =
-    | Relaxed
-    | Acquire
-    | Release
-    | Acq_rel
-    | Seq_cst
-  [@@deriving sexp, compare, equal, hash]
-
-  (* For x86_64 TSO: many orderings collapse to simpler operations *)
-  let x86_needs_fence = function
-    | Relaxed | Acquire -> false
-    | Release | Acq_rel | Seq_cst -> true
-  ;;
-
-  (* Check if a load ordering requires special handling on x86 *)
-  let x86_load_needs_fence = function
-    | Relaxed | Acquire -> false
-    | Release | Acq_rel | Seq_cst -> true
-  ;;
-
-  (* Check if a store ordering requires special handling on x86 *)
-  let x86_store_needs_fence = function
-    | Relaxed -> false
-    | Acquire | Release | Acq_rel | Seq_cst -> true
-  ;;
-end
-
-module Rmw_op = struct
-  type t =
-    | Xchg
-    | Add
-    | Sub
-    | And
-    | Or
-    | Xor
-  [@@deriving sexp, compare, equal, hash]
-end
-
-module Mem = struct
-  type address =
-    { base : Lit_or_var.t
-    ; offset : int
-    }
-  [@@deriving sexp, compare, equal, hash]
-
-  type t =
-    | Stack_slot of int (* bytes *)
-    | Address of address
-    | Global of Global.t
-  [@@deriving sexp, compare, equal, hash]
-
-  let vars = function
-    | Address { base; _ } -> Lit_or_var.vars base
-    | Stack_slot _ -> []
-    | Global _ -> []
-  ;;
-
-  let map_vars t ~f =
-    match t with
-    | Address { base; offset } ->
-      Address { base = Lit_or_var.map_vars base ~f; offset }
-    | Stack_slot _ -> t
-    | Global _ -> t
-  ;;
-
-  let map_lit_or_vars t ~f =
-    match t with
-    | Address { base; offset } -> Address { base = f base; offset }
-    | Stack_slot _ -> t
-    | Global _ -> t
-  ;;
-
-  let address ?(offset = 0) base = Address { base; offset }
-
-  let to_x86_ir_operand t : X86_ir.operand =
-    match t with
-    | Address { base = Lit_or_var.Var v; offset } ->
-      Mem (X86_reg.unallocated v, offset)
-    | Stack_slot i ->
-      Breadcrumbs.frame_pointer_omission;
-      Mem (X86_reg.rbp, i)
-    | Global _ -> failwith "cannot convert global address without lowering"
-    | Address { base = Lit_or_var.Global _; _ } ->
-      failwith "cannot convert global address without lowering"
-    | Address { base = Lit_or_var.Lit _; _ } ->
-      failwith "cannot convert literal address without lowering"
-  ;;
-
-  let to_arm64_ir_operand = function
-    | Stack_slot i -> Arm64_ir.Mem (Arm64_reg.fp, i)
-    | Address { base = Lit_or_var.Var v; offset } ->
-      Arm64_ir.Mem (Arm64_reg.unallocated v, offset)
-    | Global _ -> failwith "cannot convert global address without lowering"
-    | Address { base = Lit_or_var.Global _; _ } ->
-      failwith "cannot convert global address without lowering"
-    | Address { base = Lit_or_var.Lit _; _ } ->
-      failwith "cannot convert literal address without lowering"
-  ;;
-end
-
-module Block_id =
-  String_id.Make
-    (struct
-      let module_name = "Block_id"
-    end)
-    ()
-
-type arith =
-  { dest : Var.t
-  ; src1 : Lit_or_var.t
-  ; src2 : Lit_or_var.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-let map_arith_defs t ~f = { t with dest = f t.dest }
-
-let map_arith_uses t ~f =
-  { t with
-    src1 = Lit_or_var.map_vars ~f t.src1
-  ; src2 = Lit_or_var.map_vars ~f t.src2
-  }
-;;
-
-let map_arith_lit_or_vars t ~f = { t with src1 = f t.src1; src2 = f t.src2 }
-
-type alloca =
-  { dest : Var.t
-  ; size : Lit_or_var.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-let map_alloca_defs t ~f = { t with dest = f t.dest }
-let map_alloca_uses t ~f = { t with size = Lit_or_var.map_vars ~f t.size }
-let map_alloca_lit_or_vars t ~f = { t with size = f t.size }
-
-type load_field =
-  { dest : Var.t
-  ; base : Lit_or_var.t
-  ; type_ : Type.t
-  ; indices : int list
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type store_field =
-  { base : Lit_or_var.t
-  ; src : Lit_or_var.t
-  ; type_ : Type.t
-  ; indices : int list
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type memcpy =
-  { dest : Lit_or_var.t
-  ; src : Lit_or_var.t
-  ; type_ : Type.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type atomic_load =
-  { dest : Var.t
-  ; addr : Mem.t
-  ; order : Memory_order.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type atomic_store =
-  { addr : Mem.t
-  ; src : Lit_or_var.t
-  ; order : Memory_order.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type atomic_rmw =
-  { dest : Var.t
-  ; addr : Mem.t
-  ; src : Lit_or_var.t
-  ; op : Rmw_op.t
-  ; order : Memory_order.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-type atomic_cmpxchg =
-  { dest : Var.t (* returns old value *)
-  ; success : Var.t (* 1 if succeeded, 0 if failed *)
-  ; addr : Mem.t
-  ; expected : Lit_or_var.t
-  ; desired : Lit_or_var.t
-  ; success_order : Memory_order.t
-  ; failure_order : Memory_order.t
-  }
-[@@deriving sexp, compare, equal, hash]
-
-let map_load_field_defs (t : load_field) ~f = { t with dest = f t.dest }
-
-let map_load_field_uses (t : load_field) ~f =
-  { t with base = Lit_or_var.map_vars t.base ~f }
-;;
-
-let map_load_field_lit_or_vars (t : load_field) ~f = { t with base = f t.base }
-
-let map_store_field_uses (t : store_field) ~f =
-  { t with
-    base = Lit_or_var.map_vars t.base ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
-;;
-
-let map_store_field_lit_or_vars (t : store_field) ~f =
-  { t with base = f t.base; src = f t.src }
-;;
-
-let map_memcpy_uses (t : memcpy) ~f =
-  { t with
-    dest = Lit_or_var.map_vars t.dest ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
-;;
-
-let map_memcpy_lit_or_vars (t : memcpy) ~f =
-  { t with dest = f t.dest; src = f t.src }
-;;
-
-let map_atomic_load_defs (t : atomic_load) ~f = { t with dest = f t.dest }
-let map_atomic_load_uses (t : atomic_load) ~f = { t with addr = Mem.map_vars t.addr ~f }
-
-let map_atomic_store_uses (t : atomic_store) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
-;;
-
-let map_atomic_store_lit_or_vars (t : atomic_store) ~f =
-  { t with src = f t.src; addr = Mem.map_lit_or_vars t.addr ~f }
-;;
-
-let map_atomic_rmw_defs (t : atomic_rmw) ~f = { t with dest = f t.dest }
-
-let map_atomic_rmw_uses (t : atomic_rmw) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; src = Lit_or_var.map_vars t.src ~f
-  }
-;;
-
-let map_atomic_rmw_lit_or_vars (t : atomic_rmw) ~f =
-  { t with src = f t.src; addr = Mem.map_lit_or_vars t.addr ~f }
-;;
-
-let map_atomic_cmpxchg_defs (t : atomic_cmpxchg) ~f =
-  { t with dest = f t.dest; success = f t.success }
-;;
-
-let map_atomic_cmpxchg_uses (t : atomic_cmpxchg) ~f =
-  { t with
-    addr = Mem.map_vars t.addr ~f
-  ; expected = Lit_or_var.map_vars t.expected ~f
-  ; desired = Lit_or_var.map_vars t.desired ~f
-  }
-;;
-
-let map_atomic_cmpxchg_lit_or_vars (t : atomic_cmpxchg) ~f =
-  { t with
-    expected = f t.expected
-  ; desired = f t.desired
-  ; addr = Mem.map_lit_or_vars t.addr ~f
-  }
-;;
-
-module Branch = struct
-  type 'block t =
-    | Cond of
-        { cond : Lit_or_var.t
-        ; if_true : 'block Call_block.t
-        ; if_false : 'block Call_block.t
-        }
-    | Uncond of 'block Call_block.t
-  [@@deriving sexp, compare, equal, hash]
-
-  let filter_map_call_blocks t ~f =
-    match t with
-    | Uncond call_block -> f call_block |> Option.to_list
-    | Cond { cond = _; if_true; if_false } ->
-      (f if_true |> Option.to_list) @ (f if_false |> Option.to_list)
-  ;;
-
-  (*
-     [let t' = constant_fold t in
-      not (phys_equal t t') iff t' is simpler than t
-     ]
-  *)
-  let constant_fold = function
-    | Cond { cond = Lit x; if_true = _; if_false } when Int64.(x = zero) ->
-      Uncond if_false
-    | Cond { cond = Lit x; if_true; if_false = _ } when Int64.(x <> zero) ->
-      Uncond if_true
-    | t -> t
-  ;;
-
-  let blocks = function
-    | Uncond c -> Call_block.blocks c
-    | Cond { cond = _; if_true; if_false } ->
-      Call_block.blocks if_true @ Call_block.blocks if_false
-  ;;
-
-  let uses = function
-    | Cond { cond; if_true; if_false } ->
-      List.concat
-        [ Lit_or_var.vars cond
-        ; Call_block.uses if_true
-        ; Call_block.uses if_false
-        ]
-      |> Var.Set.of_list
-      |> Set.to_list
-    | Uncond call -> Call_block.uses call
-  ;;
-
-  let map_uses ~f = function
-    | Cond { cond; if_true; if_false } ->
-      Cond
-        { cond = Lit_or_var.map_vars ~f cond
-        ; if_true = Call_block.map_uses if_true ~f
-        ; if_false = Call_block.map_uses if_false ~f
-        }
-    | Uncond call -> Uncond (Call_block.map_uses call ~f)
-  ;;
-
-  let map_blocks ~f = function
-    | Cond { cond; if_true; if_false } ->
-      Cond
-        { cond
-        ; if_true = Call_block.map_blocks if_true ~f
-        ; if_false = Call_block.map_blocks if_false ~f
-        }
-    | Uncond call -> Uncond (Call_block.map_blocks call ~f)
-  ;;
-
-  let iter_call_blocks ~f = function
-    | Cond { cond = _; if_true; if_false } ->
-      f if_true;
-      f if_false
-    | Uncond call -> f call
-  ;;
-
-  let map_call_blocks ~f = function
-    | Cond { cond; if_true; if_false } ->
-      Cond { cond; if_true = f if_true; if_false = f if_false }
-    | Uncond call -> Uncond (f call)
-  ;;
-
-  let map_lit_or_vars t ~f =
-    match t with
-    | Uncond _ -> t
-    | Cond { cond; if_true; if_false } ->
-      Cond { cond = f cond; if_true; if_false }
-  ;;
-end
-
-type 'block t =
+type ('var, 'block) t =
   | Noop
-  | And of arith
-  | Or of arith
-  | Add of arith
-  | Sub of arith
-  | Mul of arith
-  | Div of arith
-  | Mod of arith
-  | Lt of arith (* signed less than: dest = 1 if src1 < src2, else 0 *)
-  | Fadd of arith
-  | Fsub of arith
-  | Fmul of arith
-  | Fdiv of arith
-  | Alloca of alloca
+  | And of 'var arith
+  | Or of 'var arith
+  | Add of 'var arith
+  | Sub of 'var arith
+  | Mul of 'var arith
+  | Div of 'var arith
+  | Mod of 'var arith
+  | Lt of 'var arith (* signed less than: dest = 1 if src1 < src2, else 0 *)
+  | Fadd of 'var arith
+  | Fsub of 'var arith
+  | Fmul of 'var arith
+  | Fdiv of 'var arith
+  | Alloca of 'var alloca
   | Call of
       { fn : string
-      ; results : Var.t list
-      ; args : Lit_or_var.t list
+      ; results : 'var list
+      ; args : 'var Lit_or_var.t list
       }
-  | Load of Var.t * Mem.t
-  | Store of Lit_or_var.t * Mem.t
-  | Load_field of load_field
-  | Store_field of store_field
-  | Memcpy of memcpy
-  | Atomic_load of atomic_load
-  | Atomic_store of atomic_store
-  | Atomic_rmw of atomic_rmw
-  | Atomic_cmpxchg of atomic_cmpxchg
-  | Move of Var.t * Lit_or_var.t
-  | Cast of Var.t * Lit_or_var.t
+  | Load of 'var * 'var Mem.t
+  | Store of 'var Lit_or_var.t * 'var Mem.t
+  | Load_field of 'var load_field
+  | Store_field of 'var store_field
+  | Memcpy of 'var memcpy
+  | Atomic_load of 'var atomic_load
+  | Atomic_store of 'var atomic_store
+  | Atomic_rmw of 'var atomic_rmw
+  | Atomic_cmpxchg of 'var atomic_cmpxchg
+  | Move of 'var * 'var Lit_or_var.t
+  | Cast of 'var * 'var Lit_or_var.t
   (* Cast performs type conversion between different types:
      - Int -> Float: sign-extends and converts (cvtsi2sd/cvtsi2ss)
      - Float -> Int: truncates toward zero, overflow saturates (cvttsd2si/cvttss2si)
      - Float <-> Float: precision change, rounds to nearest (cvtsd2ss/cvtss2sd)
      - Int -> Int: truncate (larger -> smaller) or sign-extend (smaller -> larger)
   *)
-  | Branch of 'block Branch.t
-  | Return of Lit_or_var.t
-  | Arm64 of 'block Arm64_ir.t
-  | Arm64_terminal of 'block Arm64_ir.t list
-  | X86 of 'block X86_ir.t
-  | X86_terminal of 'block X86_ir.t list
+  | Branch of ('var, 'block) Branch.t
+  | Return of 'var Lit_or_var.t
+  | Arm64 of ('var, 'block) Arm64_ir.t
+  | Arm64_terminal of ('var, 'block) Arm64_ir.t list
+  | X86 of ('var, 'block) X86_ir.t
+  | X86_terminal of ('var, 'block) X86_ir.t list
   | Unreachable
 [@@deriving sexp, compare, equal, variants, hash]
 
@@ -525,16 +128,10 @@ let constant = function
 ;;
 
 let defs = function
-  | Arm64 arm64_ir -> Arm64_ir.defs arm64_ir |> Set.to_list
-  | Arm64_terminal arm64_irs ->
-    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.defs)
-    |> Var.Set.of_list
-    |> Set.to_list
-  | X86 x86_ir -> X86_ir.defs x86_ir |> Set.to_list
-  | X86_terminal x86_irs ->
-    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.defs)
-    |> Var.Set.of_list
-    |> Set.to_list
+  | Arm64 arm64_ir -> Arm64_ir.defs arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map arm64_irs ~f:Arm64_ir.defs
+  | X86 x86_ir -> X86_ir.defs x86_ir
+  | X86_terminal x86_irs -> List.concat_map x86_irs ~f:X86_ir.defs
   | Alloca a -> [ a.dest ]
   | And a
   | Or a
@@ -599,16 +196,10 @@ let blocks = function
 ;;
 
 let uses = function
-  | Arm64 arm64_ir -> Arm64_ir.uses arm64_ir |> Set.to_list
-  | Arm64_terminal arm64_irs ->
-    List.concat_map arm64_irs ~f:(Fn.compose Set.to_list Arm64_ir.uses)
-    |> Var.Set.of_list
-    |> Set.to_list
-  | X86 x86_ir -> X86_ir.uses x86_ir |> Set.to_list
-  | X86_terminal x86_irs ->
-    List.concat_map x86_irs ~f:(Fn.compose Set.to_list X86_ir.uses)
-    |> Var.Set.of_list
-    |> Set.to_list
+  | Arm64 arm64_ir -> Arm64_ir.uses arm64_ir
+  | Arm64_terminal arm64_irs -> List.concat_map arm64_irs ~f:Arm64_ir.uses
+  | X86 x86_ir -> X86_ir.uses x86_ir
+  | X86_terminal x86_irs -> List.concat_map x86_irs ~f:X86_ir.uses
   | Alloca a -> Lit_or_var.vars a.size
   | Add a
   | Sub a
@@ -633,52 +224,39 @@ let uses = function
   | Atomic_cmpxchg a ->
     Lit_or_var.vars a.expected @ Lit_or_var.vars a.desired @ Mem.vars a.addr
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
-  | Call { args; _ } ->
-    List.concat_map args ~f:Lit_or_var.vars |> Var.Set.of_list |> Set.to_list
+  | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
   | Unreachable | Noop -> []
 ;;
 
-let vars t =
-  Set.union (Var.Set.of_list (uses t)) (Var.Set.of_list (defs t)) |> Set.to_list
-;;
+let vars t = uses t @ defs t
 
 let x86_regs t =
   match t with
   | X86 x86 -> X86_ir.regs x86
-  | X86_terminal x86s ->
-    List.map ~f:(Fn.compose X86_ir.Reg.Set.of_list X86_ir.regs) x86s
-    |> X86_ir.Reg.Set.union_list
-    |> Set.to_list
+  | X86_terminal x86s -> List.concat_map x86s ~f:X86_ir.regs
   | _ -> []
 ;;
 
 let x86_reg_defs t =
   match t with
-  | X86 x86 -> X86_ir.reg_defs x86 |> Set.to_list
-  | X86_terminal x86s ->
-    List.map ~f:X86_ir.reg_defs x86s |> X86_ir.Reg.Set.union_list |> Set.to_list
+  | X86 x86 -> X86_ir.reg_defs x86
+  | X86_terminal x86s -> List.concat_map x86s ~f:X86_ir.reg_defs
   | _ -> []
 ;;
 
 let arm64_regs t =
   match t with
   | Arm64 arm64 -> Arm64_ir.regs arm64
-  | Arm64_terminal arm64s ->
-    List.map ~f:(Fn.compose Arm64_ir.Reg.Set.of_list Arm64_ir.regs) arm64s
-    |> Arm64_ir.Reg.Set.union_list
-    |> Set.to_list
+  | Arm64_terminal arm64s -> List.concat_map arm64s ~f:Arm64_ir.regs
   | _ -> []
 ;;
 
 let arm64_reg_defs t =
   match t with
-  | Arm64 arm64 -> Arm64_ir.reg_defs arm64 |> Set.to_list
-  | Arm64_terminal arm64s ->
-    List.map ~f:Arm64_ir.reg_defs arm64s
-    |> Arm64_ir.Reg.Set.union_list
-    |> Set.to_list
+  | Arm64 arm64 -> Arm64_ir.reg_defs arm64
+  | Arm64_terminal arm64s -> List.concat_map arm64s ~f:Arm64_ir.reg_defs
   | _ -> []
 ;;
 
@@ -758,7 +336,90 @@ let map_uses t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_uses x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_uses ~f) x86_irs)
-  | Unreachable | Noop -> t
+  | Unreachable -> Unreachable
+  | Noop -> Noop
+;;
+
+let map_vars t ~f =
+  let map_lit_or_var = Lit_or_var.map_vars ~f in
+  let map_mem = Mem.map_vars ~f in
+  let map_arith { dest; src1; src2 } =
+    { dest = f dest; src1 = map_lit_or_var src1; src2 = map_lit_or_var src2 }
+  in
+  let map_alloca { dest; size } =
+    { dest = f dest; size = map_lit_or_var size }
+  in
+  let map_load_field { dest; base; type_; indices } =
+    { dest = f dest; base = map_lit_or_var base; type_; indices }
+  in
+  let map_store_field { base; src; type_; indices } =
+    { base = map_lit_or_var base; src = map_lit_or_var src; type_; indices }
+  in
+  let map_memcpy { dest; src; type_ } =
+    { dest = map_lit_or_var dest; src = map_lit_or_var src; type_ }
+  in
+  let map_atomic_load ({ dest; addr; order } : _ atomic_load) : _ atomic_load =
+    { dest = f dest; addr = map_mem addr; order }
+  in
+  let map_atomic_store ({ addr; src; order } : _ atomic_store) : _ atomic_store =
+    { addr = map_mem addr; src = map_lit_or_var src; order }
+  in
+  let map_atomic_rmw { dest; addr; src; op; order } =
+    { dest = f dest; addr = map_mem addr; src = map_lit_or_var src; op; order }
+  in
+  let map_atomic_cmpxchg
+    { dest; success; addr; expected; desired; success_order; failure_order }
+    =
+    { dest = f dest
+    ; success = f success
+    ; addr = map_mem addr
+    ; expected = map_lit_or_var expected
+    ; desired = map_lit_or_var desired
+    ; success_order
+    ; failure_order
+    }
+  in
+  match t with
+  | Or a -> Or (map_arith a)
+  | And a -> And (map_arith a)
+  | Add a -> Add (map_arith a)
+  | Mul a -> Mul (map_arith a)
+  | Div a -> Div (map_arith a)
+  | Mod a -> Mod (map_arith a)
+  | Lt a -> Lt (map_arith a)
+  | Sub a -> Sub (map_arith a)
+  | Fadd a -> Fadd (map_arith a)
+  | Fsub a -> Fsub (map_arith a)
+  | Fmul a -> Fmul (map_arith a)
+  | Fdiv a -> Fdiv (map_arith a)
+  | Alloca a -> Alloca (map_alloca a)
+  | Store (a, b) -> Store (map_lit_or_var a, map_mem b)
+  | Load (a, b) -> Load (f a, map_mem b)
+  | Load_field a -> Load_field (map_load_field a)
+  | Store_field a -> Store_field (map_store_field a)
+  | Memcpy a -> Memcpy (map_memcpy a)
+  | Atomic_load a -> Atomic_load (map_atomic_load a)
+  | Atomic_store a -> Atomic_store (map_atomic_store a)
+  | Atomic_rmw a -> Atomic_rmw (map_atomic_rmw a)
+  | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg a)
+  | Return use -> Return (map_lit_or_var use)
+  | Move (var, b) -> Move (f var, map_lit_or_var b)
+  | Cast (var, b) -> Cast (f var, map_lit_or_var b)
+  | Call { fn; results; args } ->
+    Call
+      { fn
+      ; results = List.map results ~f
+      ; args = List.map args ~f:map_lit_or_var
+      }
+  | Branch b -> Branch (Branch.map_uses b ~f)
+  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_var_operands arm64_ir ~f)
+  | Arm64_terminal arm64_irs ->
+    Arm64_terminal (List.map arm64_irs ~f:(Arm64_ir.map_var_operands ~f))
+  | X86 x86_ir -> X86 (X86_ir.map_var_operands x86_ir ~f)
+  | X86_terminal x86_irs ->
+    X86_terminal (List.map x86_irs ~f:(X86_ir.map_var_operands ~f))
+  | Unreachable -> Unreachable
+  | Noop -> Noop
 ;;
 
 let is_terminal = function
@@ -804,34 +465,34 @@ let map_call_blocks t ~f =
   | X86 x86_ir -> X86 (X86_ir.map_call_blocks x86_ir ~f)
   | X86_terminal x86_irs ->
     X86_terminal (List.map ~f:(X86_ir.map_call_blocks ~f) x86_irs)
-  | Alloca _
-  | Unreachable
-  | Add _
-  | Mul _
-  | Div _
-  | Mod _
-  | Lt _
-  | Sub _
-  | Fadd _
-  | Fsub _
-  | Fmul _
-  | Fdiv _
-  | Move _
-  | Cast _
-  | Noop
-  | Load _
-  | Store _
-  | Load_field _
-  | Store_field _
-  | Memcpy _
-  | Atomic_load _
-  | Atomic_store _
-  | Atomic_rmw _
-  | Atomic_cmpxchg _
-  | Return _
-  | And _
-  | Or _
-  | Call _ -> t
+  | Move (a, b) -> Move (a, b)
+  | Alloca x -> Alloca x
+  | Add x -> Add x
+  | Mul x -> Mul x
+  | Div x -> Div x
+  | Mod x -> Mod x
+  | Lt x -> Lt x
+  | Sub x -> Sub x
+  | Fadd x -> Fadd x
+  | Fsub x -> Fsub x
+  | Fmul x -> Fmul x
+  | Fdiv x -> Fdiv x
+  | Cast (a, b) -> Cast (a, b)
+  | Noop -> Noop
+  | Load (a, b) -> Load (a, b)
+  | Store (a, b) -> Store (a, b)
+  | Load_field x -> Load_field x
+  | Store_field x -> Store_field x
+  | Memcpy x -> Memcpy x
+  | Atomic_load x -> Atomic_load x
+  | Atomic_store x -> Atomic_store x
+  | Atomic_rmw x -> Atomic_rmw x
+  | Atomic_cmpxchg x -> Atomic_cmpxchg x
+  | Return x -> Return x
+  | And x -> And x
+  | Or x -> Or x
+  | Call x -> Call x
+  | Unreachable -> Unreachable
 ;;
 
 let iter_call_blocks t ~f =
@@ -872,7 +533,7 @@ let iter_call_blocks t ~f =
   | Call _ -> ()
 ;;
 
-let map_blocks (t : 'a t) ~f : 'b t =
+let map_blocks (t : ('var, 'a) t) ~f : ('var, 'b) t =
   match t with
   | And a -> And a
   | Or a -> Or a
@@ -942,12 +603,7 @@ let map_lit_or_vars t ~f =
   | Return var -> Return (f var)
   | Noop -> Noop
   | Unreachable -> Unreachable
-  | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_lit_or_vars arm64_ir ~f)
-  | Arm64_terminal arm64_irs ->
-    Arm64_terminal (List.map ~f:(Arm64_ir.map_lit_or_vars ~f) arm64_irs)
-  | X86 x86_ir -> X86 (X86_ir.map_lit_or_vars x86_ir ~f)
-  | X86_terminal x86_irs ->
-    X86_terminal (List.map ~f:(X86_ir.map_lit_or_vars ~f) x86_irs)
+  | Arm64 _ | Arm64_terminal _ | X86 _ | X86_terminal _ -> t
 ;;
 
 let jump_to block' =
@@ -1009,9 +665,10 @@ let map_arm64_operands t ~f =
   | _ -> t
 ;;
 
-let uses_ex_args t =
-  Set.diff
-    (uses t |> Var.Set.of_list)
-    (List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
-     |> Var.Set.of_list)
+let uses_ex_args t ~compare_var =
+  let equal a b = compare_var a b = 0 in
+  let args =
+    List.concat_map (call_blocks t) ~f:(fun { block = _; args } -> args)
+  in
+  List.filter (uses t) ~f:(fun var -> not (List.mem args var ~equal))
 ;;

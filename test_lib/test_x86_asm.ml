@@ -25,12 +25,16 @@ let make_fn ~fn_state ~name ~args ~root =
 ;;
 
 let mk_block fn_state ~id_hum ~terminal =
-  Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+  Block.create
+    ~id_hum
+    ~terminal:
+      (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
 ;;
 
 let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
   let block = mk_block fn_state ~id_hum ~terminal in
-  List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+  List.iter instrs ~f:(fun ir ->
+    Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
   block
 ;;
 
@@ -53,8 +57,8 @@ let print_selected_mem_fences fn =
       @ [ (Block.terminal block).Instr_state.ir ])
     |> List.concat_map ~f:(fun instr ->
       match instr with
-      | Ir0.X86 x -> [ x ]
-      | Ir0.X86_terminal xs -> xs
+      | X86 x -> [ x ]
+      | X86_terminal xs -> xs
       | _ -> [])
     |> List.filter_map ~f:(function
       | X86_ir.MFENCE -> Some "mfence"
@@ -93,8 +97,8 @@ let%expect_test "super triv lowers to assembly" =
 ;;
 
 let%expect_test "atomic load/store seq_cst lower to mfence" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -122,8 +126,7 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
   in
   let selected = Map.find_exn selected_map "root" in
   print_selected_mem_fences selected;
-  [%expect
-    {|
+  [%expect {|
     store
     mfence
     mfence
@@ -132,9 +135,9 @@ let%expect_test "atomic load/store seq_cst lower to mfence" =
 ;;
 
 let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
-  let ok = Var.create ~name:"ok" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
+  let ok = Typed_var.create ~name:"ok" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -159,8 +162,7 @@ let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
   print_mnemonics_with_prefixes [ "lock cmpxchg"; "sete"; "and" ] asm;
-  [%expect
-    {|
+  [%expect {|
     lock
     sete
     and
@@ -168,8 +170,8 @@ let%expect_test "atomic cmpxchg lowers to lock cmpxchg and sete" =
 ;;
 
 let%expect_test "atomic rmw lowers to cmpxchg loop" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -182,7 +184,7 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
             { dest = old
             ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
             ; src = Ir.Lit_or_var.Lit 1L
-            ; op = Ir.Rmw_op.Add
+            ; op = Nod_ir.Ir_helpers.Rmw_op.Add
             ; order = Ir.Memory_order.Relaxed
             }
         ]
@@ -192,8 +194,7 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
     compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
   in
   print_mnemonics_with_prefixes [ "lock cmpxchg" ] asm;
-  [%expect
-    {| lock |}]
+  [%expect {| lock |}]
 ;;
 
 let%expect_test "branches lower with labels" =
@@ -347,7 +348,8 @@ root() {
   ret %z
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -404,7 +406,8 @@ root() {
   ret %y
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -446,7 +449,8 @@ root() {
   ret %x
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -490,7 +494,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8
@@ -547,7 +552,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .intel_syntax noprefix
     .data
     .balign 8

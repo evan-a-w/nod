@@ -1,6 +1,8 @@
 open! Core
-include Function0
+open! Import
+include Nod_ir.Function
 
+type 'a t' = (Typed_var.t, 'a) t [@@deriving sexp]
 type t = Block.t t'
 
 let to_sexp_verbose t =

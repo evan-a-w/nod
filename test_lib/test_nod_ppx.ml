@@ -36,22 +36,22 @@ let%expect_test "nod block from let" =
     {|
     ((%entry (args ())
       (instrs
-       (((id (Instr_id 1)) (ir (Move ((name tmp) (type_ I64)) (Lit 1))))
-        ((id (Instr_id 2)) (ir (Return (Var ((name tmp) (type_ I64))))))))))
+       (((id (Instr_id 1)) (ir (Move (Value_id 0) (Lit 1))))
+        ((id (Instr_id 2)) (ir (Return (Var (Value_id 0)))))))))
     |}]
 ;;
 
 let%expect_test "nod seq embeds instruction list" =
   let instrs =
     [%nod
-      seq [ Instr.ir Ir0.Noop; Instr.ir Ir0.Noop ];
+      seq [ Instr.ir Ir.noop; Instr.ir Ir.noop ];
       return (lit 0L)]
   in
   let root = block_of_instrs instrs in
   let instrs = Instr_state.to_ir_list (Block.instructions root) in
   let noop_count =
     List.count instrs ~f:(function
-      | Ir0.Noop -> true
+      | Noop -> true
       | _ -> false)
   in
   print_s
@@ -71,7 +71,7 @@ let%expect_test "nod fun builds args and return type" =
         return sum]
   in
   let unnamed = Dsl.Fn.unnamed fn in
-  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Var.t list)];
+  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Typed_var.t list)];
   print_s [%sexp (Dsl.Fn.Unnamed.ret unnamed : Type.t)];
   let root = block_of_instrs (Dsl.Fn.Unnamed.instrs unnamed) in
   print_s (Block.to_sexp_verbose root);
@@ -84,9 +84,9 @@ let%expect_test "nod fun builds args and return type" =
        (((id (Instr_id 1))
          (ir
           (Add
-           ((dest ((name sum) (type_ I64))) (src1 (Var ((name a) (type_ I64))))
-            (src2 (Var ((name b) (type_ I64))))))))
-        ((id (Instr_id 2)) (ir (Return (Var ((name sum) (type_ I64))))))))))
+           ((dest (Value_id 2)) (src1 (Var (Value_id 1)))
+            (src2 (Var (Value_id 0)))))))
+        ((id (Instr_id 2)) (ir (Return (Var (Value_id 2)))))))))
     |}]
 ;;
 
@@ -99,7 +99,7 @@ let%expect_test "nod calculator with labels" =
       let sum = add x y in
       let diff = sub x y in
       let prod = mul sum diff in
-      seq [ Instr.ir (Ir0.jump_to "final") ];
+      seq [ Instr.ir (Ir.jump_to "final") ];
       label skipped;
       seq [ return (lit 0L) ];
       label final;
@@ -112,34 +112,31 @@ let%expect_test "nod calculator with labels" =
     {|
     ((entry (args ())
       (instrs
-       (((id (Instr_id 3)) (ir (Move ((name x) (type_ I64)) (Lit 10))))
-        ((id (Instr_id 4)) (ir (Move ((name y) (type_ I64)) (Lit 4))))
+       (((id (Instr_id 3)) (ir (Move (Value_id 0) (Lit 10))))
+        ((id (Instr_id 4)) (ir (Move (Value_id 1) (Lit 4))))
         ((id (Instr_id 5))
          (ir
           (Add
-           ((dest ((name sum) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
-            (src2 (Var ((name y) (type_ I64))))))))
+           ((dest (Value_id 2)) (src1 (Var (Value_id 0)))
+            (src2 (Var (Value_id 1)))))))
         ((id (Instr_id 6))
          (ir
           (Sub
-           ((dest ((name diff) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
-            (src2 (Var ((name y) (type_ I64))))))))
+           ((dest (Value_id 3)) (src1 (Var (Value_id 0)))
+            (src2 (Var (Value_id 1)))))))
         ((id (Instr_id 7))
          (ir
           (Mul
-           ((dest ((name prod) (type_ I64)))
-            (src1 (Var ((name sum) (type_ I64))))
-            (src2 (Var ((name diff) (type_ I64))))))))
+           ((dest (Value_id 4)) (src1 (Var (Value_id 2)))
+            (src2 (Var (Value_id 3)))))))
         ((id (Instr_id 8))
          (ir (Branch (Uncond ((block ((id_hum final) (args ()))) (args ())))))))))
      (final (args ())
       (instrs
        (((id (Instr_id 1))
          (ir
-          (Add
-           ((dest ((name result) (type_ I64)))
-            (src1 (Var ((name prod) (type_ I64)))) (src2 (Lit 3))))))
-        ((id (Instr_id 9)) (ir (Return (Var ((name result) (type_ I64))))))))))
+          (Add ((dest (Value_id 5)) (src1 (Var (Value_id 4))) (src2 (Lit 3))))))
+        ((id (Instr_id 9)) (ir (Return (Var (Value_id 5)))))))))
     |}]
 ;;
 
@@ -164,23 +161,20 @@ let%expect_test "nod calls externals with mixed types" =
     {|
     ((%entry (args ())
       (instrs
-       (((id (Instr_id 1))
-         (ir (Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))))
+       (((id (Instr_id 1)) (ir (Alloca ((dest (Value_id 0)) (size (Lit 8))))))
         ((id (Instr_id 2))
          (ir
-          (Call (fn ext_add) (results (((name sum) (type_ I64))))
-           (args ((Lit 5) (Lit 7))))))
+          (Call (fn ext_add) (results ((Value_id 1))) (args ((Lit 5) (Lit 7))))))
         ((id (Instr_id 3))
          (ir
-          (Call (fn ext_peek) (results (((name peeked) (type_ I64))))
-           (args ((Var ((name slot) (type_ Ptr))))))))
+          (Call (fn ext_peek) (results ((Value_id 2)))
+           (args ((Var (Value_id 0)))))))
         ((id (Instr_id 4))
          (ir
           (Add
-           ((dest ((name total) (type_ I64)))
-            (src1 (Var ((name sum) (type_ I64))))
-            (src2 (Var ((name peeked) (type_ I64))))))))
-        ((id (Instr_id 5)) (ir (Return (Var ((name total) (type_ I64))))))))))
+           ((dest (Value_id 3)) (src1 (Var (Value_id 1)))
+            (src2 (Var (Value_id 2)))))))
+        ((id (Instr_id 5)) (ir (Return (Var (Value_id 3)))))))))
     |}]
 ;;
 
@@ -196,8 +190,8 @@ let%expect_test "nod no_nod preserves ocaml call" =
     {|
     ((%entry (args ())
       (instrs
-       (((id (Instr_id 1)) (ir (Move ((name tmp) (type_ I64)) (Lit 9))))
-        ((id (Instr_id 2)) (ir (Return (Var ((name tmp) (type_ I64))))))))))
+       (((id (Instr_id 1)) (ir (Move (Value_id 0) (Lit 9))))
+        ((id (Instr_id 2)) (ir (Return (Var (Value_id 0)))))))))
     |}]
 ;;
 
@@ -213,7 +207,7 @@ let%expect_test "nod bang preserves ocaml call" =
     {|
     ((%entry (args ())
       (instrs
-       (((id (Instr_id 1)) (ir (Move ((name tmp) (type_ I64)) (Lit 11))))
-        ((id (Instr_id 2)) (ir (Return (Var ((name tmp) (type_ I64))))))))))
+       (((id (Instr_id 1)) (ir (Move (Value_id 0) (Lit 11))))
+        ((id (Instr_id 2)) (ir (Return (Var (Value_id 0)))))))))
     |}]
 ;;

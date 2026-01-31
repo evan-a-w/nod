@@ -13,7 +13,7 @@ module M (A : Arch.S) = struct
   end
 
   type t =
-    { calc_liveness : (module Calc_liveness.S with type Arg.t = Var.t)
+    { calc_liveness : (module Calc_liveness.S with type Arg.t = Typed_var.t)
          [@compare.ignore]
     ; edges : Var_pair.Set.t
     }
@@ -25,12 +25,13 @@ module M (A : Arch.S) = struct
   let create
     (type a)
     (module Calc_liveness : Calc_liveness.S
-      with type Arg.t = Var.t
+      with type Arg.t = Typed_var.t
        and type Liveness_state.t = a)
     ~(liveness_state : a)
     ~root
     =
     let open Calc_liveness in
+    let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var in
     let edges = ref empty in
     let add_edge u v = edges := interfere !edges u v in
     Block.iter root ~f:(fun block ->
@@ -46,7 +47,9 @@ module M (A : Arch.S) = struct
       let zipped =
         List.zip_exn
           (Instr_state.to_ir_list (Block.instructions block)
-           @ [ (Block.terminal block).Instr_state.ir ])
+           |> List.map ~f:var_ir
+           |> fun instrs ->
+           instrs @ [ var_ir (Block.terminal block).Instr_state.ir ])
           (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
       in
       List.iter zipped ~f:(fun (ir, liveness (* , _) *)) ->
@@ -58,7 +61,7 @@ module M (A : Arch.S) = struct
 
   let print
     { calc_liveness =
-        (module Calc_liveness : Calc_liveness.S with type Arg.t = Var.t)
+        (module Calc_liveness : Calc_liveness.S with type Arg.t = Typed_var.t)
     ; edges
     }
     =
@@ -67,6 +70,6 @@ module M (A : Arch.S) = struct
       |> List.map ~f:(fun (a, b) ->
         Calc_liveness.Arg.t_of_id a, Calc_liveness.Arg.t_of_id b)
     in
-    print_s [%sexp (edges : (Var.t * Var.t) list)]
+    print_s [%sexp (edges : (Typed_var.t * Typed_var.t) list)]
   ;;
 end

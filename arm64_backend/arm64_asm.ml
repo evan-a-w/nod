@@ -8,145 +8,149 @@ type symbol =
   }
 [@@deriving sexp, equal]
 
+type operand = unit Arm64_ir.operand [@@deriving sexp, equal]
+type reg = unit Arm64_reg.t [@@deriving sexp, equal]
+type jump_target = unit Arm64_ir.Jump_target.t [@@deriving sexp, equal]
+
 type instr =
   | Mov of
-      { dst : Reg.t
-      ; src : Arm64_ir.operand
+      { dst : reg
+      ; src : operand
       }
   | Ldr of
-      { dst : Reg.t
-      ; addr : Arm64_ir.operand
+      { dst : reg
+      ; addr : operand
       }
   | Str of
-      { src : Arm64_ir.operand
-      ; addr : Arm64_ir.operand
+      { src : operand
+      ; addr : operand
       }
   | Dmb
   | Ldar of
-      { dst : Reg.t
-      ; addr : Arm64_ir.operand
+      { dst : reg
+      ; addr : operand
       }
   | Stlr of
-      { src : Arm64_ir.operand
-      ; addr : Arm64_ir.operand
+      { src : operand
+      ; addr : operand
       }
   | Ldaxr of
-      { dst : Reg.t
-      ; addr : Arm64_ir.operand
+      { dst : reg
+      ; addr : operand
       }
   | Stlxr of
-      { status : Reg.t
-      ; src : Arm64_ir.operand
-      ; addr : Arm64_ir.operand
+      { status : reg
+      ; src : operand
+      ; addr : operand
       }
   | Casal of
-      { expected : Reg.t
-      ; desired : Reg.t
-      ; addr : Arm64_ir.operand
+      { expected : reg
+      ; desired : reg
+      ; addr : operand
       }
   | Add of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Sub of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Mul of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Sdiv of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Msub of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
-      ; acc : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
+      ; acc : reg
       }
   | And of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Orr of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Eor of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Lsl of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Lsr of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Asr of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Fadd of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Fsub of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Fmul of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Fdiv of
-      { dst : Reg.t
-      ; lhs : Reg.t
-      ; rhs : Reg.t
+      { dst : reg
+      ; lhs : reg
+      ; rhs : reg
       }
   | Scvtf of
-      { dst : Reg.t
-      ; src : Reg.t
+      { dst : reg
+      ; src : reg
       }
   | Fcvtzs of
-      { dst : Reg.t
-      ; src : Reg.t
+      { dst : reg
+      ; src : reg
       }
   | Fmov of
-      { dst : Reg.t
-      ; src : Arm64_ir.operand
+      { dst : reg
+      ; src : operand
       }
   | Cmp of
-      { lhs : Arm64_ir.operand
-      ; rhs : Arm64_ir.operand
+      { lhs : operand
+      ; rhs : operand
       }
   | Fcmp of
-      { lhs : Arm64_ir.operand
-      ; rhs : Arm64_ir.operand
+      { lhs : operand
+      ; rhs : operand
       }
   | Cset of
       { condition : Arm64_ir.Condition.t
-      ; dst : Reg.t
+      ; dst : reg
       }
   | Adr of
-      { dst : Reg.t
-      ; target : Arm64_ir.Jump_target.t
+      { dst : reg
+      ; target : jump_target
       }
   | B of string
   | Bcond of

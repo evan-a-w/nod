@@ -47,11 +47,11 @@ let order_blocks root =
        | false ->
          Hash_set.add seen block;
          try_push block;
-        Vec.iter (Block.children block) ~f:(fun child ->
-          if Vec.length (Block.parents child) = 1
-             && not (Hashtbl.mem idx_by_block child)
-          then try_push child);
-        Vec.iter (Block.children block) ~f:(Queue.enqueue q);
+         Vec.iter (Block.children block) ~f:(fun child ->
+           if Vec.length (Block.parents child) = 1
+              && not (Hashtbl.mem idx_by_block child)
+           then try_push child);
+         Vec.iter (Block.children block) ~f:(Queue.enqueue q);
          go ())
   in
   go ();
@@ -102,7 +102,9 @@ type lower_action =
   | Set_pending of (Int64.t * Int64.t) option
   | Emit_label of string
   | Branch of
-      [ `Je | `Jne ] * Block.t Call_block.t * Block.t Call_block.t option
+      [ `Je | `Jne ]
+      * (unit, Block.t) Call_block.t
+      * (unit, Block.t) Call_block.t option
   | Emit of Asm.instr list
 
 let lower_to_items ~system (functions : Function.t String.Map.t) =
@@ -164,7 +166,8 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         label_of_block call_block.Call_block.block
       in
       let lower_move' ~dst ~src make_instr =
-        if (not (is_valid_move_dest dst)) || [%equal: operand] dst src
+        if (not (is_valid_move_dest dst))
+           || [%equal: unit X86_ir.operand] dst src
         then []
         else (
           match dst, src with
@@ -181,6 +184,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         | _ -> [ Asm.Sub (dst, src) ]
       in
       let lower_instruction ~current_idx instr =
+        let instr = X86_ir.map_var_operands instr ~f:(fun _ -> ()) in
         let instr = X86_ir.map_operands instr ~f:map_operand in
         let instr = unwrap_tags instr in
         match instr with
@@ -359,14 +363,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         let instructions = Instr_state.to_ir_list (Block.instructions block) in
         List.iter instructions ~f:(fun ir ->
           match ir with
-          | Ir0.X86 x -> process_instruction ~current_idx:idx x
-          | Ir0.X86_terminal xs ->
+          | Nod_ir.Ir.X86 x -> process_instruction ~current_idx:idx x
+          | Nod_ir.Ir.X86_terminal xs ->
             List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
         match (Block.terminal block).Instr_state.ir with
-        | Ir0.X86_terminal xs ->
+        | Nod_ir.Ir.X86_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
-        | Ir0.X86 x -> process_instruction ~current_idx:idx x
+        | Nod_ir.Ir.X86 x -> process_instruction ~current_idx:idx x
         | _ -> ());
       { Asm.name; asm_label = fn_label; items = List.rev !items_rev })
 ;;

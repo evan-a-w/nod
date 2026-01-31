@@ -3,31 +3,30 @@ open! Core
 open! Import
 
 type raw_block =
-  instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t
+  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Vec.t String.Map.t
+  * labels:string Vec.t
 
-type input = (raw_block Program.t, Nod_error.t) Result.t
+type input = (raw_block Program.t', Nod_error.t) Result.t
 
 module Opt_flags = Eir_opt.Opt_flags
-
-let map_program_roots ~f program = Program.map_function_roots program ~f
 
 let map_program_roots_with_state program ~state ~f =
   { program with
     Program.functions =
       Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-        Function0.map_root fn ~f:(f ~fn_state:(State.fn_state state name)))
+        Function.map_root fn ~f:(f ~fn_state:(State.fn_state state name)))
   }
 ;;
 
 let set_entry_block_args program ~state =
-  Map.iteri
-    program.Program.functions
-    ~f:(fun ~key:name ~data:{ Function.root = root_data; args; _ } ->
-      let ~root:block, ~blocks:_, ~in_order:_ = root_data in
-      Fn_state.set_block_args
-        (State.fn_state state name)
-        ~block
-        ~args:(Vec.of_list args));
+  Map.iteri program.Program.functions ~f:(fun ~key:name ~data:fn ->
+    let root_data = Function.root fn in
+    let args = Function.args fn in
+    let ~root:block, ~blocks:_, ~in_order:_ = root_data in
+    Fn_state.set_block_args
+      (State.fn_state state name)
+      ~block
+      ~args:(Vec.of_list args));
   program
 ;;
 
@@ -39,9 +38,9 @@ let type_check_block block =
       ~init:(Ok ())
       ~f:(fun acc instr ->
         let%bind () = acc in
-        Ir.check_types instr.Instr_state.ir)
+        Ir.check_types (Fn_state.var_ir instr.Instr_state.ir))
   in
-  Ir.check_types (Block.terminal block).Instr_state.ir
+  Ir.check_types (Fn_state.var_ir (Block.terminal block).Instr_state.ir)
 ;;
 
 let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
@@ -67,7 +66,7 @@ let type_check_program program =
     ~f:(fun ~key:_ ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
-      type_check_cfg fn.Function.root)
+      type_check_cfg (Function.root fn))
 ;;
 
 let lower_aggregate_program program ~state =
@@ -77,13 +76,18 @@ let lower_aggregate_program program ~state =
     ~f:(fun ~key:name ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
-      let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
+      let ~root:block, ~blocks:_, ~in_order:_ = Function.root fn in
       Ir.lower_aggregates ~fn_state:(State.fn_state state name) ~root:block)
   |> Result.map ~f:(fun () -> program)
 ;;
 
-let optimize_root ?opt_flags ssa = Eir_opt.optimize_root ?opt_flags ssa
-let optimize ?opt_flags program = Eir_opt.optimize ?opt_flags program
+let optimize_root ?opt_flags ~fn_state root =
+  Eir_opt.optimize_root ?opt_flags ~fn_state root
+;;
+
+let optimize ?opt_flags ~state program =
+  Eir_opt.optimize ?opt_flags ~state program
+;;
 
 let compile ?opt_flags (input : input) =
   let state = State.create () in
@@ -93,10 +97,10 @@ let compile ?opt_flags (input : input) =
     |> Result.bind ~f:(fun program ->
       type_check_program program |> Result.map ~f:(fun () -> program))
     |> Result.bind ~f:(lower_aggregate_program ~state)
-    |> Result.map ~f:(map_program_roots_with_state ~state ~f:Ssa.create)
+    |> Result.map ~f:(fun program -> convert_program program ~state)
   with
   | Error _ as e -> e
   | Ok program ->
-    optimize ?opt_flags program;
-    Ok (map_program_roots ~f:Ssa.root program)
+    let program = optimize ?opt_flags ~state program in
+    Ok program
 ;;

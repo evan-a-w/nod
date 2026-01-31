@@ -1,5 +1,4 @@
 module Frontend_state = State
-
 open! Core
 open! Import
 open Frontend_state.Result

@@ -1,6 +1,10 @@
 open! Core
 open! Import
 open! Common
+module Ir_helpers = Nod_ir.Ir_helpers
+
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
 open Arm64_ir
 module Reg = Arm64_reg
 module Class = Arm64_reg.Class
@@ -8,7 +12,7 @@ module Class = Arm64_reg.Class
 type t =
   { block_names : int String.Table.t
   ; var_names : int String.Table.t
-  ; var_classes : Class.t Var.Table.t
+  ; var_classes : Class.t Typed_var.Table.t
   ; fn_state : Fn_state.t
   ; fn : Function.t
   }
@@ -22,7 +26,7 @@ let require_class t var class_ =
     then
       failwithf
         "register class mismatch for %s: saw %s and %s"
-        (Var.name var)
+        (Typed_var.name var)
         (Sexp.to_string_hum (Class.sexp_of_t existing))
         (Sexp.to_string_hum (Class.sexp_of_t class_))
         ()
@@ -34,7 +38,7 @@ let class_of_var t var =
   match Hashtbl.find t.var_classes var with
   | Some class_ -> class_
   | None ->
-    let class_ = class_of_type (Var.type_ var) in
+    let class_ = class_of_type (Typed_var.type_ var) in
     Hashtbl.set t.var_classes ~key:var ~data:class_;
     class_
 ;;
@@ -53,13 +57,13 @@ let class_of_lit_or_var t = function
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
-  Var.create ~name:(Util.new_name t.var_names base) ~type_
+  Typed_var.create ~name:(Util.new_name t.var_names base) ~type_
 ;;
 
 let fresh_like_var t var =
-  Var.create
-    ~name:(Util.new_name t.var_names (Var.name var))
-    ~type_:(Var.type_ var)
+  Typed_var.create
+    ~name:(Util.new_name t.var_names (Typed_var.name var))
+    ~type_:(Typed_var.type_ var)
 ;;
 
 let lower_aggregates_exn ~fn_state (fn : Function.t) =
@@ -68,7 +72,7 @@ let lower_aggregates_exn ~fn_state (fn : Function.t) =
   | Error err -> failwith (Nod_error.to_string err)
 ;;
 
-let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
+let operand_of_lit_or_var t ~class_ (lit_or_var : Typed_var.t Ir.Lit_or_var.t) =
   match lit_or_var with
   | Ir.Lit_or_var.Lit l -> [], Imm l
   | Ir.Lit_or_var.Var v ->
@@ -79,7 +83,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
     then failwith "global addresses are only supported in integer contexts";
     let tmp = fresh_var t "global_addr" in
     let reg = Reg.unallocated ~class_:Class.I64 tmp in
-    [ Adr { dst = reg; target = Jump_target.Label g.Global.name } ], Reg reg
+    [ Adr { dst = reg; target = Jump_target.Label g.name } ], Reg reg
 ;;
 
 let rec mem_operand t mem =
@@ -120,7 +124,10 @@ let expand_atomic_rmw t =
     in
     loop 0
   in
-  let rmw_loop_instrs ({ dest; addr; src; op; order = _ } : Ir.atomic_rmw) =
+  let rmw_loop_instrs
+    ({ dest; addr; src; op; order = _ } :
+      Typed_var.t Nod_ir.Ir_helpers.atomic_rmw)
+    =
     require_class t dest Class.I64;
     let pre_addr, addr_op = mem_operand t addr in
     let pre_src, src_op = operand_of_lit_or_var t ~class_:Class.I64 src in
@@ -131,7 +138,8 @@ let expand_atomic_rmw t =
     let new_reg = reg_of_var t new_val in
     let compute =
       match op with
-      | Ir.Rmw_op.Xchg -> [ Move { dst = new_reg; src = src_op } ]
+      | Nod_ir.Ir_helpers.Rmw_op.Xchg ->
+        [ Move { dst = new_reg; src = src_op } ]
       | Add ->
         [ Int_binary
             { op = Int_op.Add; dst = new_reg; lhs = Reg dst; rhs = src_op }
@@ -186,13 +194,22 @@ let expand_atomic_rmw t =
           ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:Noop)
       in
       Block.set_dfs_id loop_block (Some 0);
+      let atomic =
+        { atomic with
+          dest = Value_state.var atomic.dest
+        ; addr = Nod_ir.Mem.map_vars atomic.addr ~f:Value_state.var
+        ; src = Nod_ir.Lit_or_var.map_vars atomic.src ~f:Value_state.var
+        }
+      in
       let loop_instrs, status_var = rmw_loop_instrs atomic in
-      Fn_state.replace_irs
-        t.fn_state
-        ~block:loop_block
-        ~irs:(List.map loop_instrs ~f:Ir0.arm64);
+      let loop_instrs =
+        List.map loop_instrs ~f:(fun ir ->
+          Fn_state.value_ir t.fn_state (Ir.arm64 ir))
+      in
+      Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
+      let status_var = Fn_state.ensure_value t.fn_state ~var:status_var in
       Fn_state.replace_terminal_ir
         t.fn_state
         ~block:loop_block
@@ -205,12 +222,13 @@ let expand_atomic_rmw t =
                 }));
       let before =
         match atomic.order with
-        | Ir.Memory_order.Seq_cst -> before @ [ Ir0.arm64 Dmb ]
+        | Ir.Memory_order.Seq_cst ->
+          before @ [ Fn_state.value_ir t.fn_state (Ir.arm64 Dmb) ]
         | _ -> before
       in
       let after =
         match atomic.order with
-        | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
+        | Ir.Memory_order.Seq_cst -> Ir.arm64 Dmb :: after
         | _ -> after
       in
       Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
@@ -231,13 +249,19 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let int_operand = operand_of_lit_or_var t ~class_:Class.I64 in
   let float_operand = operand_of_lit_or_var t ~class_:Class.F64 in
-  let make_int_arith op ({ dest; src1; src2 } : Ir.arith) =
+  let make_int_arith
+    op
+    ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
+    =
     require_class t dest Class.I64;
     let pre1, lhs = int_operand src1 in
     let pre2, rhs = int_operand src2 in
     pre1 @ pre2 @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
-  let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
+  let make_float_arith
+    op
+    ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
+    =
     require_class t dest Class.F64;
     let pre1, lhs = float_operand src1 in
     let pre2, rhs = float_operand src2 in
@@ -260,7 +284,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   in
   match ir with
   | Arm64 x -> [ x ]
-  | Ir0.Arm64_terminal xs -> xs
+  | Nod_ir.Ir.Arm64_terminal xs -> xs
   | X86 _ | X86_terminal _ -> []
   | Noop | Unreachable -> []
   | Load_field _ | Store_field _ | Memcpy _ ->
@@ -293,17 +317,19 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let pre, op = operand_of_lit_or_var t ~class_ lit_or_var in
     pre @ [ Ret [ op ] ]
   | Move (v, lit_or_var) ->
-    let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
+    let class_ =
+      if Type.is_float (Typed_var.type_ v) then Class.F64 else Class.I64
+    in
     require_class t v class_;
     let pre, src = operand_of_lit_or_var t ~class_ lit_or_var in
     pre @ [ Move { dst = reg_of_var t v; src } ]
   | Cast (dest, src) ->
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     let src_type =
       match src with
-      | Ir.Lit_or_var.Var v -> Var.type_ v
+      | Ir.Lit_or_var.Var v -> Typed_var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64
-      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.Global.type_
+      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.type_
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
@@ -508,7 +534,7 @@ let get_fn = fn
 let create ~fn_state fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
-  ; var_classes = Var.Table.create ()
+  ; var_classes = Typed_var.Table.create ()
   ; fn_state
   ; fn
   }
@@ -523,7 +549,7 @@ let add_count tbl s =
 let mint_intermediate
   t
   ~(from_block : Block.t)
-  ~(to_call_block : Block.t Call_block.t)
+  ~(to_call_block : (Typed_var.t, Block.t) Call_block.t)
   =
   let id_hum =
     "intermediate_"
@@ -536,7 +562,12 @@ let mint_intermediate
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr t.fn_state ~ir:(Ir0.Arm64 (jump to_call_block)))
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:
+             (Fn_state.value_ir
+                t.fn_state
+                (Nod_ir.Ir.Arm64 (jump to_call_block))))
   in
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
@@ -579,7 +610,10 @@ let make_prologue t =
       ~terminal:
         (Fn_state.alloc_instr
            t.fn_state
-           ~ir:(Ir0.Arm64 (Jump { block = t.fn.root; args })))
+           ~ir:
+             (Fn_state.value_ir
+                t.fn_state
+                (Nod_ir.Ir.Arm64 (Jump { block = t.fn.root; args }))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -587,7 +621,10 @@ let make_prologue t =
   Fn_state.replace_irs
     t.fn_state
     ~block
-    ~irs:(List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ]));
+    ~irs:
+      (List.map
+         (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
+         ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.arm64 ir)));
   block
 ;;
 
@@ -625,7 +662,10 @@ let make_epilogue t ~ret_shape =
   let block =
     Block.create
       ~id_hum
-      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(Ir0.Arm64 (Ret args')))
+      ~terminal:
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:(Fn_state.value_ir t.fn_state (Nod_ir.Ir.Arm64 (Ret args'))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -633,7 +673,9 @@ let make_epilogue t ~ret_shape =
   Fn_state.replace_irs
     t.fn_state
     ~block
-    ~irs:(List.map ~f:Ir.arm64 reg_res_moves);
+    ~irs:
+      (List.map reg_res_moves ~f:(fun ir ->
+         Fn_state.value_ir t.fn_state (Ir.arm64 ir)));
   block
 ;;
 
@@ -653,7 +695,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | None, Some _ -> r := this
     in
     Block.iter_instructions t.fn.root ~f:(fun instr ->
-      on_arch_irs instr.Instr_state.ir ~f:update);
+      on_arch_irs (var_ir instr.Instr_state.ir) ~f:update);
     !r
   in
   let prologue = make_prologue t in
@@ -665,7 +707,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     let map_ir ir =
       (match ir with
-       | Ir0.Arm64 (Alloca (_, i)) ->
+       | Nod_ir.Ir.Arm64 (Alloca (_, i)) ->
          t.fn.bytes_statically_alloca'd
          <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
        | _ -> ());
@@ -689,7 +731,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
             | Reg reg ->
-              (match var_of_reg reg with
+              (match Arm64_ir.var_of_reg reg with
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
@@ -697,14 +739,21 @@ let split_blocks_and_add_prologue_and_epilogue t =
                    t.fn_state
                    ~block
                    ~ir:
-                     (Ir0.Arm64 (Move { dst = reg_of_var t v; src = operand }));
+                     (Fn_state.value_ir
+                        t.fn_state
+                        (Nod_ir.Ir.Arm64
+                           (Move { dst = reg_of_var t v; src = operand })));
                  v)
             | other ->
               let v = fresh_like_var t arg in
               Fn_state.append_ir
                 t.fn_state
                 ~block
-                ~ir:(Ir0.Arm64 (Move { dst = reg_of_var t v; src = other }));
+                ~ir:
+                  (Fn_state.value_ir
+                     t.fn_state
+                     (Nod_ir.Ir.Arm64
+                        (Move { dst = reg_of_var t v; src = other })));
               v)
         in
         Jump { Call_block.block = epilogue; args }
@@ -758,20 +807,21 @@ let split_blocks_and_add_prologue_and_epilogue t =
 ;;
 
 let par_moves t ~dst_to_src =
+  let module Map = Core.Map.Poly in
   (* Convert vars to regs once and reuse the same reg objects throughout *)
   let dst_src_regs =
     List.map dst_to_src ~f:(fun (dst, src) ->
       reg_of_var t dst, reg_of_var t src)
   in
-  let pending = Reg.Map.of_alist_exn dst_src_regs |> Ref.create in
+  let pending = Map.of_alist_exn dst_src_regs |> Ref.create in
   let temp class_ =
     Reg.unallocated
       ~class_
       (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
   let emitted = Vec.create () in
-  let emit (dst : Reg.t) src =
-    if Reg.equal dst src
+  let emit dst src =
+    if Reg.equal Poly.equal dst src
     then ()
     else Vec.push emitted (Ir.arm64 (Move { dst; src = Reg src }))
   in
@@ -799,7 +849,7 @@ let par_moves t ~dst_to_src =
         pending := Map.remove !pending dst;
         pending
         := Map.map !pending ~f:(fun src' ->
-             if Reg.equal src' dst then tmp else src'));
+             if Reg.equal Poly.equal src' dst then tmp else src'));
       go ())
   in
   go ();
@@ -822,7 +872,10 @@ let insert_par_moves t =
            Fn_state.append_irs
              t.fn_state
              ~block
-             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
+             ~irs:
+               (par_moves t ~dst_to_src
+                |> Vec.to_list
+                |> List.map ~f:(Fn_state.value_ir t.fn_state))
          | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
          | Tag_use _
@@ -857,7 +910,10 @@ let remove_call_block_args t =
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
-      ~with_:(Ir.remove_block_args (Block.terminal block).Instr_state.ir)
+      ~with_:
+        (Nod_ir.Ir.map_call_blocks
+           (Block.terminal block).Instr_state.ir
+           ~f:(fun cb -> { cb with args = [] }))
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -867,21 +923,26 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
     let res = ir_to_arm64_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
       List.iter (Arm64_ir.vars ir) ~f:(fun var ->
-        add_count t.var_names (Var.name var)));
+        add_count t.var_names (Typed_var.name var)));
     res
   in
   Block.iter t.fn.root ~f:(fun block ->
     add_count t.block_names (Block.id_hum block);
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
-      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.arm64)
+      |> List.concat_map ~f:(fun ir ->
+        lower_ir (var_ir ir)
+        |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.arm64 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
       ~with_:
-        (Ir.arm64_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
+        (Fn_state.value_ir
+           t.fn_state
+           (Ir.arm64_terminal
+              (lower_ir (var_ir (Block.terminal block).Instr_state.ir)))));
   t
 ;;
 

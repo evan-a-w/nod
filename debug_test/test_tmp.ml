@@ -7,7 +7,7 @@ let map_function_roots_with_state program ~state ~f =
   { program with
     Program.functions =
       Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-        Function0.map_root
+        Function.map_root
           fn
           ~f:(f ~fn_state:(Nod_core.State.fn_state state name)))
   }
@@ -24,11 +24,15 @@ let test_cfg s =
   | Ok program ->
     Map.iter
       program.Program.functions
-      ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+      ~f:
+        (fun
+          { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
-            @ [ (Block.terminal block).Instr_state.ir ]
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
           in
           print_s [%message (Block.id_hum block) (instrs : Ir.t list)]))
 ;;
@@ -41,32 +45,31 @@ let test_ssa ?don't_opt s =
   |> Result.map ~f:(fun program ->
     map_function_roots_with_state program ~state ~f:Cfg.process)
   |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program ->
-    map_function_roots_with_state program ~state ~f:Ssa.create)
+  |> Result.map ~f:(fun program -> Ssa.convert_program program ~state)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
     let go program =
-      Map.iter
-        program.Program.functions
-        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
-          Vec.iter ssa.in_order ~f:(fun block ->
-            let instrs =
-              Instr_state.to_ir_list (Block.instructions block)
-              @ [ (Block.terminal block).Instr_state.ir ]
-            in
-            print_s
-              [%message
-                (Block.id_hum block)
-                  ~args:(Block.args block : Var.t Vec.read)
-                  (instrs : Ir.t list)]))
+      Map.iter program.Program.functions ~f:(fun fn ->
+        Block.iter (Function.root fn) ~f:(fun block ->
+          let instrs =
+            Instr_state.to_ir_list (Block.instructions block)
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
+          in
+          print_s
+            [%message
+              (Block.id_hum block)
+                ~args:(Block.args block : Typed_var.t Vec.read)
+                (instrs : Ir.t list)]))
     in
     go program;
     (match don't_opt with
      | Some () -> ()
      | None ->
        print_endline "******************************";
-       Eir.optimize program;
+       ignore (Eir.optimize ~state program);
        go program)
 ;;
 
@@ -121,18 +124,24 @@ let%expect_test "temp alloca passed to child; child loads value" =
     Function.create ~name ~args ~root
   in
   let mk_block fn_state ~id_hum ~terminal =
-    Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr
+           fn_state
+           ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in
-    List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+    List.iter instrs ~f:(fun ir ->
+      Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
     block
   in
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
     let child_state = Fn_state.create () in
     let root_state = Fn_state.create () in
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
     let child_root =
       mk_block_with_instrs
         child_state
@@ -143,8 +152,8 @@ let%expect_test "temp alloca passed to child; child loads value" =
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
     in
-    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+    let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
     let root_root =
       mk_block_with_instrs
         root_state
@@ -281,17 +290,23 @@ let%expect_test "print helper" =
     Function.create ~name ~args ~root
   in
   let mk_block fn_state ~id_hum ~terminal =
-    Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr
+           fn_state
+           ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in
-    List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+    List.iter instrs ~f:(fun ir ->
+      Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
     block
   in
   let child_state = Fn_state.create () in
   let root_state = Fn_state.create () in
-  let p = Var.create ~name:"p" ~type_:Type.Ptr in
-  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+  let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
   let child_root =
     mk_block_with_instrs
       child_state
@@ -302,8 +317,8 @@ let%expect_test "print helper" =
   let child =
     make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
   in
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let res = Var.create ~name:"res" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
   let root_root =
     mk_block_with_instrs
       root_state
@@ -331,9 +346,9 @@ let%expect_test "print helper" =
           (instrs
            (((id (Instr_id 1))
              (ir
-              (Load ((name loaded) (type_ I64))
-               (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))))
-            ((id (Instr_id 0)) (ir (Return (Var ((name loaded) (type_ I64)))))))))))
+              (Load (Value_id 0)
+               (Address ((base (Var (Value_id 1))) (offset 0))))))
+            ((id (Instr_id 0)) (ir (Return (Var (Value_id 0))))))))))
        (args (((name p) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0)))
@@ -343,16 +358,15 @@ let%expect_test "print helper" =
         ((%root (args ())
           (instrs
            (((id (Instr_id 1))
-             (ir (Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))))
+             (ir (Alloca ((dest (Value_id 1)) (size (Lit 8))))))
             ((id (Instr_id 2))
              (ir
-              (Store (Lit 41)
-               (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))))
+              (Store (Lit 41) (Address ((base (Var (Value_id 1))) (offset 0))))))
             ((id (Instr_id 3))
              (ir
-              (Call (fn child) (results (((name res) (type_ I64))))
-               (args ((Var ((name slot) (type_ Ptr))))))))
-            ((id (Instr_id 0)) (ir (Return (Var ((name res) (type_ I64)))))))))))
+              (Call (fn child) (results ((Value_id 0)))
+               (args ((Var (Value_id 1)))))))
+            ((id (Instr_id 0)) (ir (Return (Var (Value_id 0))))))))))
        (args ()) (name root) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0))))

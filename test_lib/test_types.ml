@@ -9,19 +9,23 @@ let test s =
     { program with
       Program.functions =
         Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-          Function0.map_root
+          Function.map_root
             fn
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
   |> Result.bind ~f:(fun program ->
     Map.fold program.Program.functions ~init:(Ok ()) ~f:(fun ~key:_ ~data acc ->
       let%bind.Result () = acc in
-      let { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } = data in
+      let { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } =
+        data
+      in
       Vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
         let%bind.Result () = acc in
         List.fold
           (Instr_state.to_ir_list (Block.instructions block)
-           @ [ (Block.terminal block).Instr_state.ir ])
+           |> List.map ~f:Fn_state.var_ir
+           |> fun instrs ->
+           instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ])
           ~init:(Ok ())
           ~f:(fun acc instr ->
             let%bind.Result () = acc in
@@ -248,8 +252,7 @@ let%expect_test "memcpy expands to loads and stores" =
 ;;
 
 let%expect_test "alloca sizeof tuple" =
-  test
-    {|
+  test {|
     alloca %buf:ptr, sizeof[(i64, f64)]
     return %buf
   |};

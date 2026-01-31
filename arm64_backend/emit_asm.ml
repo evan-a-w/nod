@@ -82,8 +82,9 @@ let rec string_of_raw = function
   | Raw.D29 -> "d29"
   | Raw.D30 -> "d30"
   | Raw.D31 -> "d31"
-  | Raw.Unallocated v | Raw.Allocated (v, None) ->
-    sanitize_identifier (Var.name v)
+  | Raw.Unallocated (_ : unit) -> failwith "unallocated register in asm output"
+  | Raw.Allocated ((_ : unit), None) ->
+    failwith "unallocated register in asm output"
   | Raw.Allocated (_, Some reg) -> string_of_raw reg
 ;;
 

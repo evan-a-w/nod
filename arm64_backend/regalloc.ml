@@ -11,15 +11,16 @@ let note_var_class table var class_ =
     Error.raise_s
       [%message
         "register class mismatch"
-          (var : Var.t)
+          (var : Typed_var.t)
           (existing : Reg.Class.t)
           (class_ : Reg.Class.t)]
 ;;
 
 let collect_var_classes root =
-  let classes = Var.Table.create () in
+  let classes = Typed_var.Table.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.arm64_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Unallocated var | Raw.Allocated (var, _) ->
@@ -36,16 +37,17 @@ let update_assignment ~assignments ~var ~to_ =
       Error.raise_s
         [%message
           "Want to assign phys reg but already found"
-            (var : Var.t)
+            (var : Typed_var.t)
             (from : Assignment.t)
             (to_ : Assignment.t)])
 ;;
 
 let initialize_assignments root =
-  let assignments = Var.Table.create () in
-  let don't_spill = Var.Hash_set.create () in
+  let assignments = Typed_var.Table.create () in
+  let don't_spill = Typed_var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.arm64_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Allocated (_, Some (Raw.Allocated _))
@@ -83,7 +85,7 @@ let run_sat
   (*       var.var, Reg_numbering.var_id reg_numbering var.var) *)
   (*   in *)
   (*   print_s *)
-  (*     [%message (sat_vars_per_var_id : int) (var_to_id : (Var.t * int) list)]); *)
+  (*     [%message (sat_vars_per_var_id : int) (var_to_id : (Typed_var.t * int) list)]); *)
   let var_ids_list = List.map var_states ~f:Reg_numbering.id in
   let var_ids = Array.of_list var_ids_list in
   if Array.is_empty var_ids
@@ -166,14 +168,15 @@ let run_sat
           [%message
             "LOOP"
               (assumptions
-               : (Var.t * [ `Spill | `Assignment of Reg.t ] * int * bool) array)
+               : (Typed_var.t * [ `Spill | `Assignment of Reg.t ] * int * bool)
+                   array)
               (raw : int array)]);
       match Feel.Solver.solve solver ~assumptions, !to_spill with
       | Unsat { unsat_core }, [] ->
         Error.raise_s
           [%message
             "Can't assign, but nothing to spill"
-              (assignments : Assignment.t Var.Table.t)
+              (assignments : Assignment.t Typed_var.Table.t)
               (Feel.Clause.to_int_array unsat_core : int array)]
       | Unsat _, ({ var = key; _ } : Reg_numbering.var_state) :: rest_to_spill
         ->
@@ -197,7 +200,8 @@ let run_sat
           in
           print_s
             [%message
-              (res : (Var.t * [ `Spill | `Assignment of Reg.t ] * int) list)
+              (res
+               : (Typed_var.t * [ `Spill | `Assignment of Reg.t ] * int) list)
                 (raw : int list)]);
         List.iter res ~f:(fun sat_var ->
           let var_id, x = backout_sat_var sat_var in
@@ -215,14 +219,14 @@ let replace_regs
   (module Calc_liveness : Calc_liveness.S with type Liveness_state.t = a)
   ~fn_state
   ~(liveness_state : a)
-  ~fn
+  ~(fn : Function.t)
   ~assignments
   ~reg_numbering
   ~class_of_var
   =
   let open Calc_liveness in
-  let root = fn.Function.root in
-  let spill_slot_by_var = Var.Table.create () in
+  let root = fn.root in
+  let spill_slot_by_var = Typed_var.Table.create () in
   let free_spill_slots = ref Int.Set.empty in
   let used_spill_slots = ref Int.Set.empty in
   let get_spill_slot () =
@@ -285,8 +289,9 @@ let replace_regs
     s := Set.add !s reg
   in
   let map_ir ir =
-    let on_ir (ir : 'a Arm64_ir.t) : 'a Arm64_ir.t list =
-      let scratch_mapping = Var.Table.create () in
+    let ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var in
+    let on_ir (ir : ('a, 'b) Arm64_ir.t) : ('a, 'b) Arm64_ir.t list =
+      let scratch_mapping = Typed_var.Table.create () in
       let map var =
         let class_ = class_of_var var in
         match Hashtbl.find scratch_mapping var with
@@ -298,23 +303,23 @@ let replace_regs
       in
       let pre_moves = ref [] in
       let post_moves = ref [] in
-      let loaded = Reg.Hash_set.create () in
-      let saved = Reg.Hash_set.create () in
+      let loaded = ref Reg.Set.empty in
+      let saved = ref Reg.Set.empty in
       let load_reg var spill_slot =
         let reg = map var in
-        if Hash_set.mem loaded reg
+        if Set.mem !loaded reg
         then ()
         else (
-          Hash_set.add loaded reg;
+          loaded := Set.add !loaded reg;
           pre_moves := load ~dst:reg ~addr:(Spill_slot spill_slot) :: !pre_moves);
         reg
       in
       let save_reg var spill_slot =
         let reg = map var in
-        if Hash_set.mem saved reg
+        if Set.mem !saved reg
         then ()
         else (
-          Hash_set.add saved reg;
+          saved := Set.add !saved reg;
           post_moves
           := store ~src:(Reg reg) ~addr:(Spill_slot spill_slot) :: !post_moves);
         reg
@@ -346,12 +351,15 @@ let replace_regs
         release_scratch ~class_:(class_of_var var) reg);
       !pre_moves @ [ ir ] @ !post_moves
     in
-    match ir with
-    | Ir0.Arm64 arm64_ir ->
-      List.map (on_ir arm64_ir) ~f:(fun ir -> Ir0.Arm64 ir)
-    | Arm64_terminal arm64_irs ->
-      [ Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
-    | _ -> [ ir ]
+    let mapped =
+      match ir with
+      | Nod_ir.Ir.Arm64 arm64_ir ->
+        List.map (on_ir arm64_ir) ~f:(fun ir -> Nod_ir.Ir.Arm64 ir)
+      | Nod_ir.Ir.Arm64_terminal arm64_irs ->
+        [ Nod_ir.Ir.Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
+      | _ -> [ ir ]
+    in
+    List.map mapped ~f:(Fn_state.value_ir fn_state)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in
@@ -370,7 +378,11 @@ let replace_regs
       let new_instrs =
         List.map irs ~f:(fun ir -> Fn_state.alloc_instr fn_state ~ir)
       in
-      Fn_state.replace_instr fn_state ~block ~instr:instruction ~with_instrs:new_instrs);
+      Fn_state.replace_instr
+        fn_state
+        ~block
+        ~instr:instruction
+        ~with_instrs:new_instrs);
     update_slots ~which:`Both block_liveness.terminal;
     (match map_ir (Block.terminal block).Instr_state.ir with
      | [ x ] -> Fn_state.replace_terminal_ir fn_state ~block ~with_:x
@@ -410,7 +422,8 @@ let run ?(dump_crap = false) ~fn_state (fn : Function.t) =
       ~don't_spill
       ~class_of_var
       ~class_);
-  if dump_crap then print_s [%sexp (assignments : Assignment.t Var.Table.t)];
+  if dump_crap
+  then print_s [%sexp (assignments : Assignment.t Typed_var.Table.t)];
   let spill_slots_used =
     replace_regs
       (module Calc_liveness)

@@ -1,4 +1,5 @@
 open! Core
+open! Import
 
 module Dominator = struct
   type t =
@@ -128,12 +129,14 @@ module Dominator = struct
   ;;
 end
 
+let var_of_value (value : Value_state.t) = Value_state.var value
+
 module Def_uses = struct
   type t =
     { dominator : Dominator.t
-    ; vars : Var.Hash_set.t
-    ; uses : Block.Hash_set.t Var.Table.t
-    ; defs : Block.Hash_set.t Var.Table.t
+    ; vars : Typed_var.Hash_set.t
+    ; uses : Block.Hash_set.t Typed_var.Table.t
+    ; defs : Block.Hash_set.t Typed_var.Table.t
     ; root : Block.t
     }
   [@@deriving fields]
@@ -149,8 +152,8 @@ module Def_uses = struct
     in
     Vec.iter (Block.args block) ~f:(update t.defs);
     Instr_state.iter (Block.instructions block) ~f:(fun instr ->
-      let uses = Ir.uses instr.ir in
-      let defs = Ir.defs instr.ir in
+      let uses = Ir.uses instr.ir |> List.map ~f:var_of_value in
+      let defs = Ir.defs instr.ir |> List.map ~f:var_of_value in
       List.iter uses ~f:(update t.uses);
       List.iter defs ~f:(update t.defs))
   ;;
@@ -171,9 +174,9 @@ module Def_uses = struct
   let create ~fn_state root =
     let t =
       { dominator = Dominator.create ~fn_state root
-      ; vars = Var.Hash_set.create ()
-      ; uses = Var.Table.create ()
-      ; defs = Var.Table.create ()
+      ; vars = Typed_var.Hash_set.create ()
+      ; uses = Typed_var.Table.create ()
+      ; defs = Typed_var.Table.create ()
       ; root
       }
     in
@@ -192,7 +195,7 @@ module Def_uses = struct
       Hash_set.add t.vars var;
       var)
     else (
-      let name = Var.name var in
+      let name = Typed_var.name var in
       let base = String.rstrip name ~drop:Char.is_digit in
       let suffix = String.drop_prefix name (String.length base) in
       let next_suffix =
@@ -201,7 +204,9 @@ module Def_uses = struct
         else Int.to_string (Int.of_string suffix + 1)
       in
       let next_name = base ^ next_suffix in
-      uniq_name t (Var.create ~name:next_name ~type_:(Var.type_ var)))
+      uniq_name
+        t
+        (Typed_var.create ~name:next_name ~type_:(Typed_var.type_ var)))
   ;;
 end
 
@@ -261,14 +266,16 @@ let rec dominates t block1 block2 =
 ;;
 
 let new_name t var =
-  let base = String.split (Var.name var) ~on:'%' |> List.hd_exn in
+  let base = String.split (Typed_var.name var) ~on:'%' |> List.hd_exn in
   match Hashtbl.find t.numbers base with
   | None ->
     Hashtbl.set t.numbers ~key:base ~data:0;
-    Var.create ~name:base ~type_:(Var.type_ var)
+    Typed_var.create ~name:base ~type_:(Typed_var.type_ var)
   | Some n ->
     Hashtbl.set t.numbers ~key:base ~data:(n + 1);
-    Var.create ~name:(base ^ "%" ^ Int.to_string n) ~type_:(Var.type_ var)
+    Typed_var.create
+      ~name:(base ^ "%" ^ Int.to_string n)
+      ~type_:(Typed_var.type_ var)
 ;;
 
 let insert_args t =
@@ -280,7 +287,7 @@ let insert_args t =
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
-          if not (Vec.mem (Block.args block) var ~compare:Var.compare)
+          if not (Vec.mem (Block.args block) var ~compare:Typed_var.compare)
           then
             Fn_state.set_block_args
               (Def_uses.fn_state t.def_uses)
@@ -292,12 +299,21 @@ let insert_args t =
 
 let fn_state t = Def_uses.fn_state t.def_uses
 
+let add_block_args_value_ir t ir =
+  Ir.map_call_blocks ir ~f:(fun { Call_block.block; args = _ } ->
+    let args =
+      Vec.to_list (Block.args block)
+      |> List.map ~f:(fun var -> Fn_state.ensure_value (fn_state t) ~var)
+    in
+    { Call_block.block; args })
+;;
+
 let add_args_to_calls t =
   let rec go block =
     Fn_state.replace_terminal_ir
       (fn_state t)
       ~block
-      ~with_:(Ir.add_block_args (Block.terminal block).ir);
+      ~with_:(add_block_args_value_ir t (Block.terminal block).ir);
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -310,13 +326,25 @@ let add_args_to_calls t =
 
 let uses_in_block_ex_calls ~(block : Block.t) =
   let f (defs, uses) instr =
-    let uses = Set.union uses (Set.diff (Ir.uses_ex_args instr) defs) in
-    let defs = Set.union defs (Ir.defs instr |> Var.Set.of_list) in
+    let uses =
+      Set.union
+        uses
+        (Set.diff
+           (Ir.uses_ex_args instr ~compare_var:Value_state.compare
+            |> List.map ~f:var_of_value
+            |> Typed_var.Set.of_list)
+           defs)
+    in
+    let defs =
+      Set.union
+        defs
+        (Ir.defs instr |> List.map ~f:var_of_value |> Typed_var.Set.of_list)
+    in
     defs, uses
   in
   let acc =
     Instr_state.to_ir_list (Block.instructions block)
-    |> List.fold ~init:(Var.Set.empty, Var.Set.empty) ~f
+    |> List.fold ~init:(Typed_var.Set.empty, Typed_var.Set.empty) ~f
   in
   let _defs, uses = f acc (Block.terminal block).ir in
   uses
@@ -332,7 +360,7 @@ let prune_args t =
         Hash_set.fold ~init ~f:(fun acc block' ->
           if phys_equal block' block then acc else go acc block'))
   in
-  let uses = go Var.Set.empty t.def_uses.root in
+  let uses = go Typed_var.Set.empty t.def_uses.root in
   let rec go' block =
     let new_args = Vec.filter (Block.args block) ~f:(Set.mem uses) in
     if Vec.length new_args <> Vec.length (Block.args block)
@@ -342,7 +370,7 @@ let prune_args t =
         Fn_state.replace_terminal_ir
           (fn_state t)
           ~block:block'
-          ~with_:(Ir.add_block_args (Block.terminal block').ir)));
+          ~with_:(add_block_args_value_ir t (Block.terminal block').ir)));
     Option.iter
       (Hashtbl.find t.immediate_dominees block)
       ~f:
@@ -354,30 +382,38 @@ let prune_args t =
 ;;
 
 let rename t =
-  let stacks = ref Var.Map.empty in
-  let push_name var renamed =
+  let stacks = ref Typed_var.Map.empty in
+  let push_name var renamed_value =
     let stack = Map.find !stacks var |> Option.value ~default:[] in
-    stacks := Map.set !stacks ~key:var ~data:(renamed :: stack)
+    stacks := Map.set !stacks ~key:var ~data:(renamed_value :: stack)
   in
-  let name var =
-    match Map.find !stacks var with
-    | None | Some [] -> var
+  let name value =
+    match Map.find !stacks (Value_state.var value) with
+    | None | Some [] -> value
     | Some (x :: _) -> x
   in
   let rec go block =
     let replace_use = name in
     let replace_uses instr = Ir.map_uses instr ~f:replace_use in
-    let replace_def var =
-      let renamed = new_name t var in
-      push_name var renamed;
-      renamed
+    let replace_def value =
+      let var = Value_state.var value in
+      let renamed_var = new_name t var in
+      let renamed_value = Fn_state.ensure_value (fn_state t) ~var:renamed_var in
+      push_name var renamed_value;
+      renamed_value
     in
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
+    let replace_arg var =
+      let renamed_var = new_name t var in
+      let renamed_value = Fn_state.ensure_value (fn_state t) ~var:renamed_var in
+      push_name var renamed_value;
+      renamed_var
+    in
     Fn_state.set_block_args
       (fn_state t)
       ~block
-      ~args:(Vec.map (Block.args block) ~f:replace_def);
+      ~args:(Vec.map (Block.args block) ~f:replace_arg);
     let rec rename_instrs instr =
       match instr with
       | None -> ()
@@ -430,3 +466,42 @@ let create ~fn_state (~root, ~blocks:_, ~in_order) =
 ;;
 
 let root t = t.def_uses.root
+
+type value_ir = (Value_state.t, Block.t) Nod_ir.Ir.t
+
+let value_of_var t var = Fn_state.ensure_value (fn_state t) ~var
+
+let value_of_var_exn t var =
+  Fn_state.value_by_var (fn_state t) var |> Option.value_exn
+;;
+
+let value_ir t (ir : Ir.t) : value_ir =
+  Nod_ir.Ir.map_vars ir ~f:(value_of_var t)
+;;
+
+let var_ir (ir : value_ir) : Ir.t = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+let uses_values _ ir = Nod_ir.Ir.uses ir
+let defs_values _ ir = Nod_ir.Ir.defs ir
+let block_args_values t block = Vec.map (Block.args block) ~f:(value_of_var t)
+
+let replace_instr_value_ir t ~block ~instr ~with_ir =
+  Fn_state.replace_instr_with_irs
+    (fn_state t)
+    ~block
+    ~instr
+    ~with_irs:[ with_ir ]
+;;
+
+let replace_terminal_value_ir t ~block ~with_ir =
+  Fn_state.replace_terminal_ir (fn_state t) ~block ~with_:with_ir
+;;
+
+let convert_program program ~state =
+  let functions =
+    Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
+      Function.map_root fn ~f:(fun root_data ->
+        let ssa = create ~fn_state:(State.fn_state state name) root_data in
+        root ssa))
+  in
+  { program with Program.functions }
+;;
