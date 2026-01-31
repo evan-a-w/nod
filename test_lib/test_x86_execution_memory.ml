@@ -51,8 +51,8 @@ let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
 
 let%expect_test "alloca passed to child; child loads value" =
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
     let child_state = Fn_state.create () in
     let child_root =
       mk_block_with_instrs
@@ -64,8 +64,8 @@ let%expect_test "alloca passed to child; child loads value" =
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
     in
-    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+    let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
     let root_state = Fn_state.create () in
     let root_root =
       mk_block_with_instrs
@@ -94,8 +94,8 @@ let%expect_test "alloca passed to child; child loads value" =
 
 let%expect_test "alloca passed to child; child stores value; parent observes" =
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let child_ret = Var.create ~name:"child_ret" ~type_:Type.I64 in
+    let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+    let child_ret = Typed_var.create ~name:"child_ret" ~type_:Type.I64 in
     let child_state = Fn_state.create () in
     let child_root =
       mk_block_with_instrs
@@ -112,9 +112,9 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
     in
-    let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-    let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+    let tmp = Typed_var.create ~name:"tmp" ~type_:Type.I64 in
+    let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
     let root_state = Fn_state.create () in
     let root_root =
       mk_block_with_instrs
@@ -143,8 +143,8 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
 
 let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
-    let p = Var.create ~name:"p" ~type_:Type.Ptr in
-    let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+    let p = Typed_var.create ~name:"p" ~type_:Type.Ptr in
+    let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
     let child_state = Fn_state.create () in
     let child_root =
       mk_block_with_instrs
@@ -156,10 +156,10 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
     let child =
       make_fn ~fn_state:child_state ~name:"child" ~args:[ p ] ~root:child_root
     in
-    let base = Var.create ~name:"base" ~type_:Type.Ptr in
-    let elem1 = Var.create ~name:"elem1" ~type_:Type.Ptr in
-    let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let base = Typed_var.create ~name:"base" ~type_:Type.Ptr in
+    let elem1 = Typed_var.create ~name:"elem1" ~type_:Type.Ptr in
+    let tmp = Typed_var.create ~name:"tmp" ~type_:Type.I64 in
+    let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
     let root_state = Fn_state.create () in
     let root_root =
       mk_block_with_instrs
@@ -218,9 +218,9 @@ let%expect_test "call returning two values (RAX/RDX)" =
     let callee_root = mk_block callee_state ~id_hum:"%root" ~terminal in
     Block.set_dfs_id callee_root (Some 0);
     let callee = Function.create ~name:"two" ~args:[] ~root:callee_root in
-    let r0 = Var.create ~name:"r0" ~type_:Type.I64 in
-    let r1 = Var.create ~name:"r1" ~type_:Type.I64 in
-    let sum = Var.create ~name:"sum" ~type_:Type.I64 in
+    let r0 = Typed_var.create ~name:"r0" ~type_:Type.I64 in
+    let r1 = Typed_var.create ~name:"r1" ~type_:Type.I64 in
+    let sum = Typed_var.create ~name:"sum" ~type_:Type.I64 in
     let root_state = Fn_state.create () in
     let root_root =
       mk_block_with_instrs
@@ -246,10 +246,10 @@ let%expect_test "call returning two values (RAX/RDX)" =
 let%expect_test "phi/parallel-move cycle: swap two values across edge" =
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
     let fn_state = Fn_state.create () in
-    let a = Var.create ~name:"a" ~type_:Type.I64 in
-    let b = Var.create ~name:"b" ~type_:Type.I64 in
-    let tmp10 = Var.create ~name:"tmp10" ~type_:Type.I64 in
-    let res = Var.create ~name:"res" ~type_:Type.I64 in
+    let a = Typed_var.create ~name:"a" ~type_:Type.I64 in
+    let b = Typed_var.create ~name:"b" ~type_:Type.I64 in
+    let tmp10 = Typed_var.create ~name:"tmp10" ~type_:Type.I64 in
+    let res = Typed_var.create ~name:"res" ~type_:Type.I64 in
     let swap_block =
       Block.create
         ~id_hum:"swap"

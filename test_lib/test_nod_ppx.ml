@@ -71,7 +71,7 @@ let%expect_test "nod fun builds args and return type" =
         return sum]
   in
   let unnamed = Dsl.Fn.unnamed fn in
-  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Var.t list)];
+  print_s [%sexp (Dsl.Fn.Unnamed.args unnamed : Typed_var.t list)];
   print_s [%sexp (Dsl.Fn.Unnamed.ret unnamed : Type.t)];
   let root = block_of_instrs (Dsl.Fn.Unnamed.instrs unnamed) in
   print_s (Block.to_sexp_verbose root);

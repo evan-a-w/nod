@@ -33,7 +33,7 @@ let dump_program program =
       print_s
         [%message
           (Block.id_hum block)
-            ~args:(Block.args block : Var.t Vec.read)
+            ~args:(Block.args block : Typed_var.t Vec.read)
             (instrs : Ir.t list)]))
 ;;
 

@@ -9,7 +9,7 @@ let select_instructions fn =
 
 let%expect_test "load/store select into x86 mem operands" =
   let slot = Ir.Mem.Stack_slot 0 in
-  let tmp = Var.create ~name:"tmp" ~type_:Type.I64 in
+  let tmp = Typed_var.create ~name:"tmp" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     Block.create
