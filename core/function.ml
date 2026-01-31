@@ -1,6 +1,6 @@
 open! Core
 open! Import
-include Function
+include Nod_ir.Function
 
 type 'a t' = (Typed_var.t, 'a) t [@@deriving sexp]
 type t = Block.t t'

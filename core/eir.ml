@@ -5,7 +5,7 @@ open! Import
 type raw_block =
   instrs_by_label:string Ir0.t Vec.t String.Map.t * labels:string Vec.t
 
-type input = (raw_block Program.t, Nod_error.t) Result.t
+type input = (raw_block Program.t', Nod_error.t) Result.t
 
 module Opt_flags = Eir_opt.Opt_flags
 
@@ -22,7 +22,9 @@ let map_program_roots_with_state program ~state ~f =
 let set_entry_block_args program ~state =
   Map.iteri
     program.Program.functions
-    ~f:(fun ~key:name ~data:{ Function.root = root_data; args; _ } ->
+    ~f:(fun ~key:name ~data:fn ->
+      let root_data = Function.root fn in
+      let args = Function.args fn in
       let ~root:block, ~blocks:_, ~in_order:_ = root_data in
       Fn_state.set_block_args
         (State.fn_state state name)
@@ -67,7 +69,7 @@ let type_check_program program =
     ~f:(fun ~key:_ ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
-      type_check_cfg fn.Function.root)
+      type_check_cfg (Function.root fn))
 ;;
 
 let lower_aggregate_program program ~state =
@@ -77,7 +79,7 @@ let lower_aggregate_program program ~state =
     ~f:(fun ~key:name ~data:fn acc ->
       let open Result.Let_syntax in
       let%bind () = acc in
-      let { Function.root = ~root:block, ~blocks:_, ~in_order:_; _ } = fn in
+      let ~root:block, ~blocks:_, ~in_order:_ = Function.root fn in
       Ir.lower_aggregates ~fn_state:(State.fn_state state name) ~root:block)
   |> Result.map ~f:(fun () -> program)
 ;;
