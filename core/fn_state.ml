@@ -61,7 +61,9 @@ let alloc_value t ~type_ ~var =
 ;;
 
 let free_value t ({ id = Value_id id; _ } : Value_state.t) =
-  Hashtbl.remove t.value_id_by_var (Option.value_exn (Vec.get t.values id)).var;
+  Hashtbl.remove
+    t.value_id_by_var
+    (Option.value_exn (Vec.get t.values id) |> Value_state.var);
   Vec.set t.values id None;
   Vec.push t.free_values id
 ;;
@@ -97,39 +99,30 @@ let ensure_value t ~var =
   | None -> alloc_value t ~type_:(Typed_var.type_ var) ~var
 ;;
 
+let value_ir t ir = Nod_ir.Ir.map_vars ir ~f:(fun var -> ensure_value t ~var)
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
 let add_use (value : Value_state.t) instr_id =
-  value.uses <- Set.add value.uses instr_id
+  value.Value_state.uses <- Set.add value.Value_state.uses instr_id
 ;;
 
 let remove_use (value : Value_state.t) instr_id =
-  value.uses <- Set.remove value.uses instr_id
+  value.Value_state.uses <- Set.remove value.Value_state.uses instr_id
 ;;
 
-let clear_instr_value_relationships t ~(instr : _ Instr_state.t) =
+let clear_instr_value_relationships _t ~(instr : _ Instr_state.t) =
   Nod_ir.Ir.defs instr.ir
-  |> List.iter ~f:(fun var ->
-    match value_by_var t var with
-    | None -> ()
-    | Some var ->
-      (match var.def with
-       | Undefined | Block_arg _ ->
-         (* do nothing, def is already not this ir *)
-         ()
-       | Instr id ->
-         (* only clear if this def is actually us. This is basically just so it's not funky if the thing isn't actually in ssa form *)
-         if [%compare.equal: Instr_id.t] id instr.id then var.def <- Undefined));
-  Nod_ir.Ir.uses instr.ir
-  |> List.iter ~f:(fun var ->
-    match value_by_var t var with
-    | None -> ()
-    | Some var -> remove_use var instr.id)
+  |> List.iter ~f:(fun value ->
+    match value.Value_state.def with
+    | Undefined | Block_arg _ -> ()
+    | Instr id ->
+      if [%compare.equal: Instr_id.t] id instr.id then value.Value_state.def <- Undefined);
+  Nod_ir.Ir.uses instr.ir |> List.iter ~f:(fun value -> remove_use value instr.id)
 ;;
 
-let add_instr_value_relationships t ~(instr : _ Instr_state.t) =
-  Nod_ir.Ir.defs instr.ir
-  |> List.iter ~f:(fun var -> (ensure_value t ~var).def <- Instr instr.id);
-  Nod_ir.Ir.uses instr.ir
-  |> List.iter ~f:(fun var -> add_use (ensure_value t ~var) instr.id)
+let add_instr_value_relationships _t ~(instr : _ Instr_state.t) =
+  Nod_ir.Ir.defs instr.ir |> List.iter ~f:(fun value -> value.Value_state.def <- Instr instr.id);
+  Nod_ir.Ir.uses instr.ir |> List.iter ~f:(fun value -> add_use value instr.id)
 ;;
 
 let of_cfg ~root =
@@ -147,7 +140,7 @@ let of_cfg ~root =
   Block.iter root ~f:(fun block ->
     Vec.iteri (Block.args block) ~f:(fun arg var ->
       let value = ensure_value t ~var in
-      value.def <- Block_arg { block; arg }));
+      value.Value_state.def <- Block_arg { block_id = Block.id_hum block; arg }));
   Block.iter_instructions root ~f:(fun instr ->
     add_instr_value_relationships t ~instr);
   t
@@ -164,14 +157,15 @@ let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Vec.t) =
     match value_by_var t var with
     | None -> ()
     | Some value ->
-      (match value.def with
-       | Block_arg { block = def_block; _ } when phys_equal def_block block ->
-         value.def <- Undefined
+      (match value.Value_state.def with
+       | Block_arg { block_id; _ }
+         when String.equal block_id (Block.id_hum block) ->
+         value.Value_state.def <- Undefined
        | _ -> ()));
   Block.Expert.set_args block args;
   Vec.iteri args ~f:(fun arg var ->
     let value = ensure_value t ~var in
-    value.def <- Block_arg { block; arg })
+    value.Value_state.def <- Block_arg { block_id = Block.id_hum block; arg })
 ;;
 
 let replace_instr t ~(block : Block.t) ~instr ~with_instrs =

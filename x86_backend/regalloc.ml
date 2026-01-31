@@ -18,7 +18,8 @@ let note_var_class table var class_ =
 let collect_var_classes root =
   let classes = Var.Table.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.x86_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.x86_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match Reg.raw reg with
       | X86_reg.Raw.Unallocated var | X86_reg.Raw.Allocated (var, _) ->
@@ -44,7 +45,8 @@ let initialize_assignments root =
   let assignments = Var.Table.create () in
   let don't_spill = Var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.x86_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.x86_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match Reg.raw reg with
       | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Allocated _))
@@ -268,6 +270,7 @@ let replace_regs
         |> Option.iter ~f:free_spill_slot)
   in
   let map_ir ir =
+    let ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var in
     let map_reg (reg : Reg.t) =
       match reg.reg with
       | X86_reg.Raw.Unallocated v ->
@@ -285,7 +288,8 @@ let replace_regs
         Reg phys
       | _ -> Reg reg
     in
-    Ir.map_x86_operands ir ~f:(function
+    let ir =
+      Ir.map_x86_operands ir ~f:(function
       | Reg r -> map_reg r
       | Mem (r, offset) ->
         Mem
@@ -294,6 +298,8 @@ let replace_regs
             reg_of_operand_exn
           , offset )
       | (Imm _ | Spill_slot _ | Symbol _) as t -> t)
+    in
+    Fn_state.value_ir fn_state ir
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in

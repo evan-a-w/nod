@@ -33,7 +33,9 @@ let test ?don't_opt s =
           Vec.iter ssa.in_order ~f:(fun block ->
             let instrs =
               Instr_state.to_ir_list (Block.instructions block)
-              @ [ (Block.terminal block).Instr_state.ir ]
+              |> List.map ~f:Fn_state.var_ir
+              |> fun instrs ->
+              instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
             in
             print_s
               [%message
@@ -73,7 +75,9 @@ let%expect_test "eir compile with args" =
     Map.iter program.Program.functions ~f:(fun { Nod_ir.Function.root = block; _ } ->
       let instrs =
         Instr_state.to_ir_list (Block.instructions block)
-        @ [ (Block.terminal block).Instr_state.ir ]
+        |> List.map ~f:Fn_state.var_ir
+        |> fun instrs ->
+        instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
       in
       print_s
         [%message

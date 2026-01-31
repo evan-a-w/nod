@@ -977,7 +977,8 @@ let lower_aggregates ~fn_state ~root =
   List.iter blocks ~f:(fun block ->
     Block.args block |> Vec.iter ~f:(add_var used_names);
     let add_instr_vars instr =
-      List.iter (vars instr.Instr_state.ir) ~f:(add_var used_names)
+      List.iter (Nod_ir.Ir.vars instr.Instr_state.ir) ~f:(fun value ->
+        add_var used_names (Value_state.var value))
     in
     Instr_state.iter (Block.instructions block) ~f:add_instr_vars;
     add_instr_vars (Block.terminal block));
@@ -1000,10 +1001,15 @@ let lower_aggregates ~fn_state ~root =
       |> Instr_state.to_list
       |> List.fold ~init:(Ok ()) ~f:(fun acc instr ->
         let%bind () = acc in
-        match Aggregate.lower_instruction ~fresh_temp instr.ir with
+        match
+          Aggregate.lower_instruction ~fresh_temp (Fn_state.var_ir instr.ir)
+        with
         | Ok irs ->
           let instrs =
-            List.map irs ~f:(fun ir -> Fn_state.alloc_instr fn_state ~ir)
+            List.map irs ~f:(fun ir ->
+              Fn_state.alloc_instr
+                fn_state
+                ~ir:(Fn_state.value_ir fn_state ir))
           in
           Fn_state.replace_instr fn_state ~block ~instr ~with_instrs:instrs;
           Ok ()
@@ -1011,7 +1017,9 @@ let lower_aggregates ~fn_state ~root =
     in
     let%bind () =
       match
-        Aggregate.lower_instruction ~fresh_temp (Block.terminal block).ir
+        Aggregate.lower_instruction
+          ~fresh_temp
+          (Fn_state.var_ir (Block.terminal block).ir)
       with
       | Ok [ ir ] ->
         if is_terminal ir
@@ -1019,7 +1027,10 @@ let lower_aggregates ~fn_state ~root =
           Fn_state.replace_terminal
             fn_state
             ~block
-            ~with_:(Fn_state.alloc_instr fn_state ~ir);
+            ~with_:
+              (Fn_state.alloc_instr
+                 fn_state
+                 ~ir:(Fn_state.value_ir fn_state ir));
           Ok ())
         else Error (`Type_mismatch "aggregate instruction cannot be terminal")
       | Ok _ ->

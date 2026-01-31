@@ -42,9 +42,9 @@ let type_check_block block =
       ~init:(Ok ())
       ~f:(fun acc instr ->
         let%bind () = acc in
-        Ir.check_types instr.Instr_state.ir)
+        Ir.check_types (Fn_state.var_ir instr.Instr_state.ir))
   in
-  Ir.check_types (Block.terminal block).Instr_state.ir
+  Ir.check_types (Fn_state.var_ir (Block.terminal block).Instr_state.ir)
 ;;
 
 let type_check_cfg (~root, ~blocks:_, ~in_order:_) =

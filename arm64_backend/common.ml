@@ -25,6 +25,8 @@ module Arch_ir = struct
   let reg_uses t = Reg.Set.of_list (Arm64_ir.reg_uses t)
 end
 
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
 let on_arch_irs (ir : Ir.t) ~f =
   match ir with
   | Arm64 arm64 -> f arm64
@@ -48,7 +50,7 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
 ;;
 
 let true_terminal (block : Block.t) : (Typed_var.t, Block.t) Arm64_ir.t option =
-  match (Block.terminal block).Instr_state.ir with
+  match var_ir (Block.terminal block).Instr_state.ir with
   | Arm64 terminal -> Some terminal
   | Arm64_terminal terminals -> List.last terminals
   | X86 _ | X86_terminal _ -> None
@@ -87,11 +89,17 @@ let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
   let terminal_ir = (Block.terminal block).Instr_state.ir in
   match terminal_ir with
   | Arm64 _terminal ->
+    let with_ir = Fn_state.value_ir fn_state (Arm64 new_true_terminal) in
     Fn_state.replace_terminal_ir
       fn_state
       ~block
-      ~with_:(Arm64 new_true_terminal)
+      ~with_:with_ir
   | Arm64_terminal terminals ->
+    let new_true_terminal =
+      match Fn_state.value_ir fn_state (Arm64 new_true_terminal) with
+      | Arm64 terminal -> terminal
+      | _ -> failwith "expected Arm64 terminal"
+    in
     Fn_state.replace_terminal_ir
       fn_state
       ~block
