@@ -57,8 +57,8 @@ let print_selected_mem_fences fn =
       @ [ (Block.terminal block).Instr_state.ir ])
     |> List.concat_map ~f:(fun instr ->
       match instr with
-      | Ir0.X86 x -> [ x ]
-      | Ir0.X86_terminal xs -> xs
+      | X86 x -> [ x ]
+      | X86_terminal xs -> xs
       | _ -> [])
     |> List.filter_map ~f:(function
       | X86_ir.MFENCE -> Some "mfence"

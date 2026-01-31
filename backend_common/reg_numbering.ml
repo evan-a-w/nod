@@ -7,15 +7,15 @@ module M (A : Arch.S) = struct
   type var_state =
     { mutable num_uses : int
     ; id : int
-    ; var : Var.t
+    ; var : Typed_var.t
     }
   [@@deriving fields, sexp]
 
   let var_state_score { num_uses; id = _; var = _ } = num_uses
 
   type t =
-    { vars : var_state Var.Table.t
-    ; id_to_var : Var.t Int.Table.t
+    { vars : var_state Typed_var.Table.t
+    ; id_to_var : Typed_var.t Int.Table.t
     }
   [@@deriving fields, sexp]
 
@@ -36,7 +36,9 @@ module M (A : Arch.S) = struct
   let id_reg t id : Reg.Raw.t = Reg.Raw.of_id ~id_var:(id_var t) id
 
   let create (root : Block.t) =
-    let t = { vars = Var.Table.create (); id_to_var = Int.Table.create () } in
+    let t =
+      { vars = Typed_var.Table.create (); id_to_var = Int.Table.create () }
+    in
     let add_use v =
       let s = var_state t v in
       s.num_uses <- s.num_uses + 1

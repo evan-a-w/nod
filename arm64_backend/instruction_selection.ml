@@ -12,7 +12,7 @@ module Class = Arm64_reg.Class
 type t =
   { block_names : int String.Table.t
   ; var_names : int String.Table.t
-  ; var_classes : Class.t Var.Table.t
+  ; var_classes : Class.t Typed_var.Table.t
   ; fn_state : Fn_state.t
   ; fn : Function.t
   }
@@ -26,7 +26,7 @@ let require_class t var class_ =
     then
       failwithf
         "register class mismatch for %s: saw %s and %s"
-        (Var.name var)
+        (Typed_var.name var)
         (Sexp.to_string_hum (Class.sexp_of_t existing))
         (Sexp.to_string_hum (Class.sexp_of_t class_))
         ()
@@ -38,7 +38,7 @@ let class_of_var t var =
   match Hashtbl.find t.var_classes var with
   | Some class_ -> class_
   | None ->
-    let class_ = class_of_type (Var.type_ var) in
+    let class_ = class_of_type (Typed_var.type_ var) in
     Hashtbl.set t.var_classes ~key:var ~data:class_;
     class_
 ;;
@@ -57,13 +57,13 @@ let class_of_lit_or_var t = function
 ;;
 
 let fresh_var ?(type_ = Type.I64) t base =
-  Var.create ~name:(Util.new_name t.var_names base) ~type_
+  Typed_var.create ~name:(Util.new_name t.var_names base) ~type_
 ;;
 
 let fresh_like_var t var =
-  Var.create
-    ~name:(Util.new_name t.var_names (Var.name var))
-    ~type_:(Var.type_ var)
+  Typed_var.create
+    ~name:(Util.new_name t.var_names (Typed_var.name var))
+    ~type_:(Typed_var.type_ var)
 ;;
 
 let lower_aggregates_exn ~fn_state (fn : Function.t) =
@@ -204,7 +204,7 @@ let expand_atomic_rmw t =
       let loop_instrs, status_var = rmw_loop_instrs atomic in
       let loop_instrs =
         List.map loop_instrs ~f:(fun ir ->
-          Fn_state.value_ir t.fn_state (Ir0.arm64 ir))
+          Fn_state.value_ir t.fn_state (Ir.arm64 ir))
       in
       Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
@@ -223,12 +223,12 @@ let expand_atomic_rmw t =
       let before =
         match atomic.order with
         | Ir.Memory_order.Seq_cst ->
-          before @ [ Fn_state.value_ir t.fn_state (Ir0.arm64 Dmb) ]
+          before @ [ Fn_state.value_ir t.fn_state (Ir.arm64 Dmb) ]
         | _ -> before
       in
       let after =
         match atomic.order with
-        | Ir.Memory_order.Seq_cst -> Ir0.arm64 Dmb :: after
+        | Ir.Memory_order.Seq_cst -> Ir.arm64 Dmb :: after
         | _ -> after
       in
       Fn_state.replace_irs t.fn_state ~block:cont_block ~irs:after;
@@ -317,15 +317,17 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let pre, op = operand_of_lit_or_var t ~class_ lit_or_var in
     pre @ [ Ret [ op ] ]
   | Move (v, lit_or_var) ->
-    let class_ = if Type.is_float (Var.type_ v) then Class.F64 else Class.I64 in
+    let class_ =
+      if Type.is_float (Typed_var.type_ v) then Class.F64 else Class.I64
+    in
     require_class t v class_;
     let pre, src = operand_of_lit_or_var t ~class_ lit_or_var in
     pre @ [ Move { dst = reg_of_var t v; src } ]
   | Cast (dest, src) ->
-    let dest_type = Var.type_ dest in
+    let dest_type = Typed_var.type_ dest in
     let src_type =
       match src with
-      | Ir.Lit_or_var.Var v -> Var.type_ v
+      | Ir.Lit_or_var.Var v -> Typed_var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64
       | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.type_
     in
@@ -532,7 +534,7 @@ let get_fn = fn
 let create ~fn_state fn =
   { block_names = String.Table.create ()
   ; var_names = String.Table.create ()
-  ; var_classes = Var.Table.create ()
+  ; var_classes = Typed_var.Table.create ()
   ; fn_state
   ; fn
   }
@@ -921,7 +923,7 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
     let res = ir_to_arm64_ir ~this_call_conv t ir in
     List.iter res ~f:(fun ir ->
       List.iter (Arm64_ir.vars ir) ~f:(fun var ->
-        add_count t.var_names (Var.name var)));
+        add_count t.var_names (Typed_var.name var)));
     res
   in
   Block.iter t.fn.root ~f:(fun block ->
@@ -930,7 +932,7 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
       Instr_state.to_ir_list (Block.instructions block)
       |> List.concat_map ~f:(fun ir ->
         lower_ir (var_ir ir)
-        |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.arm64 ir)))
+        |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.arm64 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir

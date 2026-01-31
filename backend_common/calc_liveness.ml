@@ -13,7 +13,7 @@ module M (A : Arch.S) = struct
     val treat_block_args_as_defs : bool
     val uses_of_ir : Ir.t -> t list
     val defs_of_ir : Ir.t -> t list
-    val t_of_var : Var.t -> t option
+    val t_of_var : Typed_var.t -> t option
     val t_of_id : int -> t
     val id_of_t : t -> int
   end
@@ -226,7 +226,7 @@ module M (A : Arch.S) = struct
 
   let var ~treat_block_args_as_defs ~reg_numbering =
     (module Make (struct
-        type t = Var.t [@@deriving sexp]
+        type t = Typed_var.t [@@deriving sexp]
 
         let treat_block_args_as_defs = treat_block_args_as_defs
         let uses_of_ir = Ir.uses
@@ -235,7 +235,7 @@ module M (A : Arch.S) = struct
         let t_of_id = Reg_numbering.id_var reg_numbering
         let id_of_t = Reg_numbering.var_id reg_numbering
       end) : S
-      with type Arg.t = Var.t)
+      with type Arg.t = Typed_var.t)
   ;;
 
   let phys ~reg_numbering =

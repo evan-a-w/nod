@@ -81,25 +81,28 @@ module For_testing = struct
             [%message
               (block : string)
                 (instruction : Ir.t)
-                (live_in : Var.t list)
-                (live_out : Var.t list)])
+                (live_in : Typed_var.t list)
+                (live_out : Typed_var.t list)])
         in
         let args = Block.args block in
         let block = Block.id_hum block in
         [ [%message
             (block : string)
               ~instruction:
-                ([%message "block start" (args : Var.t Vec.read)] : Sexp.t)
-              ~live_in:(block_live_in : Var.t list)
-              ~live_out:(List.hd_exn liveness |> Liveness.live_in' : Var.t list)]
+                ([%message "block start" (args : Typed_var.t Vec.read)]
+                 : Sexp.t)
+              ~live_in:(block_live_in : Typed_var.t list)
+              ~live_out:
+                (List.hd_exn liveness |> Liveness.live_in' : Typed_var.t list)]
         ]
         @ inner_sexps
         @ [ [%message
               (block : string)
                 ~instruction:("block end" : string)
                 ~live_in:
-                  (List.last_exn liveness |> Liveness.live_out' : Var.t list)
-                ~live_out:(block_live_out : Var.t list)]
+                  (List.last_exn liveness |> Liveness.live_out'
+                   : Typed_var.t list)
+                ~live_out:(block_live_out : Typed_var.t list)]
           ])
       |> Table.print_records)
   ;;
@@ -169,13 +172,14 @@ module For_testing = struct
         |> Hashtbl.to_alist
         |> List.sort
              ~compare:
-               (Comparable.lift String.compare ~f:(fun (var, _) -> Var.name var))
+               (Comparable.lift String.compare ~f:(fun (var, _) ->
+                  Typed_var.name var))
       in
       print_s
         [%message
           ""
             ~function_name:(function_name : string)
-            (assignments : (Var.t * Assignment.t) list)];
+            (assignments : (Typed_var.t * Assignment.t) list)];
       Interference_graph.print interference_graph)
   ;;
 end

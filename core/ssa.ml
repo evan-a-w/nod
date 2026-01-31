@@ -499,7 +499,7 @@ let replace_terminal_value_ir t ~block ~with_ir =
 let convert_program program ~state =
   let functions =
     Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-      Function0.map_root fn ~f:(fun root_data ->
+      Function.map_root fn ~f:(fun root_data ->
         let ssa = create ~fn_state:(State.fn_state state name) root_data in
         root ssa))
   in
