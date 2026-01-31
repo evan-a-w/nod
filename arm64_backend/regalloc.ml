@@ -298,23 +298,23 @@ let replace_regs
       in
       let pre_moves = ref [] in
       let post_moves = ref [] in
-      let loaded = Reg.Hash_set.create () in
-      let saved = Reg.Hash_set.create () in
+      let loaded = ref Reg.Set.empty in
+      let saved = ref Reg.Set.empty in
       let load_reg var spill_slot =
         let reg = map var in
-        if Hash_set.mem loaded reg
+        if Set.mem !loaded reg
         then ()
         else (
-          Hash_set.add loaded reg;
+          loaded := Set.add !loaded reg;
           pre_moves := load ~dst:reg ~addr:(Spill_slot spill_slot) :: !pre_moves);
         reg
       in
       let save_reg var spill_slot =
         let reg = map var in
-        if Hash_set.mem saved reg
+        if Set.mem !saved reg
         then ()
         else (
-          Hash_set.add saved reg;
+          saved := Set.add !saved reg;
           post_moves
           := store ~src:(Reg reg) ~addr:(Spill_slot spill_slot) :: !post_moves);
         reg
@@ -347,10 +347,10 @@ let replace_regs
       !pre_moves @ [ ir ] @ !post_moves
     in
     match ir with
-    | Ir0.Arm64 arm64_ir ->
-      List.map (on_ir arm64_ir) ~f:(fun ir -> Ir0.Arm64 ir)
-    | Arm64_terminal arm64_irs ->
-      [ Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
+    | Nod_ir.Ir.Arm64 arm64_ir ->
+      List.map (on_ir arm64_ir) ~f:(fun ir -> Nod_ir.Ir.Arm64 ir)
+    | Nod_ir.Ir.Arm64_terminal arm64_irs ->
+      [ Nod_ir.Ir.Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
     | _ -> [ ir ]
   in
   Block.iter root ~f:(fun block ->

@@ -4,18 +4,18 @@ include Dsl_types
 module Type_repr = Type_repr_gen
 
 module Atom = struct
-  type _ t = Ir.Lit_or_var.t
+  type _ t = Var.t Ir.Lit_or_var.t
 
   let lit_or_var t = t
 
   let var t =
-    match (t : Ir.Lit_or_var.t) with
+    match (t : Var.t Ir.Lit_or_var.t) with
     | Var v -> Some v
     | Global _ | Lit _ -> None
   ;;
 
   let type_ t =
-    match (t : Ir.Lit_or_var.t) with
+    match (t : Var.t Ir.Lit_or_var.t) with
     | Var v -> v.type_
     | Lit _ -> Type.I64
     | Global g -> g.type_
@@ -24,7 +24,7 @@ end
 
 module Instr = struct
   type 'a t =
-    | Ir : string Ir0.t -> 'a t
+    | Ir : (Var.t, string) Ir0.t -> 'a t
     | Label : string -> 'a t
   [@@deriving variants]
 
@@ -174,9 +174,9 @@ let binary name type_ lhs rhs ctor =
   let dest = make_dest name type_ in
   let instr =
     ctor
-      { Ir0.dest
-      ; Ir0.src1 = Atom.lit_or_var lhs
-      ; Ir0.src2 = Atom.lit_or_var rhs
+      { Nod_ir.Ir_helpers.dest
+      ; Nod_ir.Ir_helpers.src1 = Atom.lit_or_var lhs
+      ; Nod_ir.Ir_helpers.src2 = Atom.lit_or_var rhs
       }
     |> Instr.ir
   in
@@ -228,7 +228,13 @@ let store_addr value ptr offset =
 
 let alloca name size =
   let dest = make_dest name Type.Ptr in
-  let instr = Instr.ir (Ir0.Alloca { Ir0.dest; size = Atom.lit_or_var size }) in
+  let instr =
+    Instr.ir
+      (Ir0.Alloca
+         { Nod_ir.Ir_helpers.dest
+         ; Nod_ir.Ir_helpers.size = Atom.lit_or_var size
+         })
+  in
   atom_of_var dest, instr
 ;;
 

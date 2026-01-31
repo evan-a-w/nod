@@ -221,7 +221,7 @@ let replace_regs
   ~reg_numbering
   =
   let open Calc_liveness in
-  let root = fn.Function.root in
+  let root = Nod_ir.Function.root fn in
   let spill_slot_by_var = Var.Table.create () in
   let free_spill_slots = ref Int.Set.empty in
   let used_spill_slots = ref Int.Set.empty in
@@ -270,13 +270,13 @@ let replace_regs
   let map_ir ir =
     let map_reg (reg : Reg.t) =
       match reg.reg with
-      | Raw.Unallocated v ->
+      | X86_reg.Raw.Unallocated v ->
         (match Hashtbl.find assignments v with
          | Some Assignment.Spill ->
            Spill_slot (Hashtbl.find_exn spill_slot_by_var v)
          | Some (Assignment.Reg phys) -> Reg phys
          | None -> Reg reg)
-      | Raw.Allocated (v, _) ->
+      | X86_reg.Raw.Allocated (v, _) ->
         let phys =
           Hashtbl.find_exn assignments v
           |> Assignment.reg_val

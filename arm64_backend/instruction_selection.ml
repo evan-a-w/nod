@@ -231,13 +231,17 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
   let int_operand = operand_of_lit_or_var t ~class_:Class.I64 in
   let float_operand = operand_of_lit_or_var t ~class_:Class.F64 in
-  let make_int_arith op ({ dest; src1; src2 } : Ir.arith) =
+  let make_int_arith op
+    ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
+    =
     require_class t dest Class.I64;
     let pre1, lhs = int_operand src1 in
     let pre2, rhs = int_operand src2 in
     pre1 @ pre2 @ [ Int_binary { op; dst = reg_of_var t dest; lhs; rhs } ]
   in
-  let make_float_arith op ({ dest; src1; src2 } : Ir.arith) =
+  let make_float_arith op
+    ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
+    =
     require_class t dest Class.F64;
     let pre1, lhs = float_operand src1 in
     let pre2, rhs = float_operand src2 in
@@ -260,7 +264,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
   in
   match ir with
   | Arm64 x -> [ x ]
-  | Ir0.Arm64_terminal xs -> xs
+  | Nod_ir.Ir.Arm64_terminal xs -> xs
   | X86 _ | X86_terminal _ -> []
   | Noop | Unreachable -> []
   | Load_field _ | Store_field _ | Memcpy _ ->
@@ -303,7 +307,7 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
       match src with
       | Ir.Lit_or_var.Var v -> Var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64
-      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.Global.type_
+      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.type_
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
@@ -523,7 +527,7 @@ let add_count tbl s =
 let mint_intermediate
   t
   ~(from_block : Block.t)
-  ~(to_call_block : Block.t Call_block.t)
+  ~(to_call_block : (Typed_var.t, Block.t) Call_block.t)
   =
   let id_hum =
     "intermediate_"
@@ -536,7 +540,7 @@ let mint_intermediate
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr t.fn_state ~ir:(Ir0.Arm64 (jump to_call_block)))
+        (Fn_state.alloc_instr t.fn_state ~ir:(Nod_ir.Ir.Arm64 (jump to_call_block)))
   in
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
@@ -579,7 +583,7 @@ let make_prologue t =
       ~terminal:
         (Fn_state.alloc_instr
            t.fn_state
-           ~ir:(Ir0.Arm64 (Jump { block = t.fn.root; args })))
+           ~ir:(Nod_ir.Ir.Arm64 (Jump { block = t.fn.root; args })))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -625,7 +629,7 @@ let make_epilogue t ~ret_shape =
   let block =
     Block.create
       ~id_hum
-      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(Ir0.Arm64 (Ret args')))
+      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(Nod_ir.Ir.Arm64 (Ret args')))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -665,7 +669,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
   Block.iter_and_update_bookkeeping t.fn.root ~f:(fun block ->
     let map_ir ir =
       (match ir with
-       | Ir0.Arm64 (Alloca (_, i)) ->
+       | Nod_ir.Ir.Arm64 (Alloca (_, i)) ->
          t.fn.bytes_statically_alloca'd
          <- Int64.to_int_exn i + t.fn.bytes_statically_alloca'd
        | _ -> ());
@@ -689,7 +693,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
             | Reg reg ->
-              (match var_of_reg reg with
+              (match Arm64_ir.var_of_reg reg with
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
@@ -697,14 +701,14 @@ let split_blocks_and_add_prologue_and_epilogue t =
                    t.fn_state
                    ~block
                    ~ir:
-                     (Ir0.Arm64 (Move { dst = reg_of_var t v; src = operand }));
+                     (Nod_ir.Ir.Arm64 (Move { dst = reg_of_var t v; src = operand }));
                  v)
             | other ->
               let v = fresh_like_var t arg in
               Fn_state.append_ir
                 t.fn_state
                 ~block
-                ~ir:(Ir0.Arm64 (Move { dst = reg_of_var t v; src = other }));
+                ~ir:(Nod_ir.Ir.Arm64 (Move { dst = reg_of_var t v; src = other }));
               v)
         in
         Jump { Call_block.block = epilogue; args }
@@ -758,20 +762,21 @@ let split_blocks_and_add_prologue_and_epilogue t =
 ;;
 
 let par_moves t ~dst_to_src =
+  let module Map = Core.Map.Poly in
   (* Convert vars to regs once and reuse the same reg objects throughout *)
   let dst_src_regs =
     List.map dst_to_src ~f:(fun (dst, src) ->
       reg_of_var t dst, reg_of_var t src)
   in
-  let pending = Reg.Map.of_alist_exn dst_src_regs |> Ref.create in
+  let pending = Map.of_alist_exn dst_src_regs |> Ref.create in
   let temp class_ =
     Reg.unallocated
       ~class_
       (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
   let emitted = Vec.create () in
-  let emit (dst : Reg.t) src =
-    if Reg.equal dst src
+  let emit dst src =
+    if Reg.equal Poly.equal dst src
     then ()
     else Vec.push emitted (Ir.arm64 (Move { dst; src = Reg src }))
   in
@@ -799,7 +804,7 @@ let par_moves t ~dst_to_src =
         pending := Map.remove !pending dst;
         pending
         := Map.map !pending ~f:(fun src' ->
-             if Reg.equal src' dst then tmp else src'));
+             if Reg.equal Poly.equal src' dst then tmp else src'));
       go ())
   in
   go ();

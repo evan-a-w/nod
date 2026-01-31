@@ -29,7 +29,7 @@ let test ?don't_opt s =
     let go program =
       Map.iter
         program.Program.functions
-        ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+        ~f:(fun { Nod_ir.Function.root = (ssa : Ssa.t); _ } ->
           Vec.iter ssa.in_order ~f:(fun block ->
             let instrs =
               Instr_state.to_ir_list (Block.instructions block)
@@ -70,7 +70,7 @@ let%expect_test "eir compile with args" =
   match Eir.compile {| a(%x:i64, %y:i64) {add %z:i64, %x, %y return %z} |} with
   | Error e -> Nod_error.to_string e |> print_endline
   | Ok program ->
-    Map.iter program.Program.functions ~f:(fun { Function.root = block; _ } ->
+    Map.iter program.Program.functions ~f:(fun { Nod_ir.Function.root = block; _ } ->
       let instrs =
         Instr_state.to_ir_list (Block.instructions block)
         @ [ (Block.terminal block).Instr_state.ir ]

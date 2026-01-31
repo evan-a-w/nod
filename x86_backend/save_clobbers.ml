@@ -17,16 +17,20 @@ let default_clobbers =
 
 let regs_to_save ~state ~call_fn ~live_out =
   let callee_clobbers =
-    match Map.find state call_fn with
+    match Core.Map.find state call_fn with
     | Some (state : Calc_clobbers.t) -> state.clobbers
     | None -> default_clobbers
   in
   (* TODO: I think this is fine to not filter for [should_save], because the phys calc liveness turns defs into the should save defs etc. This isn't that obvious though *)
-  Set.inter callee_clobbers live_out |> Set.to_list
+  Core.Set.to_list (Core.Set.inter callee_clobbers live_out)
 ;;
 
-let rec find_following_call ~start ~len ~instructions =
-  if start >= len
+let rec find_following_call
+  ~(start : int)
+  ~(len : int)
+  ~(instructions : Ir.t Vec.t)
+  =
+  if Int.(start >= len)
   then None
   else (
     match Vec.get instructions start with
@@ -40,15 +44,14 @@ let save_and_restore_in_prologue_and_epilogue
   (functions : Function.t String.Map.t)
   =
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
-  Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
-    let fn = Map.find_exn functions name in
+  Core.Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
+    let fn = Core.Map.find_exn functions name in
     let prologue = Option.value_exn fn.prologue in
     let epilogue = Option.value_exn fn.epilogue in
     let () = Breadcrumbs.frame_pointer_omission in
     (* always restore RBP (so just remove it here, and we push it below anyway) *)
     let to_restore =
-      Set.remove to_restore Reg.rbp
-      |> Set.to_list
+      Core.Set.to_list (Core.Set.remove to_restore Reg.rbp)
       |> List.filter_map ~f:Util.should_save
     in
     fn.bytes_for_clobber_saves <- List.length to_restore * 8;
@@ -63,11 +66,11 @@ let save_and_restore_in_prologue_and_epilogue
            + fn.bytes_for_clobber_saves)
           mod 16
         in
-        if m = 0 then 0 else 16 - m);
+        if Int.(m = 0) then 0 else 16 - m);
     let extra_bytes_after_callee_saves =
       fn.bytes_for_spills + fn.bytes_statically_alloca'd + fn.bytes_for_padding
     in
-    let fn_state = Map.find_exn fn_state_by_name name in
+    let fn_state = Core.Map.find_exn fn_state_by_name name in
     let () =
       (* change prologue *)
       let new_prologue : Ir.t Vec.t = Vec.create () in
@@ -75,12 +78,12 @@ let save_and_restore_in_prologue_and_epilogue
       Vec.push new_prologue (X86 (mov (Reg Reg.rbp) (Reg Reg.rsp)));
       List.iter to_restore ~f:(fun reg ->
         Vec.push new_prologue (X86 (push (Reg reg))));
-      if extra_bytes_after_callee_saves > 0
+      if Int.(extra_bytes_after_callee_saves > 0)
       then
         Vec.push
           new_prologue
           (X86
-             (sub
+             (X86_ir.sub
                 (Reg Reg.rsp)
                 (Imm (extra_bytes_after_callee_saves |> Int64.of_int))));
       Vec.append
@@ -99,7 +102,7 @@ let save_and_restore_in_prologue_and_epilogue
       Vec.push
         new_epilogue
         (X86
-           (sub
+           (X86_ir.sub
               (* sub rbp first, because we don't want rsp to be above places we care about in case the os clobbers them *)
               (Reg Reg.rbp)
               (Imm (fn.bytes_for_clobber_saves |> Int64.of_int))));
@@ -134,12 +137,12 @@ let save_and_restore_around_calls
   let new_instructions = Vec.create () in
   let pending = Stack.create () in
   let rec loop idx =
-    if idx >= len
+    if Int.(idx >= len)
     then ()
     else (
       let ir = Vec.get instructions idx in
       (match ir with
-       | Ir0.X86 Save_clobbers ->
+       | Nod_ir.Ir.X86 Save_clobbers ->
          let liveness_at_instr = Vec.get block_state.instructions idx in
          let call_fn =
            match find_following_call ~start:(idx + 1) ~len ~instructions with
@@ -154,29 +157,31 @@ let save_and_restore_around_calls
          in
          let sub_for_align =
            let m = Stack.length pending * 8 mod 16 in
-           if m = 0 then 0 else 16 - m
+           if Int.(m = 0) then 0 else 16 - m
          in
          Stack.push pending (regs, sub_for_align);
-         if sub_for_align <> 0
+         if Int.(sub_for_align <> 0)
          then
            Vec.push
              new_instructions
-             (Ir0.X86 (sub (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))));
+             (Nod_ir.Ir.X86
+             (X86_ir.sub (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))));
          List.iter regs ~f:(fun reg ->
-           Vec.push new_instructions (Ir0.X86 (push (Reg reg))))
-       | Ir0.X86 Restore_clobbers ->
+           Vec.push new_instructions (Nod_ir.Ir.X86 (push (Reg reg))))
+       | Nod_ir.Ir.X86 Restore_clobbers ->
          let regs, sub_for_align =
            match Stack.pop pending with
            | Some regs -> regs
            | None -> failwith "Restore_clobbers without matching save"
          in
          List.iter (List.rev regs) ~f:(fun reg ->
-           Vec.push new_instructions (Ir0.X86 (pop reg)));
-         if sub_for_align <> 0
+           Vec.push new_instructions (Nod_ir.Ir.X86 (pop reg)));
+         if Int.(sub_for_align <> 0)
          then
            Vec.push
              new_instructions
-             (Ir0.X86 (add (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))))
+             (Nod_ir.Ir.X86
+             (X86_ir.add (Reg Reg.rsp) (Imm (Int64.of_int sub_for_align))))
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
@@ -185,7 +190,7 @@ let save_and_restore_around_calls
   then failwith "Unbalanced Save_clobbers markers";
   Fn_state.replace_irs fn_state ~block ~irs:(Vec.to_list new_instructions);
   match (Block.terminal block).Instr_state.ir with
-  | Ir0.X86 Save_clobbers | Ir0.X86 Restore_clobbers ->
+  | Nod_ir.Ir.X86 Save_clobbers | Nod_ir.Ir.X86 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
   | _ -> ()
 ;;
@@ -193,8 +198,8 @@ let save_and_restore_around_calls
 let process ~fn_state_by_name (functions : Function.t String.Map.t) =
   let state = Calc_clobbers.init_state functions in
   save_and_restore_in_prologue_and_epilogue ~fn_state_by_name ~state functions;
-  Map.iteri functions ~f:(fun ~key:name ~data:fn ->
-    let fn_state = Map.find_exn fn_state_by_name name in
+  Core.Map.iteri functions ~f:(fun ~key:name ~data:fn ->
+    let fn_state = Core.Map.find_exn fn_state_by_name name in
     let reg_numbering = Reg_numbering.create fn.root in
     let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
     let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
@@ -220,7 +225,7 @@ let process ~fn_state_by_name (functions : Function.t String.Map.t) =
              | Reg _ ->
                Ir.x86_terminal
                  ([ mov dest (Reg Reg.rbp) ]
-                  @ [ sub dest (Imm (Int64.of_int !alloca_offset)) ])
+                  @ [ X86_ir.sub dest (Imm (Int64.of_int !alloca_offset)) ])
              | _ -> failwith "alloca dest must be a register")
           | ir -> ir
         in

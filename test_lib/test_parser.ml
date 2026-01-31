@@ -28,7 +28,8 @@ root() {
   |> Parser.parse_string
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok output -> print_s [%sexp (output.Program.globals : Global.t list)];
+  | Ok output ->
+    print_s [%sexp (output.Program.globals : Nod_ir.Global.t list)];
   [%expect
     {|
     (((name g) (type_ I64) (init (Int 42)))

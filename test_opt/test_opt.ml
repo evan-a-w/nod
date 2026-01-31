@@ -31,7 +31,7 @@ let compile_to_ssa s =
 let dump_program program =
   Map.iter
     program.Program.functions
-    ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
+    ~f:(fun { Nod_ir.Function.root = (ssa : Ssa.t); _ } ->
       Vec.iter ssa.in_order ~f:(fun block ->
         let instrs =
           Instr_state.to_ir_list (Block.instructions block)

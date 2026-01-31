@@ -13,14 +13,14 @@ module Atom : sig
   type _ t
 
   val type_ : 'a t -> Type.t
-  val lit_or_var : _ t -> Ir.Lit_or_var.t
+  val lit_or_var : _ t -> Var.t Ir.Lit_or_var.t
   val var : _ t -> Var.t option
 end
 
 module Instr : sig
   type 'ret t
 
-  val ir : string Ir0.t -> 'ret t
+  val ir : (Var.t, string) Ir0.t -> 'ret t
 
   val process
     :  ?root_name:string
@@ -112,7 +112,10 @@ end
 
 (** meta functions *)
 
-val program : functions:Fn.Packed.t list -> globals:Global.t list -> Eir.input
+val program
+  :  functions:Fn.Packed.t list
+  -> globals:Nod_ir.Global.t list
+  -> Eir.input
 val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t'
 
 (** builder functions *)
@@ -121,7 +124,7 @@ val return : 'a Atom.t -> 'a Instr.t
 val label : string -> 'ret Instr.t
 val lit : Int64.t -> int64 Atom.t
 val var : Var.t -> 'a Atom.t
-val global : Global.t -> ptr Atom.t
+val global : Nod_ir.Global.t -> ptr Atom.t
 val mov : string -> 'a Atom.t -> 'a Atom.t * 'ret Instr.t
 val add : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val sub : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t

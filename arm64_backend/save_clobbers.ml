@@ -17,16 +17,20 @@ let default_clobbers =
 
 let regs_to_save ~state ~call_fn ~live_out =
   let callee_clobbers =
-    match Map.find state call_fn with
+    match Core.Map.find state call_fn with
     | Some (state : Calc_clobbers.t) -> state.clobbers
     | None -> default_clobbers
   in
   (* TODO: I think this is fine to not filter for [should_save], because the phys calc liveness turns defs into the should save defs etc. This isn't that obvious though *)
-  Set.inter callee_clobbers live_out |> Set.to_list
+  Core.Set.to_list (Core.Set.inter callee_clobbers live_out)
 ;;
 
-let rec find_following_call ~start ~len ~instructions =
-  if start >= len
+let rec find_following_call
+  ~(start : int)
+  ~(len : int)
+  ~(instructions : Ir.t Vec.t)
+  =
+  if Int.(start >= len)
   then None
   else (
     match Vec.get instructions start with
@@ -50,8 +54,10 @@ let layout_reg_saves regs =
   total, List.rev slots_rev
 ;;
 
-let align_stack bytes =
-  if bytes % 16 = 0 then bytes else bytes + (16 - (bytes % 16))
+let align_stack (bytes : int) =
+  if Int.(bytes % 16 = 0)
+  then bytes
+  else bytes + (16 - (bytes % 16))
 ;;
 
 let imm_of_int n = Int64.of_int n |> Arm64_ir.Imm
@@ -105,9 +111,9 @@ let save_and_restore_in_prologue_and_epilogue
   (functions : Function.t String.Map.t)
   =
   (* Insert the clobber stuff and stack management in prologue and epilogue *)
-  Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
-    let fn = Map.find_exn functions name in
-    let to_restore = Set.to_list to_restore in
+  Core.Map.iteri state ~f:(fun ~key:name ~data:{ to_restore; clobbers = _ } ->
+    let fn = Core.Map.find_exn functions name in
+    let to_restore = Core.Set.to_list to_restore in
     let bytes_for_clobber_saves, save_slots = layout_reg_saves to_restore in
     fn.bytes_for_clobber_saves <- bytes_for_clobber_saves;
     let prologue = Option.value_exn fn.prologue in
@@ -119,18 +125,18 @@ let save_and_restore_in_prologue_and_epilogue
       header_bytes_excl_clobber_saves + bytes_for_clobber_saves
     in
     let aligned_stack_usage =
-      if total_stack_usage % 16 = 0
+    if Int.(total_stack_usage % 16 = 0)
       then total_stack_usage
       else total_stack_usage + (16 - (total_stack_usage % 16))
     in
     let header_bytes_excl_clobber_saves =
       header_bytes_excl_clobber_saves + (aligned_stack_usage - total_stack_usage)
     in
-    let fn_state = Map.find_exn fn_state_by_name name in
+    let fn_state = Core.Map.find_exn fn_state_by_name name in
     let () =
       (* change prologue *)
       let new_prologue : Ir.t Vec.t = Vec.create () in
-      if aligned_stack_usage > 0
+      if Int.(aligned_stack_usage > 0)
       then Vec.push new_prologue (sub_sp aligned_stack_usage);
       List.iter save_slots ~f:(fun (reg, offset) ->
         Vec.push
@@ -155,7 +161,7 @@ let save_and_restore_in_prologue_and_epilogue
       if List.is_empty to_restore
       then (
         Vec.push new_epilogue move_sp_to_fp;
-        if header_bytes_excl_clobber_saves > 0
+        if Int.(header_bytes_excl_clobber_saves > 0)
         then Vec.push new_epilogue (add_sp header_bytes_excl_clobber_saves))
       else
         ([ move_sp_to_fp ]
@@ -164,7 +170,9 @@ let save_and_restore_in_prologue_and_epilogue
              reg
              (offset + fn.bytes_for_spills + fn.bytes_statically_alloca'd))
          @
-         if aligned_stack_usage > 0 then [ add_sp aligned_stack_usage ] else []
+         if Int.(aligned_stack_usage > 0)
+         then [ add_sp aligned_stack_usage ]
+         else []
         )
         |> List.iter ~f:(Vec.push new_epilogue);
       Fn_state.replace_irs
@@ -194,12 +202,12 @@ let save_and_restore_around_calls
   let new_instructions = Vec.create () in
   let pending = Stack.create () in
   let rec loop idx =
-    if idx >= len
+    if Int.(idx >= len)
     then ()
     else (
       let ir = Vec.get instructions idx in
       (match ir with
-       | Ir0.Arm64 Save_clobbers ->
+       | Nod_ir.Ir.Arm64 Save_clobbers ->
          let liveness_at_instr = Vec.get block_state.instructions idx in
          let call_fn =
            match find_following_call ~start:(idx + 1) ~len ~instructions with
@@ -215,11 +223,11 @@ let save_and_restore_around_calls
          let bytes, slots = layout_reg_saves regs in
          let aligned_bytes = align_stack bytes in
          Stack.push pending (slots, aligned_bytes);
-         if aligned_bytes > 0
+         if Int.(aligned_bytes > 0)
          then Vec.push new_instructions (sub_sp aligned_bytes);
          List.iter slots ~f:(fun (reg, off) ->
            Vec.push new_instructions (store_reg_at_sp reg off))
-       | Ir0.Arm64 Restore_clobbers ->
+       | Nod_ir.Ir.Arm64 Restore_clobbers ->
          let slots, bytes =
            match Stack.pop pending with
            | Some layout -> layout
@@ -227,7 +235,7 @@ let save_and_restore_around_calls
          in
          List.iter (List.rev slots) ~f:(fun (reg, off) ->
            Vec.push new_instructions (load_reg_from_sp reg off));
-         if bytes > 0 then Vec.push new_instructions (add_sp bytes)
+         if Int.(bytes > 0) then Vec.push new_instructions (add_sp bytes)
        | _ -> Vec.push new_instructions ir);
       loop (idx + 1))
   in
@@ -236,7 +244,7 @@ let save_and_restore_around_calls
   then failwith "Unbalanced Save_clobbers markers";
   Fn_state.replace_irs fn_state ~block ~irs:(Vec.to_list new_instructions);
   match (Block.terminal block).Instr_state.ir with
-  | Ir0.Arm64 Save_clobbers | Ir0.Arm64 Restore_clobbers ->
+  | Nod_ir.Ir.Arm64 Save_clobbers | Nod_ir.Ir.Arm64 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"
   | _ -> ()
 ;;
@@ -244,8 +252,8 @@ let save_and_restore_around_calls
 let process ~fn_state_by_name (functions : Function.t String.Map.t) =
   let state = Calc_clobbers.init_state functions in
   save_and_restore_in_prologue_and_epilogue ~fn_state_by_name ~state functions;
-  Map.iteri functions ~f:(fun ~key:name ~data:fn ->
-    let fn_state = Map.find_exn fn_state_by_name name in
+  Core.Map.iteri functions ~f:(fun ~key:name ~data:fn ->
+    let fn_state = Core.Map.find_exn fn_state_by_name name in
     let reg_numbering = Reg_numbering.create fn.root in
     let (module Calc_liveness) = Calc_liveness.phys ~reg_numbering in
     let liveness_state = Calc_liveness.Liveness_state.create ~root:fn.root in
@@ -267,7 +275,7 @@ let process ~fn_state_by_name (functions : Function.t String.Map.t) =
             alloca_offset := !alloca_offset + Int64.to_int_exn i;
             (match dest with
              | Reg dst ->
-               Ir0.Arm64
+               Nod_ir.Ir.Arm64
                  (Int_binary
                     { op = Int_op.Add
                     ; dst

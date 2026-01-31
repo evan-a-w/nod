@@ -195,16 +195,18 @@ let%expect_test "call returning two values (RAX/RDX)" =
       match arch with
       | `X86_64 ->
         Ir.x86_terminal
-          [ X86_ir.mov (Reg X86_reg.rax) (Imm 11L)
-          ; X86_ir.mov (Reg X86_reg.rdx) (Imm 22L)
-          ; X86_ir.RET [ Reg X86_reg.rax; Reg X86_reg.rdx ]
+          [ X86_ir.mov (Reg Nod_ir.X86_reg.rax) (Imm 11L)
+          ; X86_ir.mov (Reg Nod_ir.X86_reg.rdx) (Imm 22L)
+          ; X86_ir.RET [ Reg Nod_ir.X86_reg.rax; Reg Nod_ir.X86_reg.rdx ]
           ]
       | `Arm64 ->
         Ir.arm64_terminal
-          [ Arm64_ir.Move { dst = Arm64_reg.x0; src = Arm64_ir.Imm 11L }
-          ; Arm64_ir.Move { dst = Arm64_reg.x1; src = Arm64_ir.Imm 22L }
+          [ Arm64_ir.Move { dst = Nod_ir.Arm64_reg.x0; src = Arm64_ir.Imm 11L }
+          ; Arm64_ir.Move { dst = Nod_ir.Arm64_reg.x1; src = Arm64_ir.Imm 22L }
           ; Arm64_ir.Ret
-              [ Arm64_ir.Reg Arm64_reg.x0; Arm64_ir.Reg Arm64_reg.x1 ]
+              [ Arm64_ir.Reg Nod_ir.Arm64_reg.x0
+              ; Arm64_ir.Reg Nod_ir.Arm64_reg.x1
+              ]
           ]
     in
     let callee_state = Fn_state.create () in

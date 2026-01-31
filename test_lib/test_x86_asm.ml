@@ -182,7 +182,7 @@ let%expect_test "atomic rmw lowers to cmpxchg loop" =
             { dest = old
             ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
             ; src = Ir.Lit_or_var.Lit 1L
-            ; op = Ir.Rmw_op.Add
+            ; op = Nod_ir.Ir_helpers.Rmw_op.Add
             ; order = Ir.Memory_order.Relaxed
             }
         ]

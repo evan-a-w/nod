@@ -197,7 +197,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Typed_var.t Nod_ir.Lit_or_var.
 
 let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   assert (Call_conv.(equal this_call_conv default));
-  let make_arith f ({ dest; src1; src2 } : Ir.arith) =
+  let make_arith f ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith) =
     require_class t dest Class.I64;
     let dest_op = Reg (reg_of_var t dest) in
     let pre1, op1 = operand_of_lit_or_var t ~class_:Class.I64 src1 in
@@ -205,7 +205,11 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
     pre1 @ pre2 @ [ mov dest_op op1; f dest_op op2 ]
   in
   let reg v = Reg (reg_of_var t v) in
-  let mul_div_mod ({ dest; src1; src2 } : Ir.arith) ~make_instr ~take_reg =
+  let mul_div_mod
+    ({ dest; src1; src2 } : Typed_var.t Nod_ir.Ir_helpers.arith)
+    ~make_instr
+    ~take_reg
+    =
     require_class t dest Class.I64;
     let tmp_rax =
       Reg.allocated ~class_:Class.I64 (fresh_var t "tmp_rax") (Some Reg.rax)
@@ -326,7 +330,7 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
       match src with
       | Ir.Lit_or_var.Var v -> Var.type_ v
       | Ir.Lit_or_var.Lit _ -> Type.I64 (* literals are treated as i64 *)
-      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.Global.type_
+      | Ir.Lit_or_var.Global g -> Type.Ptr_typed g.type_
     in
     let dest_class = if Type.is_float dest_type then Class.F64 else Class.I64 in
     let src_class = if Type.is_float src_type then Class.F64 else Class.I64 in
@@ -548,7 +552,7 @@ let add_count tbl s =
 let mint_intermediate
   t
   ~(from_block : Block.t)
-  ~(to_call_block : Block.t Call_block.t)
+  ~(to_call_block : (Typed_var.t, Block.t) Call_block.t)
   =
   let id_hum =
     "intermediate_"
@@ -723,7 +727,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
             | Reg reg ->
-              (match var_of_reg reg with
+              (match X86_ir.var_of_reg reg with
                | Some v -> v
                | None ->
                  let v = fresh_like_var t arg in
@@ -778,12 +782,13 @@ let split_blocks_and_add_prologue_and_epilogue t =
 ;;
 
 let par_moves t ~dst_to_src =
+  let module Map = Core.Map.Poly in
   (* Convert vars to regs once and reuse the same reg objects throughout *)
   let dst_src_regs =
     List.map dst_to_src ~f:(fun (dst, src) ->
       reg_of_var t dst, reg_of_var t src)
   in
-  let pending = Reg.Map.of_alist_exn dst_src_regs |> Ref.create in
+  let pending = Map.of_alist_exn dst_src_regs |> Ref.create in
   let temp class_ =
     Reg.unallocated
       ~class_
