@@ -40,12 +40,14 @@ Nod consumes a textual IR, lowers it into SSA form, applies a handful of optimis
 - Keep deterministic outputs so CI-friendly promotion works; if expected output changes intentionally, run `dune runtest --auto-promote` and commit the updated files.
 - For pure logic without textual output, add `let%test_unit` cases adjacent to the implementation.
 - Always finish work by running `dune runtest`; failing to do so usually leaves stale `%expect` artifacts.
+- But consider testing only relevant modules (so it's much faster, eg. [dune runtest test_opt])
 
 ## Style Preferences
 - Use `open! Core` (and other Jane Street libraries) at the top of each file; avoid `open`ing project modules broadly—refer to them via explicit module prefixes.
 - Let `.ocamlformat` handle indentation and alignment; do not manually line up code.
 - Modules follow the OCaml naming convention (`foo_bar.ml` → `Foo_bar`), filenames stay lowercase_with_underscores.
 - Write interface (mli) files with minimal interfaces and safe apis.
+- Prefer using ppx_nod to write nod ir rather than textual strings.
 
 ## Source Language Quick Reference
 - Variables: `%name:type` (e.g., `%x:i64`)
@@ -53,3 +55,13 @@ Nod consumes a textual IR, lowers it into SSA form, applies a handful of optimis
 - Labels end with `:` and are referenced by name in branch targets.
 - Branch syntax: `branch %cond, if_true_label, if_false_label`
 - Supported primitive types include `i64`, `i32`, `ptr`, tuples, and aggregates (see `Nod_ir.Type`).
+- ppx_nod can be used to write ir, eg.
+```ocaml
+let fn =
+[%nod fun (t : ptr) ->
+  let len = load_record_field binary_heap.len t in
+  let i_slot = alloca (lit 8L) in
+  store index i_slot;
+  return (lit 0L)]
+;;
+```
