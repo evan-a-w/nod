@@ -1,15 +1,32 @@
 open! Core
 open! Import
 open Ir
-module Reg = Arm64_reg
+
+module Reg = struct
+  include Arm64_reg
+
+  type nonrec t = Typed_var.t Arm64_reg.t
+  [@@deriving sexp, compare, hash, equal]
+
+  module Raw = struct
+    include Arm64_reg.Raw
+
+    type nonrec t = Typed_var.t Arm64_reg.Raw.t
+    [@@deriving sexp, compare, hash, equal]
+  end
+
+  include functor Comparable.Make
+end
 
 module Arch_ir = struct
-  type t = Block.t Arm64_ir.t
+  type t = (Typed_var.t, Block.t) Arm64_ir.t
 
   let fn (t : t) : string option = Arm64_ir.fn t
-  let reg_defs t = Arm64_ir.reg_defs t
-  let reg_uses t = Arm64_ir.reg_uses t
+  let reg_defs t = Reg.Set.of_list (Arm64_ir.reg_defs t)
+  let reg_uses t = Reg.Set.of_list (Arm64_ir.reg_uses t)
 end
+
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
 
 let on_arch_irs (ir : Ir.t) ~f =
   match ir with
@@ -33,8 +50,8 @@ let bytes_for_args ~fn:({ args; call_conv = Default; _ } : Function.t) =
   Int.max (List.length args - List.length gp_args) 0
 ;;
 
-let true_terminal (block : Block.t) : Block.t Arm64_ir.t option =
-  match (Block.terminal block).Instr_state.ir with
+let true_terminal (block : Block.t) : (Typed_var.t, Block.t) Arm64_ir.t option =
+  match var_ir (Block.terminal block).Instr_state.ir with
   | Arm64 terminal -> Some terminal
   | Arm64_terminal terminals -> List.last terminals
   | X86 _ | X86_terminal _ -> None
@@ -73,16 +90,21 @@ let replace_true_terminal ~fn_state (block : Block.t) new_true_terminal =
   let terminal_ir = (Block.terminal block).Instr_state.ir in
   match terminal_ir with
   | Arm64 _terminal ->
+    let with_ir = Fn_state.value_ir fn_state (Arm64 new_true_terminal) in
+    Fn_state.replace_terminal_ir fn_state ~block ~with_:with_ir
+  | Arm64_terminal terminals ->
+    let new_true_terminal =
+      match Fn_state.value_ir fn_state (Arm64 new_true_terminal) with
+      | Arm64 terminal -> terminal
+      | _ -> failwith "expected Arm64 terminal"
+    in
     Fn_state.replace_terminal_ir
       fn_state
       ~block
-      ~with_:(Arm64 new_true_terminal)
-  | Arm64_terminal terminals ->
-    let new_ir =
-      Ir0.Arm64_terminal
-        (List.take terminals (List.length terminals - 1) @ [ new_true_terminal ])
-    in
-    Fn_state.replace_terminal_ir fn_state ~block ~with_:new_ir
+      ~with_:
+        (Arm64_terminal
+           (List.take terminals (List.length terminals - 1)
+            @ [ new_true_terminal ]))
   | Noop
   | And _
   | Or _

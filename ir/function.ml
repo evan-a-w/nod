@@ -3,10 +3,10 @@ open! Import
 
 let () = Breadcrumbs.add_typed_function_args
 
-type 'block t' =
+type ('var, 'block) t =
   { call_conv : Call_conv.t
   ; mutable root : 'block [@hash.ignore]
-  ; args : Var.t list
+  ; args : 'var list
   ; name : string
   ; mutable prologue : 'block option [@hash.ignore]
   ; mutable epilogue : 'block option [@hash.ignore]

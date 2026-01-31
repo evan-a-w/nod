@@ -1,8 +1,9 @@
 open! Core
+open! Import
 
 type t =
   { id_hum : string
-  ; mutable args : Var.t Vec.t
+  ; mutable args : Typed_var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
   ; mutable instructions : t Instr_state.t option
@@ -22,7 +23,7 @@ let t_of_sexp _ = failwith ":()"
 let sexp_of_t t =
   let id_hum = t.id_hum in
   let args = t.args in
-  [%sexp { id_hum : string; args : Var.t Vec.t }]
+  [%sexp { id_hum : string; args : Typed_var.t Vec.t }]
 ;;
 
 let create ~id_hum ~terminal =
@@ -67,7 +68,7 @@ let iter_and_update_bookkeeping root ~f =
       set_dfs_id block None;
       f block;
       let children =
-        Ir0.call_blocks block.terminal.ir
+        Nod_ir.Ir.call_blocks block.terminal.ir
         |> List.map ~f:Call_block.block
         |> Vec.of_list
       in
@@ -103,7 +104,9 @@ let to_sexp_verbose root =
     Vec.push
       ts
       [%message
-        t.id_hum ~args:(t.args : Var.t Vec.t) (instrs : t Instr_state.t list)]);
+        t.id_hum
+          ~args:(t.args : Typed_var.t Vec.t)
+          (instrs : t Instr_state.t list)]);
   [%sexp (ts : Sexp.t Vec.t)]
 ;;
 

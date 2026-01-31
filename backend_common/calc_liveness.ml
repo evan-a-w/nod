@@ -5,13 +5,15 @@ module M (A : Arch.S) = struct
   module Reg_numbering = Reg_numbering.M (A)
   module Util = Util.M (A)
 
+  let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
+
   module type Arg = sig
     type t [@@deriving sexp]
 
     val treat_block_args_as_defs : bool
     val uses_of_ir : Ir.t -> t list
     val defs_of_ir : Ir.t -> t list
-    val t_of_var : Var.t -> t option
+    val t_of_var : Typed_var.t -> t option
     val t_of_id : int -> t
     val id_of_t : t -> int
   end
@@ -109,17 +111,18 @@ module M (A : Arch.S) = struct
           if not Arg.treat_block_args_as_defs
           then Int.Set.empty
           else
-            List.filter_map (Vec.to_list (Block.args block)) ~f:(fun x ->
-              Arg.t_of_var x |> Option.map ~f:Arg.id_of_t)
+            List.filter_map
+              (Vec.to_list (Block.args block))
+              ~f:(fun x -> Arg.t_of_var x |> Option.map ~f:Arg.id_of_t)
             |> Int.Set.of_list
         in
         let acc =
           Instr_state.fold
             (Block.instructions block)
             ~init:(~defs, ~uses:Int.Set.empty)
-            ~f:(fun acc instr -> f acc instr.Instr_state.ir)
+            ~f:(fun acc instr -> f acc (var_ir instr.Instr_state.ir))
         in
-        f acc (Block.terminal block).Instr_state.ir
+        f acc (var_ir (Block.terminal block).Instr_state.ir)
       ;;
 
       let calculate_intra_block_liveness t root =
@@ -136,16 +139,19 @@ module M (A : Arch.S) = struct
             ; live_out = block_liveness.overall.live_out
             }
           in
-          block_liveness.terminal <-
-            f after_terminal (Block.terminal block).Instr_state.ir;
+          block_liveness.terminal
+          <- f after_terminal (var_ir (Block.terminal block).Instr_state.ir);
           (* prob unnecessary *)
           Vec.clear block_liveness.instructions;
           let (_ : Liveness.t) =
             Instr_state.to_ir_list (Block.instructions block)
-            |> List.fold_right ~init:block_liveness.terminal ~f:(fun ir liveness ->
-                 let liveness = f liveness ir in
-                 Vec.push block_liveness.instructions liveness;
-                 liveness)
+            |> List.map ~f:var_ir
+            |> List.fold_right
+                 ~init:block_liveness.terminal
+                 ~f:(fun ir liveness ->
+                   let liveness = f liveness ir in
+                   Vec.push block_liveness.instructions liveness;
+                   liveness)
           in
           Vec.reverse_inplace block_liveness.instructions)
       ;;
@@ -206,10 +212,13 @@ module M (A : Arch.S) = struct
         let block_liveness = block_liveness t block in
         let instructions =
           List.zip_exn
-            (Instr_state.to_ir_list (Block.instructions block))
+            (Instr_state.to_ir_list (Block.instructions block)
+             |> List.map ~f:var_ir)
             (Vec.to_list block_liveness.instructions)
         in
-        let terminal = (Block.terminal block).Instr_state.ir, block_liveness.terminal in
+        let terminal =
+          var_ir (Block.terminal block).Instr_state.ir, block_liveness.terminal
+        in
         ~instructions, ~terminal
       ;;
     end
@@ -217,7 +226,7 @@ module M (A : Arch.S) = struct
 
   let var ~treat_block_args_as_defs ~reg_numbering =
     (module Make (struct
-        type t = Var.t [@@deriving sexp]
+        type t = Typed_var.t [@@deriving sexp]
 
         let treat_block_args_as_defs = treat_block_args_as_defs
         let uses_of_ir = Ir.uses
@@ -226,7 +235,7 @@ module M (A : Arch.S) = struct
         let t_of_id = Reg_numbering.id_var reg_numbering
         let id_of_t = Reg_numbering.var_id reg_numbering
       end) : S
-      with type Arg.t = Var.t)
+      with type Arg.t = Typed_var.t)
   ;;
 
   let phys ~reg_numbering =

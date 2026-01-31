@@ -24,7 +24,7 @@ let rec pick_scratch pool avoid =
   match pool with
   | [] -> failwith "no scratch registers available"
   | reg :: rest ->
-    if List.exists avoid ~f:(Reg.equal reg)
+    if List.exists avoid ~f:(fun r -> Arm64_reg.equal Poly.equal reg r)
     then pick_scratch rest avoid
     else reg
 ;;
@@ -35,9 +35,7 @@ let ensure_gpr operand ~dst ~avoid =
   | Reg reg -> [], reg, avoid
   | Imm imm ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
-    ( [ Asm.Mov { dst = scratch; src = Imm imm } ]
-    , scratch
-    , scratch :: avoid )
+    [ Asm.Mov { dst = scratch; src = Imm imm } ], scratch, scratch :: avoid
   | Mem (reg, disp) ->
     let scratch = pick_scratch gpr_scratch_pool (dst :: avoid) in
     ( [ Asm.Ldr { dst = scratch; addr = Mem (reg, disp) } ]
@@ -89,11 +87,11 @@ let order_blocks root =
        | false ->
          Hash_set.add seen block;
          try_push block;
-        Vec.iter (Block.children block) ~f:(fun child ->
-          if Vec.length (Block.parents child) = 1
-             && not (Hashtbl.mem idx_by_block child)
-          then try_push child);
-        Vec.iter (Block.children block) ~f:(Queue.enqueue q);
+         Vec.iter (Block.children block) ~f:(fun child ->
+           if Vec.length (Block.parents child) = 1
+              && not (Hashtbl.mem idx_by_block child)
+           then try_push child);
+         Vec.iter (Block.children block) ~f:(Queue.enqueue q);
          go ())
   in
   go ();
@@ -157,7 +155,10 @@ let lower_float_binary ~op ~dst ~lhs ~rhs =
 type lower_action =
   | No_emit
   | Emit_label of string
-  | Branch of Condition.t * Block.t Call_block.t * Block.t Call_block.t option
+  | Branch of
+      Condition.t
+      * (unit, Block.t) Call_block.t
+      * (unit, Block.t) Call_block.t option
   | Emit of Asm.instr list
 
 let lower_to_items ~system (functions : Function.t String.Map.t) =
@@ -203,18 +204,19 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
             sanitize_identifier
               (sprintf "%s__%s" sanitized_name (Block.id_hum block))
         in
-        let base_label = if idx = 0 then base_label else ensure_unique base_label in
+        let base_label =
+          if idx = 0 then base_label else ensure_unique base_label
+        in
         Hashtbl.add_exn label_by_block ~key:block ~data:base_label);
       let items_rev = ref [] in
-      let emit_instruction instr =
-        items_rev := Asm.Instr instr :: !items_rev
-      in
+      let emit_instruction instr = items_rev := Asm.Instr instr :: !items_rev in
       let emit_label label = items_rev := Asm.Label label :: !items_rev in
       let label_of_block block = Hashtbl.find_exn label_by_block block in
       let label_of_call_block call_block =
         label_of_block call_block.Call_block.block
       in
       let lower_instruction ~current_idx instr =
+        let instr = Arm64_ir.map_var_operands instr ~f:(fun _ -> ()) in
         let instr = unwrap_tags instr in
         let instr =
           match instr with
@@ -257,14 +259,16 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
             ensure_gpr desired ~dst ~avoid:(expected_reg :: used)
           in
           let move_dst =
-            if Reg.equal expected_reg dst
+            if Reg.equal Poly.equal expected_reg dst
             then []
             else [ Asm.Mov { dst; src = Reg expected_reg } ]
           in
           Emit
             (expected_setup
              @ desired_setup
-             @ [ Asm.Casal { expected = expected_reg; desired = desired_reg; addr } ]
+             @ [ Asm.Casal
+                   { expected = expected_reg; desired = desired_reg; addr }
+               ]
              @ move_dst)
         | Int_binary { op; dst; lhs; rhs } ->
           Emit (lower_int_binary ~op ~dst ~lhs ~rhs)
@@ -358,14 +362,14 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
         let instructions = Instr_state.to_ir_list (Block.instructions block) in
         List.iter instructions ~f:(fun ir ->
           match ir with
-          | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
-          | Ir0.Arm64_terminal xs ->
+          | Nod_ir.Ir.Arm64 x -> process_instruction ~current_idx:idx x
+          | Nod_ir.Ir.Arm64_terminal xs ->
             List.iter xs ~f:(process_instruction ~current_idx:idx)
           | _ -> ());
         match (Block.terminal block).Instr_state.ir with
-        | Ir0.Arm64_terminal xs ->
+        | Nod_ir.Ir.Arm64_terminal xs ->
           List.iter xs ~f:(process_instruction ~current_idx:idx)
-        | Ir0.Arm64 x -> process_instruction ~current_idx:idx x
+        | Nod_ir.Ir.Arm64 x -> process_instruction ~current_idx:idx x
         | _ -> ());
       { Asm.name; asm_label = fn_label; items = List.rev !items_rev })
 ;;

@@ -1,8 +1,7 @@
 open! Core
 open! Import
 
-let opt_flags ~unused_vars ~constant_propagation ~gvn :
-  Eir.Opt_flags.t =
+let opt_flags ~unused_vars ~constant_propagation ~gvn : Eir.Opt_flags.t =
   { unused_vars; constant_propagation; gvn }
 ;;
 
@@ -13,45 +12,39 @@ let compile_to_ssa s =
     { program with
       Program.functions =
         Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-          Function0.map_root
+          Function.map_root
             fn
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
   |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program ->
-    { program with
-      Program.functions =
-        Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-          Function0.map_root
-            fn
-            ~f:(Ssa.create ~fn_state:(Nod_core.State.fn_state state name)))
-    })
+  |> Result.map ~f:(fun program -> state, Ssa.convert_program program ~state)
 ;;
 
 let dump_program program =
-  Map.iter
-    program.Program.functions
-    ~f:(fun { Function.root = (ssa : Ssa.t); _ } ->
-      Vec.iter ssa.in_order ~f:(fun block ->
-        let instrs =
-          Instr_state.to_ir_list (Block.instructions block)
-          @ [ (Block.terminal block).Instr_state.ir ]
-        in
-        print_s
-          [%message
-            (Block.id_hum block)
-              ~args:(Block.args block : Var.t Vec.read)
-              (instrs : Ir.t list)]))
+  Map.iter program.Program.functions ~f:(fun fn ->
+    let root = Function.root fn in
+    Block.iter root ~f:(fun block ->
+      let instrs =
+        Instr_state.to_ir_list (Block.instructions block)
+        |> List.map ~f:Fn_state.var_ir
+        |> fun instrs ->
+        instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
+      in
+      print_s
+        [%message
+          (Block.id_hum block)
+            ~args:(Block.args block : Typed_var.t Vec.read)
+            (instrs : Ir.t list)]))
 ;;
 
 let run ?opt_flags s =
   match compile_to_ssa s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok program ->
+  | Ok (state, program) ->
     print_endline "before";
     dump_program program;
     print_endline "after";
-    Eir.optimize ?opt_flags program;
+    ignore (Eir.optimize ?opt_flags ~state program);
     dump_program program
 ;;
 
@@ -114,8 +107,7 @@ entry:
 ;;
 
 let%expect_test "constant propagation enables dce" =
-  run
-    {|
+  run {|
 entry:
   mov %x:i64, 10
   add %y:i64, %x, 32

@@ -14,8 +14,8 @@ module type S = sig
     val to_physical : t -> t option
     val should_save : t -> t option
     val class_ : t -> [ `Physical of Class.t | `Variable ]
-    val to_id : var_id:(Var.t -> int) -> t -> int
-    val of_id : id_var:(int -> Var.t) -> int -> t
+    val to_id : var_id:(Typed_var.t -> int) -> t -> int
+    val of_id : id_var:(int -> Typed_var.t) -> int -> t
   end
 
   type t [@@deriving sexp, compare, hash, equal]

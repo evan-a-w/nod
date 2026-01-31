@@ -3,6 +3,6 @@
  (preprocess
   (pps ppx_jane))
  (inline_tests)
- (libraries core core_unix vec nod_common feel nod_breadcrumbs)
+ (libraries core core_unix vec nod_common feel nod_breadcrumbs nod_ir)
  (flags
   (:standard -extension-universe beta)))

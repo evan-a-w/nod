@@ -1,15 +1,13 @@
 open! Core
 open! Import
 
-let map_function_roots ~f program =
-  Program.map_function_roots program ~f
-;;
+let map_function_roots ~f program = Program.map_function_roots program ~f
 
 let map_function_roots_with_state program ~state ~f =
   { program with
     Program.functions =
       Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
-        Function0.map_root
+        Function.map_root
           fn
           ~f:(f ~fn_state:(Nod_core.State.fn_state state name)))
   }
@@ -26,11 +24,15 @@ let test s =
   | Ok program ->
     Map.iter
       program.Program.functions
-      ~f:(fun { Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
+      ~f:
+        (fun
+          { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
-            @ [ (Block.terminal block).Instr_state.ir ]
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
           in
           print_s [%message (Block.id_hum block) (instrs : Ir.t list)]))
 ;;

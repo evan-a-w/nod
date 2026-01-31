@@ -25,12 +25,16 @@ let make_fn ~fn_state ~name ~args ~root =
 ;;
 
 let mk_block fn_state ~id_hum ~terminal =
-  Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+  Block.create
+    ~id_hum
+    ~terminal:
+      (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
 ;;
 
 let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
   let block = mk_block fn_state ~id_hum ~terminal in
-  List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+  List.iter instrs ~f:(fun ir ->
+    Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
   block
 ;;
 
@@ -251,7 +255,8 @@ root() {
   ret %z
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -307,7 +312,8 @@ root() {
   ret %y
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -352,7 +358,8 @@ root() {
   ret %x
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     buf:
@@ -399,7 +406,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     g:
@@ -465,7 +473,8 @@ root() {
   ret 0
 }
 |};
-  [%expect {|
+  [%expect
+    {|
     .data
     .balign 8
     f:
@@ -514,8 +523,8 @@ root() {
 ;;
 
 let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let loaded = Var.create ~name:"loaded" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let loaded = Typed_var.create ~name:"loaded" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -537,10 +546,11 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "dmb"; "stlr"; "ldar" ] asm;
-  [%expect
-    {|
+  [%expect {|
     dmb
     stlr
     dmb
@@ -551,9 +561,9 @@ let%expect_test "atomic load/store seq_cst lower to ldar/stlr with dmb" =
 ;;
 
 let%expect_test "atomic cmpxchg lowers to casal and success masking" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
-  let ok = Var.create ~name:"ok" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
+  let ok = Typed_var.create ~name:"ok" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -574,12 +584,13 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes
     [ "casal"; "eor x"; "sub x"; "orr x"; "asr x"; "and x" ]
     asm;
-  [%expect
-    {|
+  [%expect {|
     casal
     eor
     sub
@@ -591,8 +602,8 @@ let%expect_test "atomic cmpxchg lowers to casal and success masking" =
 ;;
 
 let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
-  let slot = Var.create ~name:"slot" ~type_:Type.Ptr in
-  let old = Var.create ~name:"old" ~type_:Type.I64 in
+  let slot = Typed_var.create ~name:"slot" ~type_:Type.Ptr in
+  let old = Typed_var.create ~name:"old" ~type_:Type.I64 in
   let fn_state = Fn_state.create () in
   let root =
     mk_block_with_instrs
@@ -605,16 +616,17 @@ let%expect_test "atomic rmw lowers to ldaxr/stlxr loop" =
             { dest = old
             ; addr = Ir.Mem.address (Ir.Lit_or_var.Var slot)
             ; src = Ir.Lit_or_var.Lit 1L
-            ; op = Ir.Rmw_op.Add
+            ; op = Nod_ir.Ir_helpers.Rmw_op.Add
             ; order = Ir.Memory_order.Relaxed
             }
         ]
   in
   let fn = make_fn ~fn_state ~name:"root" ~args:[] ~root in
-  let asm = compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ]) in
+  let asm =
+    compile_and_lower_functions (String.Map.of_alist_exn [ "root", fn ])
+  in
   print_mnemonics_with_prefixes [ "ldaxr"; "stlxr" ] asm;
-  [%expect
-    {|
+  [%expect {|
     ldaxr
     stlxr
     |}]

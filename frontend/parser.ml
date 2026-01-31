@@ -4,17 +4,18 @@ module Parser_comb = Parser_comb.Make (Token)
 open Parser_comb
 
 type unprocessed_cfg =
-  instrs_by_label:string Ir0.t Vec.t Core.String.Map.t * labels:string Vec.t
+  instrs_by_label:(Typed_var.t, string) Ir.t Vec.t Core.String.Map.t
+  * labels:string Vec.t
 [@@deriving sexp]
 
-type output = unprocessed_cfg Program.t [@@deriving sexp]
+type output = (Typed_var.t, unprocessed_cfg) Program.t [@@deriving sexp]
 
 module State = struct
   type t =
-    { instrs_by_label : string Ir0.t Vec.t String.Map.t
+    { instrs_by_label : (Typed_var.t, string) Ir.t Vec.t String.Map.t
     ; labels : string Vec.t
     ; current_block : string
-    ; current_instrs : string Ir0.t Vec.t
+    ; current_instrs : (Typed_var.t, string) Ir.t Vec.t
     ; var_types : Type.t String.Table.t
     ; globals : Global.t String.Table.t
     }
@@ -36,19 +37,19 @@ let fail_type_mismatch fmt =
 
 let ensure_value_type type_ =
   if Type.is_aggregate type_
-  then fail_type_mismatch "aggregate values are not supported: %s" (Type.to_string type_)
+  then
+    fail_type_mismatch
+      "aggregate values are not supported: %s"
+      (Type.to_string type_)
   else return type_
 ;;
 
 let sizeof_literal type_ =
-  type_ |> Type.size_in_bytes |> Int64.of_int |> fun s -> Ir.Lit_or_var.Lit s
+  type_ |> Type.size_in_bytes |> Int64.of_int |> fun s -> Lit_or_var.Lit s
 ;;
 
-let mem_address base ~offset = Ir.Mem.address ~offset base
-;;
-
+let mem_address base ~offset = Mem.address ~offset base
 let mem_of_lit_or_var base = mem_address base ~offset:0
-;;
 
 let ident () =
   match%bind next () with
@@ -148,7 +149,7 @@ let parse_sizeof_literal () =
     let%bind (_ : Pos.t) = expect Token.L_bracket in
     let%bind type_ = parse_type_expr () in
     let%map (_ : Pos.t) = expect Token.R_bracket in
-    Ir.Lit_or_var.Lit (Int64.of_int (Type.size_in_bytes type_))
+    Lit_or_var.Lit (Int64.of_int (Type.size_in_bytes type_))
   | _ -> fail (`Unexpected_token (tok, pos))
 ;;
 
@@ -163,7 +164,7 @@ let var_decl () =
   let%bind name = ident () in
   let%bind type_ = parse_type_annotation () in
   let%bind () = record_var_type name type_ in
-  return (Var.create ~name ~type_)
+  return (Typed_var.create ~name ~type_)
 ;;
 
 let var_use () =
@@ -173,10 +174,10 @@ let var_use () =
   | Some (Token.Colon, _) ->
     let%bind type_ = parse_type_annotation () in
     let%bind () = record_var_type name type_ in
-    return (Var.create ~name ~type_)
+    return (Typed_var.create ~name ~type_)
   | _ ->
     let%map type_ = ensure_var_type name in
-    Var.create ~name ~type_
+    Typed_var.create ~name ~type_
 ;;
 
 let lit () =
@@ -211,7 +212,7 @@ let rec parse_global_init () =
   | Some (Token.Minus, _) ->
     let%bind (_ : Pos.t) = expect Token.Minus in
     (match%bind next () with
-     | Token.Int i, _ -> return (Global.Int (Int64.(neg (of_int i))))
+     | Token.Int i, _ -> return (Global.Int Int64.(neg (of_int i)))
      | Token.Float f, _ -> return (Global.Float (-.f))
      | tok, pos -> fail (`Unexpected_token (tok, pos)))
   | Some (Token.Float _, _) ->
@@ -266,14 +267,14 @@ let lit_or_var () =
   match%bind peek () with
   | Some (Token.Int _, _) ->
     let%map i = lit () in
-    Ir.Lit_or_var.Lit (Int64.of_int i)
+    Lit_or_var.Lit (Int64.of_int i)
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
-    Ir.Lit_or_var.Var v
+    Lit_or_var.Var v
   | Some (Token.At, _) ->
     let%bind name = global_name () in
     let%map global = ensure_global name in
-    Ir.Lit_or_var.Global global
+    Lit_or_var.Global global
   | Some (tok, _) when is_sizeof_token tok -> parse_sizeof_literal ()
   | Some (tok, pos) -> fail (`Unexpected_token (tok, pos))
   | None -> fail `Unexpected_end_of_input
@@ -284,7 +285,7 @@ let mem_operand () =
   | Some (Token.At, _) ->
     let%bind name = global_name () in
     let%map global = ensure_global name in
-    Ir.Mem.Global global
+    Mem.Global global
   | _ ->
     let%map base = lit_or_var () in
     mem_of_lit_or_var base
@@ -294,14 +295,14 @@ let lit_or_var_or_ident () =
   match%bind peek () with
   | Some (Token.Int _, _) ->
     let%map i = lit () in
-    `Lit_or_var (Ir.Lit_or_var.Lit (Int64.of_int i))
+    `Lit_or_var (Lit_or_var.Lit (Int64.of_int i))
   | Some (Token.Percent, _) ->
     let%map v = var_use () in
-    `Lit_or_var (Ir.Lit_or_var.Var v)
+    `Lit_or_var (Lit_or_var.Var v)
   | Some (Token.At, _) ->
     let%bind name = global_name () in
     let%map global = ensure_global name in
-    `Lit_or_var (Ir.Lit_or_var.Global global)
+    `Lit_or_var (Lit_or_var.Global global)
   | Some (tok, _) when is_sizeof_token tok ->
     let%map lit = parse_sizeof_literal () in
     `Lit_or_var lit
@@ -370,13 +371,13 @@ let arith () =
   let%bind src1 = lit_or_var () in
   let%bind (_ : Pos.t) = comma () in
   let%map src2 = lit_or_var () in
-  { Ir.dest; src1; src2 }
+  ({ dest; src1; src2 } : _ Ir_helpers.arith)
 ;;
 
 let branch () =
   match%bind lit_or_var_or_ident () with
   | `Ident label ->
-    return [ Ir.branch (Uncond { Ir.Call_block.block = label; args = [] }) ]
+    return [ Ir.branch (Uncond { Call_block.block = label; args = [] }) ]
   | `Lit_or_var cond ->
     let%bind (_ : Pos.t) = comma () in
     let%bind label1 = ident () in
@@ -385,8 +386,8 @@ let branch () =
     [ Ir.branch
         (Cond
            { cond
-           ; if_true = { Ir.Call_block.block = label1; args = [] }
-           ; if_false = { Ir.Call_block.block = label2; args = [] }
+           ; if_true = { Call_block.block = label1; args = [] }
+           ; if_false = { Call_block.block = label2; args = [] }
            })
     ]
 ;;
@@ -517,7 +518,8 @@ let instructions_parser () =
     | Some _ ->
       let%bind instrs = instr () in
       let%bind state = get_state () in
-      List.iter instrs ~f:(fun instr -> Vec.push state.State.current_instrs instr);
+      List.iter instrs ~f:(fun instr ->
+        Vec.push state.State.current_instrs instr);
       go ()
   in
   let%bind () = go () in
@@ -587,8 +589,7 @@ let program_parser () =
   let%bind globals =
     let rec gather acc =
       match%bind peek () with
-      | Some (Token.Ident "global", _)
-      | Some (Token.Ident "GLOBAL", _) ->
+      | Some (Token.Ident "global", _) | Some (Token.Ident "GLOBAL", _) ->
         let%bind global = parse_global_decl () in
         gather (global :: acc)
       | _ -> return (List.rev acc)
@@ -603,7 +604,8 @@ let program_parser () =
 ;;
 
 let parser () : (output, Pos.t, State.t, _) Parser_comb.parser =
-  (assume_root () >>| fun functions -> { Program.globals = []; functions })
+  assume_root ()
+  >>| (fun functions -> { Program.globals = []; functions })
   <|> program_parser ()
 ;;
 

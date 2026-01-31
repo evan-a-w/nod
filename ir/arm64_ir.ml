@@ -3,16 +3,9 @@ open! Import
 module Reg = Arm64_reg
 module Raw = Arm64_reg.Raw
 
-module Symbol =
-  String_id.Make
-    (struct
-      let module_name = "Symbol"
-    end)
-    ()
-
 module Jump_target = struct
-  type t =
-    | Reg of Reg.t
+  type 'var t =
+    | Reg of 'var Reg.t
     | Imm of Int64.t
     | Symbol of Symbol.t
     | Label of string
@@ -71,10 +64,10 @@ module Comp_kind = struct
   [@@deriving sexp, equal, compare, hash, enumerate]
 end
 
-type operand =
-  | Reg of Reg.t
+type 'var operand =
+  | Reg of 'var Reg.t
   | Imm of Int64.t
-  | Mem of Reg.t * int (* [reg + offset] addressing *)
+  | Mem of 'var Reg.t * int (* [reg + offset] addressing *)
   | Spill_slot of int
 [@@deriving sexp, equal, compare, hash]
 
@@ -83,97 +76,102 @@ let reg_of_operand_exn = function
   | _ -> failwith "operand is not a register"
 ;;
 
-type 'block t =
+type ('var, 'block) t =
   | Nop
-  | Tag_use of 'block t * operand
-  | Tag_def of 'block t * operand
+  | Tag_use of ('var, 'block) t * 'var operand
+  | Tag_def of ('var, 'block) t * 'var operand
   | Move of
-      { dst : Reg.t
-      ; src : operand
+      { dst : 'var Reg.t
+      ; src : 'var operand
       }
   | Load of
-      { dst : Reg.t
-      ; addr : operand
+      { dst : 'var Reg.t
+      ; addr : 'var operand
       }
   | Store of
-      { src : operand
-      ; addr : operand
+      { src : 'var operand
+      ; addr : 'var operand
       }
   | Int_binary of
       { op : Int_op.t
-      ; dst : Reg.t
-      ; lhs : operand
-      ; rhs : operand
+      ; dst : 'var Reg.t
+      ; lhs : 'var operand
+      ; rhs : 'var operand
       }
   | Float_binary of
       { op : Float_op.t
-      ; dst : Reg.t
-      ; lhs : operand
-      ; rhs : operand
+      ; dst : 'var Reg.t
+      ; lhs : 'var operand
+      ; rhs : 'var operand
       }
   | Convert of
       { op : Convert_op.t
-      ; dst : Reg.t
-      ; src : operand
+      ; dst : 'var Reg.t
+      ; src : 'var operand
       }
   | Bitcast of
-      { dst : Reg.t
-      ; src : operand
+      { dst : 'var Reg.t
+      ; src : 'var operand
       }
   | Adr of
-      { dst : Reg.t
-      ; target : Jump_target.t
+      { dst : 'var Reg.t
+      ; target : 'var Jump_target.t
       }
   | Comp of
       { kind : Comp_kind.t
-      ; lhs : operand
-      ; rhs : operand
+      ; lhs : 'var operand
+      ; rhs : 'var operand
       }
   | Cset of
       { condition : Condition.t
-      ; dst : Reg.t
+      ; dst : 'var Reg.t
       }
   | Conditional_branch of
       { condition : Condition.t
-      ; then_ : 'block Call_block.t
-      ; else_ : 'block Call_block.t option
+      ; then_ : ('var, 'block) Call_block.t
+      ; else_ : ('var, 'block) Call_block.t option
       }
-  | Jump of 'block Call_block.t
+  | Jump of ('var, 'block) Call_block.t
   | Call of
       { fn : string
-      ; results : Reg.t list
-      ; args : operand list
+      ; results : 'var Reg.t list
+      ; args : 'var operand list
       }
-  | Ret of operand list
+  | Ret of 'var operand list
   | Label of string
   | Save_clobbers
   | Restore_clobbers
-  | Alloca of operand * Int64.t
+  | Alloca of 'var operand * Int64.t
   (* Atomic operations *)
   | Dmb (* Data Memory Barrier - full barrier *)
   | Ldar of
-      { dst : Reg.t
-      ; addr : operand
-      } (* Load-Acquire Register *)
+      { dst : 'var Reg.t
+      ; addr : 'var operand
+      }
+    (* Load-Acquire Register *)
   | Stlr of
-      { src : operand
-      ; addr : operand
-      } (* Store-Release Register *)
+      { src : 'var operand
+      ; addr : 'var operand
+      }
+    (* Store-Release Register *)
   | Ldaxr of
-      { dst : Reg.t
-      ; addr : operand
-      } (* Load-Acquire Exclusive Register *)
+      { dst : 'var Reg.t
+      ; addr : 'var operand
+      }
+    (* Load-Acquire Exclusive Register *)
   | Stlxr of
-      { status : Reg.t (* 0 on success, 1 on failure *)
-      ; src : operand
-      ; addr : operand
-      } (* Store-Release Exclusive Register *)
+      { status : 'var Reg.t (* 0 on success, 1 on failure *)
+      ; src : 'var operand
+      ; addr : 'var operand
+      }
+    (* Store-Release Exclusive Register *)
   | Casal of
-      { dst : Reg.t (* receives old value *)
-      ; expected : operand (* compared value *)
-      ; desired : operand
-      ; addr : operand
-      } (* Compare and Swap Acquire-Release *)
+      { dst : 'var Reg.t (* receives old value *)
+      ; expected : 'var operand (* compared value *)
+      ; desired : 'var operand
+      ; addr : 'var operand
+      }
+    (* Compare and Swap Acquire-Release *)
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
@@ -274,7 +272,7 @@ let rec fold_operands ins ~f ~init =
     fold_operand addr ~f ~init
 ;;
 
-let rebuild_virtual_reg (reg : Reg.t) ~var =
+let rebuild_virtual_reg (reg : 'var Reg.t) ~var =
   match Reg.raw reg with
   | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
   | Raw.Allocated (_, forced) ->
@@ -285,7 +283,7 @@ let rebuild_virtual_reg (reg : Reg.t) ~var =
   | _ -> reg
 ;;
 
-let map_reg (reg : Reg.t) ~f =
+let map_reg (reg : 'var Reg.t) ~f =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) ->
     Reg (rebuild_virtual_reg reg ~var:(f v))
@@ -295,30 +293,20 @@ let map_reg (reg : Reg.t) ~f =
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
-  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> target
+  | Jump_target.Imm i -> Jump_target.Imm i
+  | Jump_target.Symbol s -> Jump_target.Symbol s
+  | Jump_target.Label l -> Jump_target.Label l
 ;;
 
 let map_var_operand op ~f =
   match op with
-  | Reg r -> map_reg r ~f
-  | Imm _ | Spill_slot _ -> op
-  | Mem (r, disp) ->
-    (match map_reg r ~f with
-     | Reg r -> Mem (r, disp)
-     | _ -> failwith "expected register operand")
+  | Reg r -> Reg (Reg.map_vars r ~f)
+  | Imm i -> Imm i
+  | Spill_slot s -> Spill_slot s
+  | Mem (r, disp) -> Mem (Reg.map_vars r ~f, disp)
 ;;
 
-let map_virtual_reg reg ~f =
-  match Reg.raw reg with
-  | Raw.Unallocated v -> Reg.unallocated ~class_:(Reg.class_ reg) (f v)
-  | Raw.Allocated (v, forced) ->
-    let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
-    in
-    Reg.allocated ~class_:(Reg.class_ reg) (f v) forced
-  | _ -> reg
-;;
-
+let map_virtual_reg reg ~f = Reg.map_vars reg ~f
 let map_def_reg = map_virtual_reg
 let map_use_reg = map_virtual_reg
 
@@ -386,7 +374,10 @@ let rec map_var_operands ins ~f =
     Ldaxr { dst = map_reg_definition dst; addr = map_op addr }
   | Stlxr { status; src; addr } ->
     Stlxr
-      { status = map_reg_definition status; src = map_op src; addr = map_op addr }
+      { status = map_reg_definition status
+      ; src = map_op src
+      ; addr = map_op addr
+      }
   | Casal { dst; expected; desired; addr } ->
     Casal
       { dst = map_reg_definition dst
@@ -396,42 +387,42 @@ let rec map_var_operands ins ~f =
       }
 ;;
 
-let var_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) -> Some v
+let var_of_reg (reg : 'var Reg.t) =
+  match Reg.raw reg with
+  | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
 ;;
 
-let vars_of_reg = function
-  | ({ reg = Raw.Unallocated v | Raw.Allocated (v, _); _ } : Reg.t) ->
-    Var.Set.singleton v
-  | _ -> Var.Set.empty
+let vars_of_reg (reg : 'var Reg.t) =
+  match Reg.raw reg with
+  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
+  | _ -> []
 ;;
 
 let vars_of_operand = function
   | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ -> Var.Set.empty
+  | Imm _ | Spill_slot _ -> []
   | Mem (r, _) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
-  | Reg r -> Reg.Set.singleton r
+  | Reg r -> [ r ]
   | Spill_slot _ ->
     Breadcrumbs.frame_pointer_omission;
-    Reg.Set.singleton Reg.fp
-  | Imm _ -> Reg.Set.empty
-  | Mem (r, _) -> Reg.Set.singleton r
+    [ Reg.fp ]
+  | Imm _ -> []
+  | Mem (r, _) -> [ r ]
 ;;
 
 let regs_of_jump_target = function
-  | Jump_target.Reg r -> Reg.Set.singleton r
-  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> Reg.Set.empty
+  | Jump_target.Reg r -> [ r ]
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> []
 ;;
 
-let rec reg_defs ins : Reg.Set.t =
+let rec reg_defs ins =
   match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb | Stlr _ ->
-    Reg.Set.empty
-  | Tag_def (ins, op) -> Set.union (regs_of_operand op) (reg_defs ins)
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb | Stlr _ -> []
+  | Tag_def (ins, op) -> regs_of_operand op @ reg_defs ins
   | Tag_use (ins, _) -> reg_defs ins
   | Alloca (dst, _) -> regs_of_operand dst
   | Move { dst; _ }
@@ -444,61 +435,48 @@ let rec reg_defs ins : Reg.Set.t =
   | Cset { dst; _ }
   | Ldar { dst; _ }
   | Ldaxr { dst; _ }
-  | Casal { dst; _ } -> Reg.Set.singleton dst
-  | Stlxr { status; _ } -> Reg.Set.singleton status
-  | Call { results; _ } -> Set.add (Reg.Set.of_list results) Reg.lr
-  | Store _ | Comp _ | Conditional_branch _ | Jump _ | Ret _ -> Reg.Set.empty
+  | Casal { dst; _ } -> [ dst ]
+  | Stlxr { status; _ } -> [ status ]
+  | Call { results; _ } -> results @ [ Reg.lr ]
+  | Store _ | Comp _ | Conditional_branch _ | Jump _ | Ret _ -> []
 ;;
 
-let rec reg_uses ins : Reg.Set.t =
+let rec reg_uses ins =
   match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> Reg.Set.empty
-  | Tag_use (ins, op) -> Set.union (regs_of_operand op) (reg_uses ins)
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> []
+  | Tag_use (ins, op) -> regs_of_operand op @ reg_uses ins
   | Tag_def (ins, _) -> reg_uses ins
-  | Alloca _ -> Reg.Set.empty
+  | Alloca _ -> []
   | Move { src; _ } -> regs_of_operand src
   | Load { addr; _ } | Ldar { addr; _ } | Ldaxr { addr; _ } ->
     regs_of_operand addr
   | Store { src; addr } | Stlr { src; addr } ->
-    Set.union (regs_of_operand src) (regs_of_operand addr)
-  | Stlxr { src; addr; _ } ->
-    Set.union (regs_of_operand src) (regs_of_operand addr)
+    regs_of_operand src @ regs_of_operand addr
+  | Stlxr { src; addr; _ } -> regs_of_operand src @ regs_of_operand addr
   | Casal { expected; desired; addr; _ } ->
-    Reg.Set.union_list
-      [ regs_of_operand expected; regs_of_operand desired; regs_of_operand addr ]
+    regs_of_operand expected @ regs_of_operand desired @ regs_of_operand addr
   | Int_binary { lhs; rhs; _ } | Float_binary { lhs; rhs; _ } ->
-    Set.union (regs_of_operand lhs) (regs_of_operand rhs)
+    regs_of_operand lhs @ regs_of_operand rhs
   | Convert { src; _ } | Bitcast { src; _ } -> regs_of_operand src
   | Adr { target; _ } -> regs_of_jump_target target
-  | Comp { lhs; rhs; _ } ->
-    Set.union (regs_of_operand lhs) (regs_of_operand rhs)
-  | Cset _ -> Reg.Set.empty
-  | Call { args; _ } ->
-    List.fold args ~init:Reg.Set.empty ~f:(fun acc op ->
-      Set.union acc (regs_of_operand op))
-  | Ret ops ->
-    Set.add (Reg.Set.union_list (List.map ops ~f:regs_of_operand)) Reg.lr
+  | Comp { lhs; rhs; _ } -> regs_of_operand lhs @ regs_of_operand rhs
+  | Cset _ -> []
+  | Call { args; _ } -> List.concat_map args ~f:regs_of_operand
+  | Ret ops -> List.concat_map ops ~f:regs_of_operand @ [ Reg.lr ]
   | Conditional_branch { then_; else_; _ } ->
-    let use_cb cb =
-      Call_block.uses cb |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
+    let then_uses = Call_block.uses then_ |> List.map ~f:Reg.unallocated in
+    let else_uses =
+      Option.value_map else_ ~default:[] ~f:(fun cb ->
+        Call_block.uses cb |> List.map ~f:Reg.unallocated)
     in
-    let init = use_cb then_ in
-    Option.value_map else_ ~default:init ~f:(fun cb ->
-      Set.union init (use_cb cb))
-  | Jump cb ->
-    Call_block.uses cb |> List.map ~f:Reg.unallocated |> Reg.Set.of_list
+    then_uses @ else_uses
+  | Jump cb -> Call_block.uses cb |> List.map ~f:Reg.unallocated
 ;;
 
-let regs ins = Set.union (reg_defs ins) (reg_uses ins) |> Set.to_list
-
-let vars ins =
-  Set.union (reg_defs ins) (reg_uses ins)
-  |> Set.filter_map (module Var) ~f:var_of_reg
-  |> Set.to_list
-;;
-
-let defs ins = reg_defs ins |> Set.filter_map (module Var) ~f:var_of_reg
-let uses ins = reg_uses ins |> Set.filter_map (module Var) ~f:var_of_reg
+let regs ins = reg_defs ins @ reg_uses ins
+let vars ins = regs ins |> List.filter_map ~f:var_of_reg
+let defs ins = reg_defs ins |> List.filter_map ~f:var_of_reg
+let uses ins = reg_uses ins |> List.filter_map ~f:var_of_reg
 
 let rec blocks instr =
   match instr with
@@ -520,7 +498,7 @@ let rec blocks instr =
   | _ -> []
 ;;
 
-let rec map_blocks (instr : 'a t) ~(f : 'a -> 'b) : 'b t =
+let rec map_blocks (instr : ('var, 'a) t) ~(f : 'a -> 'b) : ('var, 'b) t =
   match instr with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
@@ -637,7 +615,11 @@ let rec map_uses t ~f =
     Stlxr { status; src = map_op src; addr = map_op addr }
   | Casal { dst; expected; desired; addr } ->
     Casal
-      { dst; expected = map_op expected; desired = map_op desired; addr = map_op addr }
+      { dst
+      ; expected = map_op expected
+      ; desired = map_op desired
+      ; addr = map_op addr
+      }
   | Int_binary { op; dst; lhs; rhs } ->
     Int_binary { op; dst; lhs = map_op lhs; rhs = map_op rhs }
   | Float_binary { op; dst; lhs; rhs } ->
@@ -661,7 +643,7 @@ let rec map_operands t ~f =
   let map_reg_operand reg =
     match f (Reg reg) with
     | Reg reg' -> reg'
-    | op -> Error.raise_s [%message "expected register operand" (op : operand)]
+    | op -> Error.raise_s [%message "expected register operand"]
   in
   let map_op op = f op in
   match t with
@@ -676,11 +658,13 @@ let rec map_operands t ~f =
   | Move { dst; src } -> Move { dst = map_reg_operand dst; src = map_op src }
   | Load { dst; addr } -> Load { dst = map_reg_operand dst; addr = map_op addr }
   | Ldar { dst; addr } -> Ldar { dst = map_reg_operand dst; addr = map_op addr }
-  | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg_operand dst; addr = map_op addr }
+  | Ldaxr { dst; addr } ->
+    Ldaxr { dst = map_reg_operand dst; addr = map_op addr }
   | Store { src; addr } -> Store { src = map_op src; addr = map_op addr }
   | Stlr { src; addr } -> Stlr { src = map_op src; addr = map_op addr }
   | Stlxr { status; src; addr } ->
-    Stlxr { status = map_reg_operand status; src = map_op src; addr = map_op addr }
+    Stlxr
+      { status = map_reg_operand status; src = map_op src; addr = map_op addr }
   | Casal { dst; expected; desired; addr } ->
     Casal
       { dst = map_reg_operand dst
@@ -793,8 +777,6 @@ let rec call_blocks = function
   | _ -> []
 ;;
 
-let map_lit_or_vars t ~f:_ = t
-
 let rec is_terminal = function
   | Save_clobbers | Restore_clobbers | Nop | Label _ -> false
   | Tag_def (ins, _) | Tag_use (ins, _) -> is_terminal ins
@@ -821,16 +803,15 @@ let rec is_terminal = function
 
 module For_backend = struct
   let rec map_use_operands
-    (t : 'a t)
-    ~(f : operand -> must_be_reg:bool -> operand)
-    : 'a t
+    (t : ('var, 'block) t)
+    ~(f : 'var operand -> must_be_reg:bool -> 'var operand)
+    : ('var, 'block) t
     =
     let map_op ?(must_be_reg = false) op =
       let op' = f op ~must_be_reg in
       match must_be_reg, op' with
       | true, Reg _ -> op'
-      | true, _ ->
-        Error.raise_s [%message "expected register operand" (op' : operand)]
+      | true, _ -> Error.raise_s [%message "expected register operand"]
       | false, _ -> op'
     in
     let map_reg r =
@@ -900,16 +881,15 @@ module For_backend = struct
   ;;
 
   let rec map_def_operands
-    (t : 'a t)
-    ~(f : operand -> must_be_reg:bool -> operand)
-    : 'a t
+    (t : ('var, 'block) t)
+    ~(f : 'var operand -> must_be_reg:bool -> 'var operand)
+    : ('var, 'block) t
     =
     let map_op ?(must_be_reg = false) op =
       let op' = f op ~must_be_reg in
       match must_be_reg, op' with
       | true, Reg _ -> op'
-      | true, _ ->
-        Error.raise_s [%message "expected register operand" (op' : operand)]
+      | true, _ -> Error.raise_s [%message "expected register operand"]
       | false, _ -> op'
     in
     let map_reg r =
@@ -941,7 +921,8 @@ module For_backend = struct
     | Ldaxr { dst; addr } -> Ldaxr { dst = map_reg dst; addr }
     | Casal { dst; expected; desired; addr } ->
       Casal { dst = map_reg dst; expected; desired; addr }
-    | Stlxr { status; src; addr } -> Stlxr { status = map_reg status; src; addr }
+    | Stlxr { status; src; addr } ->
+      Stlxr { status = map_reg status; src; addr }
     | Store st -> Store st
     | Stlr st -> Stlr st
     | Int_binary { op; dst; lhs; rhs } ->
