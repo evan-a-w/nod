@@ -1,7 +1,6 @@
 This file provides guidance to AI agents when working with the Nod repository.
 
 ## Build & Test Workflow
-- Install dependencies once: `opam install . --deps-only --with-test`
 - Build everything: `dune build`
 - Run the CLI: `dune exec nod -- --help`
 - **Run the test suite after every change:** `dune runtest`

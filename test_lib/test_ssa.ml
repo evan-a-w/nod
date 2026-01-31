@@ -75,7 +75,7 @@ let%expect_test "eir compile with args" =
         print_s
           [%message
             (Block.id_hum block)
-                  ~args:(Block.args block : Typed_var.t Vec.read)
+              ~args:(Block.args block : Typed_var.t Vec.read)
               (instrs : Ir.t list)]);
     [%expect
       {|
