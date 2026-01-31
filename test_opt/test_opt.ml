@@ -17,7 +17,7 @@ let compile_to_ssa s =
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
     })
   |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program -> Ssa.convert_program program ~state)
+  |> Result.map ~f:(fun program -> state, Ssa.convert_program program ~state)
 ;;
 
 let dump_program program =

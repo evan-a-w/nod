@@ -18,7 +18,7 @@ let test ?don't_opt s =
   |> Result.map ~f:(fun program -> Ssa.convert_program program ~state)
   |> function
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok (state, program) ->
+  | Ok program ->
     let go program =
       Map.iter program.Program.functions ~f:(fun fn ->
         Block.iter (Function.root fn) ~f:(fun block ->
