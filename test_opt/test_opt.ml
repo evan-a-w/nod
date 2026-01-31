@@ -1,24 +1,27 @@
 open! Core
 open! Import
+open! Dsl
 
 let opt_flags ~unused_vars ~constant_propagation ~gvn : Eir.Opt_flags.t =
   { unused_vars; constant_propagation; gvn }
 ;;
 
-let compile_to_ssa s =
+let lower_to_ssa program =
   let state = Nod_core.State.create () in
-  Parser.parse_string s
-  |> Result.map ~f:(fun program ->
+  let program =
     { program with
       Program.functions =
         Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
           Function.map_root
             fn
             ~f:(Cfg.process ~fn_state:(Nod_core.State.fn_state state name)))
-    })
-  |> Result.map ~f:(Eir.set_entry_block_args ~state)
-  |> Result.map ~f:(fun program -> state, Ssa.convert_program program ~state)
+    }
+  in
+  let program = Eir.set_entry_block_args ~state program in
+  state, Ssa.convert_program program ~state
 ;;
+
+let compile_to_ssa s = Parser.parse_string s |> Result.map ~f:lower_to_ssa
 
 let dump_program program =
   Map.iter program.Program.functions ~f:(fun fn ->
@@ -37,15 +40,36 @@ let dump_program program =
             (instrs : Ir.t list)]))
 ;;
 
+let run_compiled ?opt_flags (state, program) =
+  print_endline "before";
+  dump_program program;
+  print_endline "after";
+  ignore (Eir.optimize ?opt_flags ~state program);
+  dump_program program
+;;
+
+let run_program ?opt_flags program =
+  lower_to_ssa program |> run_compiled ?opt_flags
+;;
+
+let run_dsl ?opt_flags functions =
+  match
+    Dsl.program ~globals:[] ~functions:(List.map functions ~f:Dsl.Fn.pack)
+  with
+  | Ok program -> run_program ?opt_flags program
+  | Error err -> failwith (Nod_error.to_string err)
+;;
+
+let run_dsl' ?opt_flags irs =
+  let unnamed = Dsl.Fn.Unnamed.const Int64 irs in
+  let fn = Dsl.Fn.create ~unnamed ~name:"root" in
+  run_dsl ?opt_flags [ fn ]
+;;
+
 let run ?opt_flags s =
   match compile_to_ssa s with
   | Error e -> Nod_error.to_string e |> print_endline
-  | Ok (state, program) ->
-    print_endline "before";
-    dump_program program;
-    print_endline "after";
-    ignore (Eir.optimize ?opt_flags ~state program);
-    dump_program program
+  | Ok compiled -> run_compiled ?opt_flags compiled
 ;;
 
 let%expect_test "constant propagation folds arithmetic" =
@@ -163,5 +187,162 @@ entry:
         ((dest ((name z) (type_ I64))) (src1 (Var ((name x) (type_ I64))))
          (src2 (Lit 32))))
        (Return (Var ((name z) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "copy propagation eliminates redundant moves" =
+  let fn =
+    [%nod
+      fun (input : int64) ->
+        let tmp = mov input in
+        let alias = mov tmp in
+        return alias]
+  in
+  run_dsl
+    ~opt_flags:
+      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false)
+    [ fn ];
+  [%expect
+    {|
+    before
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Move ((name tmp) (type_ I64)) (Var ((name input) (type_ I64))))
+       (Move ((name alias) (type_ I64)) (Var ((name tmp) (type_ I64))))
+       (Return (Var ((name alias) (type_ I64)))))))
+    after
+    (%entry (args (((name input) (type_ I64))))
+     (instrs ((Return (Var ((name input) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "phi simplification removes redundant block args" =
+  run
+    {|
+entry:
+  mov %cond:i64, 0
+  mov %value:i64, 5
+  branch %cond, left, right
+
+left:
+  mov %res:i64, %value
+  branch 1, join, join
+
+right:
+  mov %res:i64, %value
+  branch 1, join, join
+
+join:
+  add %out:i64, %res, 1
+  return %out
+|};
+  [%expect
+    {|
+    before
+    (entry (args ())
+     (instrs
+      ((Move ((name cond) (type_ I64)) (Lit 0))
+       (Move ((name value) (type_ I64)) (Lit 5))
+       (Branch
+        (Cond (cond (Var ((name cond) (type_ I64))))
+         (if_true ((block ((id_hum left) (args ()))) (args ())))
+         (if_false ((block ((id_hum right) (args ()))) (args ()))))))))
+    (left (args ())
+     (instrs
+      ((Move ((name res%1) (type_ I64)) (Var ((name value) (type_ I64))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true
+          ((block ((id_hum join) (args (((name res) (type_ I64))))))
+           (args (((name res%1) (type_ I64))))))
+         (if_false
+          ((block ((id_hum join) (args (((name res) (type_ I64))))))
+           (args (((name res%1) (type_ I64)))))))))))
+    (join (args (((name res) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name out) (type_ I64))) (src1 (Var ((name res) (type_ I64))))
+         (src2 (Lit 1))))
+       (Return (Var ((name out) (type_ I64)))))))
+    (right (args ())
+     (instrs
+      ((Move ((name res%0) (type_ I64)) (Var ((name value) (type_ I64))))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true
+          ((block ((id_hum join) (args (((name res) (type_ I64))))))
+           (args (((name res%0) (type_ I64))))))
+         (if_false
+          ((block ((id_hum join) (args (((name res) (type_ I64))))))
+           (args (((name res%0) (type_ I64)))))))))))
+    after
+    (entry (args ())
+     (instrs ((Branch (Uncond ((block ((id_hum right) (args ()))) (args ())))))))
+    (right (args ())
+     (instrs ((Branch (Uncond ((block ((id_hum join) (args ()))) (args ())))))))
+    (join (args ()) (instrs ((Return (Lit 6)))))
+    |}]
+;;
+
+let%expect_test "arithmetic simplification canonicalizes identities" =
+  let fn =
+    [%nod
+      fun (input : int64) ->
+        let mul_zero = mul input (lit 0L) in
+        let same = sub mul_zero mul_zero in
+        return same]
+  in
+  run_dsl
+    ~opt_flags:
+      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false)
+    [ fn ];
+  [%expect
+    {|
+    before
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Mul
+        ((dest ((name mul_zero) (type_ I64)))
+         (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 0))))
+       (Sub
+        ((dest ((name same) (type_ I64)))
+         (src1 (Var ((name mul_zero) (type_ I64))))
+         (src2 (Var ((name mul_zero) (type_ I64))))))
+       (Return (Var ((name same) (type_ I64)))))))
+    after
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Move ((name mul_zero) (type_ I64)) (Lit 0))
+       (Move ((name same) (type_ I64)) (Lit 0))
+       (Return (Var ((name same) (type_ I64)))))))
+    |}]
+;;
+
+let%expect_test "constant branches simplify to jumps" =
+  run_dsl'
+    [%nod
+      label entry;
+      let x = mov (lit 1L) in
+      branch_to (lit 1L) ~if_true:"left" ~if_false:"right";
+      label right;
+      seq [ Instr.ir Ir.unreachable ];
+      label left;
+      return x];
+  [%expect
+    {|
+    before
+    (entry (args ())
+     (instrs
+      ((Move ((name x) (type_ I64)) (Lit 1))
+       (Branch
+        (Cond (cond (Lit 1))
+         (if_true ((block ((id_hum left) (args ()))) (args ())))
+         (if_false ((block ((id_hum right) (args ()))) (args ()))))))))
+    (left (args ()) (instrs ((Return (Var ((name x) (type_ I64)))))))
+    (right (args ()) (instrs (Unreachable)))
+    after
+    (entry (args ())
+     (instrs ((Branch (Uncond ((block ((id_hum left) (args ()))) (args ())))))))
+    (left (args ()) (instrs ((Return (Lit 1)))))
     |}]
 ;;
