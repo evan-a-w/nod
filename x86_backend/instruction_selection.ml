@@ -78,14 +78,14 @@ let expand_atomic_rmw t =
     in
     loop 0
   in
-  let rmw_loop_instrs ({ dest; addr; src; op; order } : Ir.atomic_rmw) =
+  let rmw_loop_instrs ({ dest; addr; src; op; order } : Typed_var.t Nod_ir.Ir_helpers.atomic_rmw) =
     require_class t dest Class.I64;
     let new_val = fresh_var t "rmw_new" in
     let success = fresh_var t "rmw_success" in
     let dest_var = Ir.Lit_or_var.Var dest in
     let compute =
       match op with
-      | Ir.Rmw_op.Xchg -> [ Ir.move new_val src ]
+      | Nod_ir.Ir_helpers.Rmw_op.Xchg -> [ Ir.move new_val src ]
       | Add -> [ Ir.add { dest = new_val; src1 = dest_var; src2 = src } ]
       | Sub -> [ Ir.sub { dest = new_val; src1 = dest_var; src2 = src } ]
       | And -> [ Ir.and_ { dest = new_val; src1 = dest_var; src2 = src } ]
@@ -181,7 +181,7 @@ let expand_atomic_rmw t =
   t
 ;;
 
-let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
+let operand_of_lit_or_var t ~class_ (lit_or_var : Typed_var.t Nod_ir.Lit_or_var.t) =
   match lit_or_var with
   | Lit l -> [], Imm l
   | Var v ->
@@ -192,7 +192,7 @@ let operand_of_lit_or_var t ~class_ (lit_or_var : Ir.Lit_or_var.t) =
     then failwith "global addresses are only supported in integer contexts";
     let tmp = fresh_var t "global_addr" in
     let reg = Reg.unallocated ~class_:Class.I64 tmp in
-    [ mov (Reg reg) (Symbol g.Global.name) ], Reg reg
+    [ mov (Reg reg) (Symbol g.name) ], Reg reg
 ;;
 
 let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =

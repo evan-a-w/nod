@@ -24,7 +24,7 @@ let rec pick_scratch pool avoid =
   match pool with
   | [] -> failwith "no scratch registers available"
   | reg :: rest ->
-    if List.exists avoid ~f:(Reg.equal reg)
+    if List.exists avoid ~f:(fun r -> [%equal: Arm64_reg.t] reg r)
     then pick_scratch rest avoid
     else reg
 ;;

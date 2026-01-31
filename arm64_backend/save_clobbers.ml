@@ -1,6 +1,7 @@
 open! Core
 open! Import
 open! Common
+open Ir
 
 let default_clobbers =
   let callee_saved =
@@ -11,7 +12,7 @@ let default_clobbers =
   let all_physical =
     List.filter_map Reg.all_physical ~f:Util.should_save |> Reg.Set.of_list
   in
-  Set.diff all_physical callee_saved
+  Core.Set.diff all_physical callee_saved
 ;;
 
 let regs_to_save ~state ~call_fn ~live_out =
@@ -29,7 +30,7 @@ let rec find_following_call ~start ~len ~instructions =
   then None
   else (
     match Vec.get instructions start with
-    | Ir0.Arm64 (Call { fn; _ }) -> Some fn
+    | Arm64 (Call { fn; _ }) -> Some fn
     | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
 ;;
 

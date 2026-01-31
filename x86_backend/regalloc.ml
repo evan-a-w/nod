@@ -20,9 +20,9 @@ let collect_var_classes root =
   Block.iter_instructions root ~f:(fun instr ->
     Ir.x86_regs instr.Instr_state.ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
-      match reg.reg with
-      | Raw.Unallocated var | Raw.Allocated (var, _) ->
-        note_var_class classes var reg.class_
+      match Reg.raw reg with
+      | X86_reg.Raw.Unallocated var | X86_reg.Raw.Allocated (var, _) ->
+        note_var_class classes var (Reg.class_ reg)
       | _ -> ()));
   classes
 ;;
@@ -46,13 +46,13 @@ let initialize_assignments root =
   Block.iter_instructions root ~f:(fun instr ->
     Ir.x86_regs instr.Instr_state.ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
-      match reg.reg with
-      | Raw.Allocated (_, Some (Raw.Allocated _))
-      | Raw.Allocated (_, Some (Raw.Unallocated _)) -> failwith "bug"
-      | Raw.Allocated (var, Some forced_raw) ->
+      match Reg.raw reg with
+      | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Allocated _))
+      | X86_reg.Raw.Allocated (_, Some (X86_reg.Raw.Unallocated _)) -> failwith "bug"
+      | X86_reg.Raw.Allocated (var, Some forced_raw) ->
         let forced = Reg.create ~class_:reg.class_ ~raw:forced_raw in
         update_assignment ~assignments ~var ~to_:(Reg forced)
-      | Raw.Allocated (var, None) -> Hash_set.add don't_spill var
+      | X86_reg.Raw.Allocated (var, None) -> Hash_set.add don't_spill var
       | _ -> ()));
   ~assignments, ~don't_spill
 ;;
