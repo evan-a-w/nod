@@ -2,7 +2,7 @@ open! Core
 
 type t =
   | Block_arg of
-      { block : Block.t
+      { block_id : string
       ; arg : int
       }
   | Instr of Instr_id.t

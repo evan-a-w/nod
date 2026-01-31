@@ -1,6 +1,8 @@
 open! Core
 open! Import
 open! Common
+module Ir_helpers = Nod_ir.Ir_helpers
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
 open Arm64_ir
 module Reg = Arm64_reg
 module Class = Arm64_reg.Class
@@ -186,13 +188,25 @@ let expand_atomic_rmw t =
           ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:Noop)
       in
       Block.set_dfs_id loop_block (Some 0);
+      let atomic =
+        { atomic with
+          dest = Value_state.var atomic.dest
+        ; addr = Nod_ir.Mem.map_vars atomic.addr ~f:Value_state.var
+        ; src = Nod_ir.Lit_or_var.map_vars atomic.src ~f:Value_state.var
+        }
+      in
       let loop_instrs, status_var = rmw_loop_instrs atomic in
+      let loop_instrs =
+        List.map loop_instrs ~f:(fun ir ->
+          Fn_state.value_ir t.fn_state (Ir0.arm64 ir))
+      in
       Fn_state.replace_irs
         t.fn_state
         ~block:loop_block
-        ~irs:(List.map loop_instrs ~f:Ir0.arm64);
+        ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
+      let status_var = Fn_state.ensure_value t.fn_state ~var:status_var in
       Fn_state.replace_terminal_ir
         t.fn_state
         ~block:loop_block
@@ -205,7 +219,8 @@ let expand_atomic_rmw t =
                 }));
       let before =
         match atomic.order with
-        | Ir.Memory_order.Seq_cst -> before @ [ Ir0.arm64 Dmb ]
+        | Ir.Memory_order.Seq_cst ->
+          before @ [ Fn_state.value_ir t.fn_state (Ir0.arm64 Dmb) ]
         | _ -> before
       in
       let after =
@@ -540,7 +555,12 @@ let mint_intermediate
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr t.fn_state ~ir:(Nod_ir.Ir.Arm64 (jump to_call_block)))
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:
+             (Fn_state.value_ir
+                t.fn_state
+                (Nod_ir.Ir.Arm64 (jump to_call_block))))
   in
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
@@ -583,7 +603,10 @@ let make_prologue t =
       ~terminal:
         (Fn_state.alloc_instr
            t.fn_state
-           ~ir:(Nod_ir.Ir.Arm64 (Jump { block = t.fn.root; args })))
+           ~ir:
+             (Fn_state.value_ir
+                t.fn_state
+                (Nod_ir.Ir.Arm64 (Jump { block = t.fn.root; args }))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -591,7 +614,10 @@ let make_prologue t =
   Fn_state.replace_irs
     t.fn_state
     ~block
-    ~irs:(List.map ~f:Ir.arm64 (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ]));
+    ~irs:
+      (List.map
+         (reg_arg_moves @ [ tag_def nop (Reg Reg.fp) ])
+         ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.arm64 ir)));
   block
 ;;
 
@@ -629,7 +655,10 @@ let make_epilogue t ~ret_shape =
   let block =
     Block.create
       ~id_hum
-      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(Nod_ir.Ir.Arm64 (Ret args')))
+      ~terminal:
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:(Fn_state.value_ir t.fn_state (Nod_ir.Ir.Arm64 (Ret args'))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
@@ -637,7 +666,9 @@ let make_epilogue t ~ret_shape =
   Fn_state.replace_irs
     t.fn_state
     ~block
-    ~irs:(List.map ~f:Ir.arm64 reg_res_moves);
+    ~irs:
+      (List.map reg_res_moves ~f:(fun ir ->
+         Fn_state.value_ir t.fn_state (Ir.arm64 ir)));
   block
 ;;
 
@@ -657,7 +688,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | None, Some _ -> r := this
     in
     Block.iter_instructions t.fn.root ~f:(fun instr ->
-      on_arch_irs instr.Instr_state.ir ~f:update);
+      on_arch_irs (var_ir instr.Instr_state.ir) ~f:update);
     !r
   in
   let prologue = make_prologue t in
@@ -696,19 +727,26 @@ let split_blocks_and_add_prologue_and_epilogue t =
               (match Arm64_ir.var_of_reg reg with
                | Some v -> v
                | None ->
-                 let v = fresh_like_var t arg in
-                 Fn_state.append_ir
-                   t.fn_state
-                   ~block
-                   ~ir:
-                     (Nod_ir.Ir.Arm64 (Move { dst = reg_of_var t v; src = operand }));
-                 v)
+                let v = fresh_like_var t arg in
+                Fn_state.append_ir
+                  t.fn_state
+                  ~block
+                  ~ir:
+                    (Fn_state.value_ir
+                       t.fn_state
+                       (Nod_ir.Ir.Arm64
+                          (Move { dst = reg_of_var t v; src = operand })));
+                v)
             | other ->
               let v = fresh_like_var t arg in
               Fn_state.append_ir
                 t.fn_state
                 ~block
-                ~ir:(Nod_ir.Ir.Arm64 (Move { dst = reg_of_var t v; src = other }));
+                ~ir:
+                  (Fn_state.value_ir
+                     t.fn_state
+                     (Nod_ir.Ir.Arm64
+                        (Move { dst = reg_of_var t v; src = other })));
               v)
         in
         Jump { Call_block.block = epilogue; args }
@@ -827,7 +865,10 @@ let insert_par_moves t =
            Fn_state.append_irs
              t.fn_state
              ~block
-             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
+             ~irs:
+               (par_moves t ~dst_to_src
+                |> Vec.to_list
+                |> List.map ~f:(Fn_state.value_ir t.fn_state))
          | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
          | Tag_use _
@@ -862,7 +903,10 @@ let remove_call_block_args t =
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
-      ~with_:(Ir.remove_block_args (Block.terminal block).Instr_state.ir)
+      ~with_:
+        (Nod_ir.Ir.map_call_blocks
+           (Block.terminal block).Instr_state.ir
+           ~f:(fun cb -> { cb with args = [] }))
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -879,14 +923,19 @@ let simple_translation_to_arm64_ir ~this_call_conv t =
     add_count t.block_names (Block.id_hum block);
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
-      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.arm64)
+      |> List.concat_map ~f:(fun ir ->
+           lower_ir (var_ir ir)
+           |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.arm64 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
       ~with_:
-        (Ir.arm64_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
+        (Fn_state.value_ir
+           t.fn_state
+           (Ir.arm64_terminal
+              (lower_ir (var_ir (Block.terminal block).Instr_state.ir)))));
   t
 ;;
 

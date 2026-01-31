@@ -26,11 +26,20 @@ type context =
   { ssa : Ssa.t
   ; fn_state : Fn_state.t
   ; opt_flags : Opt_flags.t
+  ; block_by_id : Block.t String.Table.t
   ; mutable block_tracker : block_tracker option
   }
 
 let create_context ~opt_flags ssa =
-  { ssa; fn_state = Ssa.fn_state ssa; opt_flags; block_tracker = None }
+  let block_by_id = String.Table.create () in
+  Block.iter (Ssa.root ssa) ~f:(fun block ->
+    Hashtbl.set block_by_id ~key:(Block.id_hum block) ~data:block);
+  { ssa
+  ; fn_state = Ssa.fn_state ssa
+  ; opt_flags
+  ; block_by_id
+  ; block_tracker = None
+  }
 ;;
 
 let rec iter_blocks ctx ~block ~f =
@@ -50,7 +59,7 @@ let value_of_var ctx var = Fn_state.value_by_var ctx.fn_state var
 let value_of_var_exn ctx var = Fn_state.ensure_value ctx.fn_state ~var
 
 let active_value (value : Value_state.t) =
-  if value.active then Some value else None
+  if value.Value_state.active then Some value else None
 
 let active_value_of_var ctx var =
   value_of_var ctx var |> Option.bind ~f:active_value
@@ -93,8 +102,9 @@ let block_for_instr_id_exn ctx instr_id =
 ;;
 
 let def_block_exn ctx (value : Value_state.t) =
-  match value.def with
-  | Def_site.Block_arg { block; _ } -> block
+  match value.Value_state.def with
+  | Def_site.Block_arg { block_id; _ } ->
+    Hashtbl.find_exn ctx.block_by_id block_id
   | Def_site.Instr instr_id -> block_for_instr_id_exn ctx instr_id
   | Def_site.Undefined -> failwith "value has no definition"
 ;;
@@ -119,7 +129,6 @@ let defining_values_for_block_arg ctx ~block ~arg_index =
     | xs -> Some xs)
   |> Vec.to_list
   |> List.concat
-  |> List.map ~f:(value_of_var_exn ctx)
 ;;
 
 (* --- Dead code elimination helpers --- *)
@@ -130,7 +139,7 @@ let rec remove_instr ctx ~block ~instr =
     match active_value value with
     | None -> ()
     | Some value ->
-      if Set.is_empty value.uses then try_kill_value ctx ~value)
+      if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
 
 and remove_arg_from_parent ctx ~parent ~idx ~from_block =
   let removed = ref [] in
@@ -151,10 +160,10 @@ and remove_arg_from_parent ctx ~parent ~idx ~from_block =
         })
   in
   Fn_state.replace_terminal_ir ctx.fn_state ~block:parent ~with_:new_ir;
-  List.iter !removed ~f:(fun var ->
-    match active_value_of_var ctx var with
+  List.iter !removed ~f:(fun value ->
+    match active_value value with
     | None -> ()
-    | Some value -> if Set.is_empty value.uses then try_kill_value ctx ~value)
+    | Some value -> if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
 
 and remove_arg ctx ~block ~arg_index =
   let args = Block.args block in
@@ -169,34 +178,37 @@ and remove_arg ctx ~block ~arg_index =
     remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
 
 and kill_definition ctx (value : Value_state.t) =
-  if not value.active
+  if not value.Value_state.active
   then ()
   else (
-    value.active <- false;
+    value.Value_state.active <- false;
     let def_block =
-      match value.def with
+      match value.Value_state.def with
       | Def_site.Undefined -> None
       | _ -> Some (def_block_exn ctx value)
     in
-    (match value.def with
+    (match value.Value_state.def with
      | Def_site.Instr instr_id ->
        let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
        Option.iter def_block ~f:(fun block -> remove_instr ctx ~block ~instr)
-     | Def_site.Block_arg { block; arg } -> remove_arg ctx ~block ~arg_index:arg
+     | Def_site.Block_arg { block_id; arg } ->
+       let block = Hashtbl.find_exn ctx.block_by_id block_id in
+       remove_arg ctx ~block ~arg_index:arg
      | Def_site.Undefined -> ());
     Option.iter ctx.block_tracker ~f:(fun tracker ->
       Option.iter def_block ~f:(fun block ->
         Block_tracker.ready tracker ~var:value ~block)))
 
 and try_kill_value ctx ~(value : Value_state.t) =
-  if not value.active
+  if not value.Value_state.active
   then ()
   else (
-    match Set.length value.uses, value.def with
+    match Set.length value.Value_state.uses, value.Value_state.def with
     | 0, _ -> kill_definition ctx value
-    | 1, Def_site.Block_arg { block; arg } ->
+    | 1, Def_site.Block_arg { block_id; arg } ->
       (* weird case in our ssa algo that is borked, fix it here *)
-      let use_id = Set.min_elt_exn value.uses in
+      let block = Hashtbl.find_exn ctx.block_by_id block_id in
+      let use_id = Set.min_elt_exn value.Value_state.uses in
       let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
       if Instr_id.equal use_id (Block.terminal block).Instr_state.id
          && List.equal
@@ -218,19 +230,18 @@ let update_uses ctx ~old_ir ~new_ir =
       match active_value value with
       | None -> ()
       | Some value ->
-        if Opt_flags.unused_vars ctx.opt_flags && Set.is_empty value.uses
+        if Opt_flags.unused_vars ctx.opt_flags && Set.is_empty value.Value_state.uses
         then try_kill_value ctx ~value)
 ;;
 
 (* --- Constant propagation helpers --- *)
 let constant_fold ctx ~instr =
   let instr =
-    Ssa.value_ir ctx.ssa instr
-    |> Ir.map_lit_or_vars ~f:(fun lit_or_var ->
+    Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
       match lit_or_var with
       | Lit _ -> lit_or_var
       | Var value ->
-        (match value.opt_tags.constant with
+        (match value.Value_state.opt_tags.constant with
          | Some i -> Lit i
          | None -> lit_or_var)
       | Global _ -> lit_or_var)
@@ -241,7 +252,7 @@ let constant_fold ctx ~instr =
 (* must be strict subset of uses and such *)
 let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
   let old_instr_id =
-    match value.def with
+    match value.Value_state.def with
     | Def_site.Block_arg _ ->
       failwith "Can't replace defining instr for block arg"
     | Def_site.Instr instr_id -> instr_id
@@ -251,7 +262,6 @@ let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
   let old_instr =
     Fn_state.instr ctx.fn_state old_instr_id |> Option.value_exn
   in
-  let new_ir = Ssa.var_ir new_ir in
   let new_instr = Fn_state.alloc_instr ctx.fn_state ~ir:new_ir in
   Fn_state.replace_instr
     ctx.fn_state
@@ -265,7 +275,6 @@ let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
 let replace_terminal ctx ~block ~new_terminal_ir =
   let old_terminal = Block.terminal block in
   let old_blocks = Ir.blocks old_terminal.Instr_state.ir in
-  let new_terminal_ir = Ssa.var_ir new_terminal_ir in
   let new_blocks = Ir.blocks new_terminal_ir in
   let diff =
     List.filter old_blocks ~f:(fun block' ->
@@ -281,11 +290,12 @@ let replace_terminal ctx ~block ~new_terminal_ir =
 ;;
 
 let rec refine_type ctx ~(value : Value_state.t) =
-  match value.opt_tags.constant with
+  match value.Value_state.opt_tags.constant with
   | Some _ -> ()
   | None ->
-    (match value.def with
-     | Def_site.Block_arg { block; arg } ->
+    (match value.Value_state.def with
+     | Def_site.Block_arg { block_id; arg } ->
+       let block = Hashtbl.find_exn ctx.block_by_id block_id in
        refine_type_block_arg ctx ~value ~block ~arg_index:arg
      | Def_site.Instr instr_id -> refine_type_instr ctx ~value ~instr_id
      | Def_site.Undefined -> ())
@@ -302,7 +312,7 @@ and refine_type_block_arg ctx ~value ~block ~arg_index =
         | Some a, Some b when Int64.equal a b -> acc
         | _ -> None)
     in
-    value.opt_tags <- { constant }
+    value.Value_state.opt_tags <- { constant }
 
 and refine_type_instr ctx ~value ~instr_id =
   let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
@@ -311,7 +321,7 @@ and refine_type_instr ctx ~value ~instr_id =
   match Ir.constant new_ir with
   | None -> ()
   | Some _ as constant ->
-    value.opt_tags <- { constant };
+    value.Value_state.opt_tags <- { constant };
     let terminal_uses =
       Ssa.uses_values
         ctx.ssa
@@ -355,12 +365,13 @@ let sweep_values ?on_terminal ctx ~on_value =
     else (
       Hash_set.add seen id;
       let def_block =
-        match value.def with
-        | Def_site.Block_arg { block; _ } -> Some block
+        match value.Value_state.def with
+        | Def_site.Block_arg { block_id; _ } ->
+          Some (Hashtbl.find_exn ctx.block_by_id block_id)
         | Def_site.Instr _ -> Some (def_block_exn ctx value)
         | Def_site.Undefined -> None
       in
-      (match value.def with
+      (match value.Value_state.def with
        | Def_site.Block_arg _ -> on_value value
        | Def_site.Instr instr_id ->
          let instr = instr_exn instr_id in
@@ -375,7 +386,7 @@ let sweep_values ?on_terminal ctx ~on_value =
   in
   Vec.iter ctx.fn_state.values ~f:(function
     | None -> ()
-    | Some value -> if value.active then go value);
+    | Some value -> if value.Value_state.active then go value);
   Option.iter on_terminal ~f:(fun _ -> ctx.block_tracker <- None)
 ;;
 
@@ -398,7 +409,7 @@ let pass_dce =
 let pass_gvn =
   { name = "gvn"
   ; enabled = Opt_flags.gvn
-  ; on_value = Some (fun ctx value -> if value.active then gvn ctx ~value)
+  ; on_value = Some (fun ctx value -> if value.Value_state.active then gvn ctx ~value)
   ; on_terminal = None
   }
 ;;

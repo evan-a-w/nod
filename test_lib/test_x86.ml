@@ -53,14 +53,14 @@ let%expect_test "trivi" =
       (root
        ((a (args ())
          (instrs
-          (((id (Instr_id 5)) (ir (Move ((name x) (type_ I64)) (Lit 10))))
-           ((id (Instr_id 0)) (ir (Move ((name y) (type_ I64)) (Lit 20))))
+          (((id (Instr_id 5)) (ir (Move (Value_id 0) (Lit 10))))
+           ((id (Instr_id 0)) (ir (Move (Value_id 1) (Lit 20))))
            ((id (Instr_id 1))
             (ir
              (Sub
-              ((dest ((name z) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
-               (src2 (Var ((name x) (type_ I64))))))))
-           ((id (Instr_id 2)) (ir (Return (Var ((name z) (type_ I64)))))))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 1)))
+               (src2 (Var (Value_id 0)))))))
+           ((id (Instr_id 2)) (ir (Return (Var (Value_id 2))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -134,13 +134,13 @@ let%expect_test "a" =
       (root
        ((a (args ())
          (instrs
-          (((id (Instr_id 13)) (ir (Move ((name x) (type_ I64)) (Lit 10))))
-           ((id (Instr_id 3)) (ir (Move ((name y) (type_ I64)) (Lit 20))))
+          (((id (Instr_id 13)) (ir (Move (Value_id 0) (Lit 10))))
+           ((id (Instr_id 3)) (ir (Move (Value_id 1) (Lit 20))))
            ((id (Instr_id 4))
             (ir
              (Sub
-              ((dest ((name z) (type_ I64))) (src1 (Var ((name y) (type_ I64))))
-               (src2 (Var ((name x) (type_ I64))))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 1)))
+               (src2 (Var (Value_id 0)))))))
            ((id (Instr_id 5))
             (ir
              (Branch
@@ -151,35 +151,32 @@ let%expect_test "a" =
          (instrs
           (((id (Instr_id 16))
             (ir
-             (Add
-              ((dest ((name z%2) (type_ I64)))
-               (src1 (Var ((name z) (type_ I64)))) (src2 (Lit 5))))))
+             (Add ((dest (Value_id 5)) (src1 (Var (Value_id 2))) (src2 (Lit 5))))))
            ((id (Instr_id 7))
             (ir
              (Branch
               (Cond (cond (Lit 1))
                (if_true
                 ((block ((id_hum end) (args (((name z%0) (type_ I64))))))
-                 (args (((name z%2) (type_ I64))))))
+                 (args ((Value_id 5)))))
                (if_false
                 ((block ((id_hum end) (args (((name z%0) (type_ I64))))))
-                 (args (((name z%2) (type_ I64)))))))))))))
+                 (args ((Value_id 5))))))))))))
         (end (args (((name z%0) (type_ I64))))
-         (instrs
-          (((id (Instr_id 14)) (ir (Return (Var ((name z%0) (type_ I64)))))))))
+         (instrs (((id (Instr_id 14)) (ir (Return (Var (Value_id 3))))))))
         (c (args ())
          (instrs
-          (((id (Instr_id 15)) (ir (Move ((name z%1) (type_ I64)) (Lit 0))))
+          (((id (Instr_id 15)) (ir (Move (Value_id 4) (Lit 0))))
            ((id (Instr_id 2))
             (ir
              (Branch
               (Cond (cond (Lit 1))
                (if_true
                 ((block ((id_hum end) (args (((name z%0) (type_ I64))))))
-                 (args (((name z%1) (type_ I64))))))
+                 (args ((Value_id 4)))))
                (if_false
                 ((block ((id_hum end) (args (((name z%0) (type_ I64))))))
-                 (args (((name z%1) (type_ I64)))))))))))))))
+                 (args ((Value_id 4))))))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -343,63 +340,56 @@ let%expect_test "e2" =
       (root
        ((start (args ())
          (instrs
-          (((id (Instr_id 15)) (ir (Move ((name x) (type_ I64)) (Lit 7))))
-           ((id (Instr_id 3)) (ir (Move ((name y) (type_ I64)) (Lit 2))))
+          (((id (Instr_id 15)) (ir (Move (Value_id 0) (Lit 7))))
+           ((id (Instr_id 3)) (ir (Move (Value_id 1) (Lit 2))))
            ((id (Instr_id 4))
             (ir
-             (Mul
-              ((dest ((name x%0) (type_ I64)))
-               (src1 (Var ((name x) (type_ I64)))) (src2 (Lit 3))))))
+             (Mul ((dest (Value_id 3)) (src1 (Var (Value_id 0))) (src2 (Lit 3))))))
            ((id (Instr_id 5))
             (ir
              (Div
-              ((dest ((name x%1) (type_ I64)))
-               (src1 (Var ((name x%0) (type_ I64))))
-               (src2 (Var ((name y) (type_ I64))))))))
+              ((dest (Value_id 4)) (src1 (Var (Value_id 3)))
+               (src2 (Var (Value_id 1)))))))
            ((id (Instr_id 6))
             (ir
-             (Sub
-              ((dest ((name cond) (type_ I64)))
-               (src1 (Var ((name y) (type_ I64)))) (src2 (Lit 2))))))
+             (Sub ((dest (Value_id 2)) (src1 (Var (Value_id 1))) (src2 (Lit 2))))))
            ((id (Instr_id 7))
             (ir
              (Branch
-              (Cond (cond (Var ((name cond) (type_ I64))))
+              (Cond (cond (Var (Value_id 2)))
                (if_true ((block ((id_hum ifTrue) (args ()))) (args ())))
                (if_false ((block ((id_hum ifFalse) (args ()))) (args ()))))))))))
         (ifTrue (args ())
          (instrs
-          (((id (Instr_id 18)) (ir (Move ((name x%4) (type_ I64)) (Lit 999))))
+          (((id (Instr_id 18)) (ir (Move (Value_id 7) (Lit 999))))
            ((id (Instr_id 9))
             (ir
              (Branch
               (Cond (cond (Lit 1))
                (if_true
                 ((block ((id_hum end) (args (((name x%2) (type_ I64))))))
-                 (args (((name x%4) (type_ I64))))))
+                 (args ((Value_id 7)))))
                (if_false
                 ((block ((id_hum end) (args (((name x%2) (type_ I64))))))
-                 (args (((name x%4) (type_ I64)))))))))))))
+                 (args ((Value_id 7))))))))))))
         (end (args (((name x%2) (type_ I64))))
-         (instrs
-          (((id (Instr_id 16)) (ir (Return (Var ((name x%2) (type_ I64)))))))))
+         (instrs (((id (Instr_id 16)) (ir (Return (Var (Value_id 5))))))))
         (ifFalse (args ())
          (instrs
           (((id (Instr_id 17))
             (ir
              (Add
-              ((dest ((name x%3) (type_ I64)))
-               (src1 (Var ((name x%1) (type_ I64)))) (src2 (Lit 10))))))
+              ((dest (Value_id 6)) (src1 (Var (Value_id 4))) (src2 (Lit 10))))))
            ((id (Instr_id 2))
             (ir
              (Branch
               (Cond (cond (Lit 1))
                (if_true
                 ((block ((id_hum end) (args (((name x%2) (type_ I64))))))
-                 (args (((name x%3) (type_ I64))))))
+                 (args ((Value_id 6)))))
                (if_false
                 ((block ((id_hum end) (args (((name x%2) (type_ I64))))))
-                 (args (((name x%3) (type_ I64)))))))))))))))
+                 (args ((Value_id 6))))))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -608,20 +598,17 @@ let%expect_test "c2" =
       (root
        ((entry (args ())
          (instrs
-          (((id (Instr_id 6)) (ir (Move ((name a) (type_ I64)) (Lit 100))))
-           ((id (Instr_id 0)) (ir (Move ((name b) (type_ I64)) (Lit 6))))
+          (((id (Instr_id 6)) (ir (Move (Value_id 0) (Lit 100))))
+           ((id (Instr_id 0)) (ir (Move (Value_id 1) (Lit 6))))
            ((id (Instr_id 1))
             (ir
              (Mod
-              ((dest ((name res) (type_ I64)))
-               (src1 (Var ((name a) (type_ I64))))
-               (src2 (Var ((name b) (type_ I64))))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 0)))
+               (src2 (Var (Value_id 1)))))))
            ((id (Instr_id 2))
             (ir
-             (Add
-              ((dest ((name res%0) (type_ I64)))
-               (src1 (Var ((name res) (type_ I64)))) (src2 (Lit 1))))))
-           ((id (Instr_id 3)) (ir (Return (Var ((name res%0) (type_ I64)))))))))))
+             (Add ((dest (Value_id 3)) (src1 (Var (Value_id 2))) (src2 (Lit 1))))))
+           ((id (Instr_id 3)) (ir (Return (Var (Value_id 3))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -715,15 +702,12 @@ ret %dyn
       (root
        ((%root (args ())
          (instrs
-          (((id (Instr_id 5)) (ir (Move ((name n) (type_ I64)) (Lit 24))))
+          (((id (Instr_id 5)) (ir (Move (Value_id 0) (Lit 24))))
            ((id (Instr_id 0))
-            (ir (Alloca ((dest ((name ptr) (type_ Ptr))) (size (Lit 16))))))
+            (ir (Alloca ((dest (Value_id 1)) (size (Lit 16))))))
            ((id (Instr_id 1))
-            (ir
-             (Alloca
-              ((dest ((name dyn) (type_ Ptr)))
-               (size (Var ((name n) (type_ I64))))))))
-           ((id (Instr_id 2)) (ir (Return (Var ((name dyn) (type_ Ptr)))))))))))
+            (ir (Alloca ((dest (Value_id 2)) (size (Var (Value_id 0)))))))
+           ((id (Instr_id 2)) (ir (Return (Var (Value_id 2))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -803,9 +787,9 @@ let%expect_test "f" =
       (root
        ((start (args ())
          (instrs
-          (((id (Instr_id 48)) (ir (Move ((name n) (type_ I64)) (Lit 7))))
-           ((id (Instr_id 9)) (ir (Move ((name i) (type_ I64)) (Lit 0))))
-           ((id (Instr_id 10)) (ir (Move ((name total) (type_ I64)) (Lit 0))))
+          (((id (Instr_id 48)) (ir (Move (Value_id 0) (Lit 7))))
+           ((id (Instr_id 9)) (ir (Move (Value_id 1) (Lit 0))))
+           ((id (Instr_id 10)) (ir (Move (Value_id 2) (Lit 0))))
            ((id (Instr_id 11))
             (ir
              (Branch
@@ -816,18 +800,14 @@ let%expect_test "f" =
                    (args
                     (((name i%0) (type_ I64)) ((name j) (type_ I64))
                      ((name partial) (type_ I64))))))
-                 (args
-                  (((name i) (type_ I64)) ((name j) (type_ I64))
-                   ((name partial) (type_ I64))))))
+                 (args ((Value_id 1) (Value_id 4) (Value_id 5)))))
                (if_false
                 ((block
                   ((id_hum exit)
                    (args
                     (((name total%2) (type_ I64)) ((name j%5) (type_ I64))
                      ((name partial%4) (type_ I64))))))
-                 (args
-                  (((name total) (type_ I64)) ((name j) (type_ I64))
-                   ((name partial) (type_ I64)))))))))))))
+                 (args ((Value_id 2) (Value_id 4) (Value_id 5))))))))))))
         (outerCheck
          (args
           (((name i%0) (type_ I64)) ((name j) (type_ I64))
@@ -836,13 +816,12 @@ let%expect_test "f" =
           (((id (Instr_id 49))
             (ir
              (Sub
-              ((dest ((name condOuter) (type_ I64)))
-               (src1 (Var ((name i%0) (type_ I64))))
-               (src2 (Var ((name n) (type_ I64))))))))
+              ((dest (Value_id 3)) (src1 (Var (Value_id 10)))
+               (src2 (Var (Value_id 0)))))))
            ((id (Instr_id 13))
             (ir
              (Branch
-              (Cond (cond (Var ((name condOuter) (type_ I64))))
+              (Cond (cond (Var (Value_id 3)))
                (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
                (if_false
                 ((block
@@ -850,14 +829,11 @@ let%expect_test "f" =
                    (args
                     (((name total%2) (type_ I64)) ((name j%5) (type_ I64))
                      ((name partial%4) (type_ I64))))))
-                 (args
-                  (((name total) (type_ I64)) ((name j) (type_ I64))
-                   ((name partial) (type_ I64)))))))))))))
+                 (args ((Value_id 2) (Value_id 4) (Value_id 5))))))))))))
         (outerBody (args ())
          (instrs
-          (((id (Instr_id 50)) (ir (Move ((name j%0) (type_ I64)) (Lit 0))))
-           ((id (Instr_id 14))
-            (ir (Move ((name partial%0) (type_ I64)) (Lit 0))))
+          (((id (Instr_id 50)) (ir (Move (Value_id 11) (Lit 0))))
+           ((id (Instr_id 14)) (ir (Move (Value_id 12) (Lit 0))))
            ((id (Instr_id 1))
             (ir
              (Branch
@@ -867,46 +843,42 @@ let%expect_test "f" =
                   ((id_hum innerCheck)
                    (args
                     (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))))
-                 (args (((name j%0) (type_ I64)) ((name partial%0) (type_ I64))))))
+                 (args ((Value_id 11) (Value_id 12)))))
                (if_false
                 ((block
                   ((id_hum outerInc) (args (((name total%1) (type_ I64))))))
-                 (args (((name total) (type_ I64)))))))))))))
+                 (args ((Value_id 2))))))))))))
         (innerCheck
          (args (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))
          (instrs
           (((id (Instr_id 51))
             (ir
              (Sub
-              ((dest ((name condInner) (type_ I64)))
-               (src1 (Var ((name j%1) (type_ I64)))) (src2 (Lit 3))))))
+              ((dest (Value_id 6)) (src1 (Var (Value_id 13))) (src2 (Lit 3))))))
            ((id (Instr_id 16))
             (ir
              (Branch
-              (Cond (cond (Var ((name condInner) (type_ I64))))
+              (Cond (cond (Var (Value_id 6)))
                (if_true ((block ((id_hum innerBody) (args ()))) (args ())))
                (if_false
                 ((block
                   ((id_hum innerExit)
                    (args
                     (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))))
-                 (args (((name j%1) (type_ I64)) ((name partial%1) (type_ I64)))))))))))))
+                 (args ((Value_id 13) (Value_id 14))))))))))))
         (innerBody (args ())
          (instrs
           (((id (Instr_id 53))
             (ir
              (And
-              ((dest ((name isEven) (type_ I64)))
-               (src1 (Var ((name j%1) (type_ I64)))) (src2 (Lit 1))))))
+              ((dest (Value_id 7)) (src1 (Var (Value_id 13))) (src2 (Lit 1))))))
            ((id (Instr_id 17))
             (ir
-             (Sub
-              ((dest ((name condSkip) (type_ I64)))
-               (src1 (Var ((name isEven) (type_ I64)))) (src2 (Lit 0))))))
+             (Sub ((dest (Value_id 8)) (src1 (Var (Value_id 7))) (src2 (Lit 0))))))
            ((id (Instr_id 3))
             (ir
              (Branch
-              (Cond (cond (Var ((name condSkip) (type_ I64))))
+              (Cond (cond (Var (Value_id 8)))
                (if_true ((block ((id_hum doWork) (args ()))) (args ())))
                (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))))
         (doWork (args ())
@@ -914,20 +886,17 @@ let%expect_test "f" =
           (((id (Instr_id 54))
             (ir
              (Mul
-              ((dest ((name tmp) (type_ I64)))
-               (src1 (Var ((name i%0) (type_ I64))))
-               (src2 (Var ((name j%1) (type_ I64))))))))
+              ((dest (Value_id 9)) (src1 (Var (Value_id 10)))
+               (src2 (Var (Value_id 13)))))))
            ((id (Instr_id 19))
             (ir
              (Add
-              ((dest ((name partial%3) (type_ I64)))
-               (src1 (Var ((name partial%1) (type_ I64))))
-               (src2 (Var ((name tmp) (type_ I64))))))))
+              ((dest (Value_id 18)) (src1 (Var (Value_id 14)))
+               (src2 (Var (Value_id 9)))))))
            ((id (Instr_id 5))
             (ir
              (Add
-              ((dest ((name j%3) (type_ I64)))
-               (src1 (Var ((name j%1) (type_ I64)))) (src2 (Lit 1))))))
+              ((dest (Value_id 19)) (src1 (Var (Value_id 13))) (src2 (Lit 1))))))
            ((id (Instr_id 21))
             (ir
              (Branch
@@ -937,22 +906,21 @@ let%expect_test "f" =
                   ((id_hum innerCheck)
                    (args
                     (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))))
-                 (args (((name j%3) (type_ I64)) ((name partial%3) (type_ I64))))))
+                 (args ((Value_id 19) (Value_id 18)))))
                (if_false
                 ((block
                   ((id_hum innerExit)
                    (args
                     (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))))
-                 (args (((name j%3) (type_ I64)) ((name partial%3) (type_ I64)))))))))))))
+                 (args ((Value_id 19) (Value_id 18))))))))))))
         (innerExit
          (args (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))
          (instrs
           (((id (Instr_id 52))
             (ir
              (Add
-              ((dest ((name total%0) (type_ I64)))
-               (src1 (Var ((name total) (type_ I64))))
-               (src2 (Var ((name partial%2) (type_ I64))))))))
+              ((dest (Value_id 17)) (src1 (Var (Value_id 2)))
+               (src2 (Var (Value_id 16)))))))
            ((id (Instr_id 23))
             (ir
              (Branch
@@ -960,23 +928,20 @@ let%expect_test "f" =
                (if_true
                 ((block
                   ((id_hum outerInc) (args (((name total%1) (type_ I64))))))
-                 (args (((name total%0) (type_ I64))))))
+                 (args ((Value_id 17)))))
                (if_false
                 ((block
                   ((id_hum exit)
                    (args
                     (((name total%2) (type_ I64)) ((name j%5) (type_ I64))
                      ((name partial%4) (type_ I64))))))
-                 (args
-                  (((name total%0) (type_ I64)) ((name j%2) (type_ I64))
-                   ((name partial%2) (type_ I64)))))))))))))
+                 (args ((Value_id 17) (Value_id 15) (Value_id 16))))))))))))
         (outerInc (args (((name total%1) (type_ I64))))
          (instrs
           (((id (Instr_id 56))
             (ir
              (Add
-              ((dest ((name i%1) (type_ I64)))
-               (src1 (Var ((name i%0) (type_ I64)))) (src2 (Lit 1))))))
+              ((dest (Value_id 22)) (src1 (Var (Value_id 10))) (src2 (Lit 1))))))
            ((id (Instr_id 24))
             (ir
              (Branch
@@ -986,22 +951,18 @@ let%expect_test "f" =
                   (args
                    (((name i%0) (type_ I64)) ((name j) (type_ I64))
                     ((name partial) (type_ I64))))))
-                (args
-                 (((name i%1) (type_ I64)) ((name j%0) (type_ I64))
-                  ((name partial%0) (type_ I64))))))))))))
+                (args ((Value_id 22) (Value_id 11) (Value_id 12)))))))))))
         (exit
          (args
           (((name total%2) (type_ I64)) ((name j%5) (type_ I64))
            ((name partial%4) (type_ I64))))
-         (instrs
-          (((id (Instr_id 57)) (ir (Return (Var ((name total%2) (type_ I64)))))))))
+         (instrs (((id (Instr_id 57)) (ir (Return (Var (Value_id 23))))))))
         (skipEven (args ())
          (instrs
           (((id (Instr_id 55))
             (ir
              (Add
-              ((dest ((name j%4) (type_ I64)))
-               (src1 (Var ((name j%1) (type_ I64)))) (src2 (Lit 1))))))
+              ((dest (Value_id 20)) (src1 (Var (Value_id 13))) (src2 (Lit 1))))))
            ((id (Instr_id 8))
             (ir
              (Branch
@@ -1011,13 +972,13 @@ let%expect_test "f" =
                   ((id_hum innerCheck)
                    (args
                     (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))))
-                 (args (((name j%4) (type_ I64)) ((name partial%1) (type_ I64))))))
+                 (args ((Value_id 20) (Value_id 14)))))
                (if_false
                 ((block
                   ((id_hum innerExit)
                    (args
                     (((name j%2) (type_ I64)) ((name partial%2) (type_ I64))))))
-                 (args (((name j%4) (type_ I64)) ((name partial%1) (type_ I64)))))))))))))))
+                 (args ((Value_id 20) (Value_id 14))))))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -1548,48 +1509,41 @@ let%expect_test "fib_rec" =
           (((id (Instr_id 13))
             (ir
              (Branch
-              (Cond (cond (Var ((name arg) (type_ I64))))
+              (Cond (cond (Var (Value_id 0)))
                (if_true ((block ((id_hum check1_) (args ()))) (args ())))
                (if_false
                 ((block ((id_hum ret_1) (args (((name m1) (type_ I64))))))
-                 (args (((name m1) (type_ I64)))))))))))))
+                 (args ((Value_id 1))))))))))))
         (check1_ (args ())
          (instrs
           (((id (Instr_id 15))
             (ir
-             (Sub
-              ((dest ((name m1%0) (type_ I64)))
-               (src1 (Var ((name arg) (type_ I64)))) (src2 (Lit 1))))))
+             (Sub ((dest (Value_id 6)) (src1 (Var (Value_id 0))) (src2 (Lit 1))))))
            ((id (Instr_id 4))
             (ir
              (Branch
-              (Cond (cond (Var ((name m1%0) (type_ I64))))
+              (Cond (cond (Var (Value_id 6)))
                (if_true ((block ((id_hum rec) (args ()))) (args ())))
                (if_false
                 ((block ((id_hum ret_1) (args (((name m1) (type_ I64))))))
-                 (args (((name m1%0) (type_ I64)))))))))))))
+                 (args ((Value_id 6))))))))))))
         (rec (args ())
          (instrs
           (((id (Instr_id 16))
             (ir
-             (Call (fn fib) (results (((name sub1_res) (type_ I64))))
-              (args ((Var ((name m1%0) (type_ I64))))))))
+             (Call (fn fib) (results ((Value_id 2))) (args ((Var (Value_id 6)))))))
            ((id (Instr_id 5))
             (ir
-             (Sub
-              ((dest ((name m2) (type_ I64)))
-               (src1 (Var ((name m1%0) (type_ I64)))) (src2 (Lit 1))))))
+             (Sub ((dest (Value_id 3)) (src1 (Var (Value_id 6))) (src2 (Lit 1))))))
            ((id (Instr_id 2))
             (ir
-             (Call (fn fib) (results (((name sub2_res) (type_ I64))))
-              (args ((Var ((name m2) (type_ I64))))))))
+             (Call (fn fib) (results ((Value_id 4))) (args ((Var (Value_id 3)))))))
            ((id (Instr_id 6))
             (ir
              (Add
-              ((dest ((name res) (type_ I64)))
-               (src1 (Var ((name sub1_res) (type_ I64))))
-               (src2 (Var ((name sub2_res) (type_ I64))))))))
-           ((id (Instr_id 7)) (ir (Return (Var ((name res) (type_ I64)))))))))
+              ((dest (Value_id 5)) (src1 (Var (Value_id 2)))
+               (src2 (Var (Value_id 4)))))))
+           ((id (Instr_id 7)) (ir (Return (Var (Value_id 5))))))))
         (ret_1 (args (((name m1) (type_ I64))))
          (instrs (((id (Instr_id 14)) (ir (Return (Lit 1)))))))))
       (args (((name arg) (type_ I64)))) (name fib) (prologue ()) (epilogue ())
@@ -1786,15 +1740,12 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 4))
             (ir
-             (Add
-              ((dest ((name one) (type_ I64)))
-               (src1 (Var ((name x) (type_ I64)))) (src2 (Lit 1))))))
+             (Add ((dest (Value_id 1)) (src1 (Var (Value_id 0))) (src2 (Lit 1))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn fourth) (results (((name fourth) (type_ I64))))
-              (args
-               ((Var ((name one) (type_ I64))) (Var ((name x) (type_ I64))))))))
-           ((id (Instr_id 1)) (ir (Return (Var ((name fourth) (type_ I64)))))))))))
+             (Call (fn fourth) (results ((Value_id 2)))
+              (args ((Var (Value_id 1)) (Var (Value_id 0)))))))
+           ((id (Instr_id 1)) (ir (Return (Var (Value_id 2))))))))))
       (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0))
@@ -1805,10 +1756,9 @@ let%expect_test "call_chains" =
           (((id (Instr_id 3))
             (ir
              (Add
-              ((dest ((name mix) (type_ I64)))
-               (src1 (Var ((name p) (type_ I64))))
-               (src2 (Var ((name q) (type_ I64))))))))
-           ((id (Instr_id 0)) (ir (Return (Var ((name mix) (type_ I64)))))))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 1)))
+               (src2 (Var (Value_id 0)))))))
+           ((id (Instr_id 0)) (ir (Return (Var (Value_id 2))))))))))
       (args (((name p) (type_ I64)) ((name q) (type_ I64)))) (name fourth)
       (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
       (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0))
@@ -1818,10 +1768,8 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 3))
             (ir
-             (Add
-              ((dest ((name res) (type_ I64)))
-               (src1 (Var ((name h) (type_ I64)))) (src2 (Lit 3))))))
-           ((id (Instr_id 0)) (ir (Return (Var ((name res) (type_ I64)))))))))))
+             (Add ((dest (Value_id 1)) (src1 (Var (Value_id 0))) (src2 (Lit 3))))))
+           ((id (Instr_id 0)) (ir (Return (Var (Value_id 1))))))))))
       (args (((name h) (type_ I64)))) (name helper) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0))
@@ -1831,19 +1779,17 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 5))
             (ir
-             (Call (fn first) (results (((name first) (type_ I64))))
-              (args ((Var ((name init) (type_ I64))))))))
+             (Call (fn first) (results ((Value_id 1)))
+              (args ((Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn second) (results (((name second) (type_ I64))))
-              (args ((Var ((name first) (type_ I64))))))))
+             (Call (fn second) (results ((Value_id 2)))
+              (args ((Var (Value_id 1)))))))
            ((id (Instr_id 1))
             (ir
-             (Call (fn third) (results (((name third) (type_ I64))))
-              (args
-               ((Var ((name second) (type_ I64)))
-                (Var ((name first) (type_ I64))))))))
-           ((id (Instr_id 2)) (ir (Return (Var ((name third) (type_ I64)))))))))))
+             (Call (fn third) (results ((Value_id 3)))
+              (args ((Var (Value_id 2)) (Var (Value_id 1)))))))
+           ((id (Instr_id 2)) (ir (Return (Var (Value_id 3))))))))))
       (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0))
@@ -1853,14 +1799,12 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 4))
             (ir
-             (Call (fn third) (results (((name tmp) (type_ I64))))
-              (args ((Var ((name y) (type_ I64))) (Var ((name y) (type_ I64))))))))
+             (Call (fn third) (results ((Value_id 1)))
+              (args ((Var (Value_id 0)) (Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
-             (Add
-              ((dest ((name res) (type_ I64)))
-               (src1 (Var ((name tmp) (type_ I64)))) (src2 (Lit 2))))))
-           ((id (Instr_id 1)) (ir (Return (Var ((name res) (type_ I64)))))))))))
+             (Add ((dest (Value_id 2)) (src1 (Var (Value_id 1))) (src2 (Lit 2))))))
+           ((id (Instr_id 1)) (ir (Return (Var (Value_id 2))))))))))
       (args (((name y) (type_ I64)))) (name second) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0))
@@ -1871,14 +1815,13 @@ let%expect_test "call_chains" =
           (((id (Instr_id 4))
             (ir
              (Add
-              ((dest ((name sum) (type_ I64)))
-               (src1 (Var ((name u) (type_ I64))))
-               (src2 (Var ((name v) (type_ I64))))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 1)))
+               (src2 (Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn helper) (results (((name helped) (type_ I64))))
-              (args ((Var ((name sum) (type_ I64))))))))
-           ((id (Instr_id 1)) (ir (Return (Var ((name helped) (type_ I64)))))))))))
+             (Call (fn helper) (results ((Value_id 3)))
+              (args ((Var (Value_id 2)))))))
+           ((id (Instr_id 1)) (ir (Return (Var (Value_id 3))))))))))
       (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
       (prologue ()) (epilogue ()) (bytes_for_clobber_saves 0)
       (bytes_for_padding 0) (bytes_for_spills 0) (bytes_statically_alloca'd 0)))
@@ -2398,16 +2341,15 @@ let%expect_test "fib" =
       (root
        ((%root (args ())
          (instrs
-          (((id (Instr_id 20)) (ir (Move ((name arg) (type_ I64)) (Lit 10))))
+          (((id (Instr_id 20)) (ir (Move (Value_id 0) (Lit 10))))
            ((id (Instr_id 4))
             (ir
              (Branch (Uncond ((block ((id_hum fib_start) (args ()))) (args ())))))))))
         (fib_start (args ())
          (instrs
-          (((id (Instr_id 21))
-            (ir (Move ((name count) (type_ I64)) (Var ((name arg) (type_ I64))))))
-           ((id (Instr_id 6)) (ir (Move ((name a) (type_ I64)) (Lit 0))))
-           ((id (Instr_id 0)) (ir (Move ((name b) (type_ I64)) (Lit 1))))
+          (((id (Instr_id 21)) (ir (Move (Value_id 1) (Var (Value_id 0)))))
+           ((id (Instr_id 6)) (ir (Move (Value_id 2) (Lit 0))))
+           ((id (Instr_id 0)) (ir (Move (Value_id 3) (Lit 1))))
            ((id (Instr_id 7))
             (ir
              (Branch
@@ -2417,9 +2359,7 @@ let%expect_test "fib" =
                   (args
                    (((name b%0) (type_ I64)) ((name count%0) (type_ I64))
                     ((name a%0) (type_ I64))))))
-                (args
-                 (((name b) (type_ I64)) ((name count) (type_ I64))
-                  ((name a) (type_ I64))))))))))))
+                (args ((Value_id 3) (Value_id 1) (Value_id 2)))))))))))
         (fib_check
          (args
           (((name b%0) (type_ I64)) ((name count%0) (type_ I64))
@@ -2428,7 +2368,7 @@ let%expect_test "fib" =
           (((id (Instr_id 22))
             (ir
              (Branch
-              (Cond (cond (Var ((name count%0) (type_ I64))))
+              (Cond (cond (Var (Value_id 6)))
                (if_true ((block ((id_hum fib_body) (args ()))) (args ())))
                (if_false ((block ((id_hum fib_exit) (args ()))) (args ()))))))))))
         (fib_body (args ())
@@ -2436,18 +2376,14 @@ let%expect_test "fib" =
           (((id (Instr_id 23))
             (ir
              (Add
-              ((dest ((name next) (type_ I64)))
-               (src1 (Var ((name a%0) (type_ I64))))
-               (src2 (Var ((name b%0) (type_ I64))))))))
-           ((id (Instr_id 1))
-            (ir (Move ((name a%1) (type_ I64)) (Var ((name b%0) (type_ I64))))))
-           ((id (Instr_id 2))
-            (ir (Move ((name b%1) (type_ I64)) (Var ((name next) (type_ I64))))))
+              ((dest (Value_id 4)) (src1 (Var (Value_id 7)))
+               (src2 (Var (Value_id 5)))))))
+           ((id (Instr_id 1)) (ir (Move (Value_id 8) (Var (Value_id 5)))))
+           ((id (Instr_id 2)) (ir (Move (Value_id 9) (Var (Value_id 4)))))
            ((id (Instr_id 10))
             (ir
              (Sub
-              ((dest ((name count%1) (type_ I64)))
-               (src1 (Var ((name count%0) (type_ I64)))) (src2 (Lit 1))))))
+              ((dest (Value_id 10)) (src1 (Var (Value_id 6))) (src2 (Lit 1))))))
            ((id (Instr_id 11))
             (ir
              (Branch
@@ -2457,12 +2393,9 @@ let%expect_test "fib" =
                   (args
                    (((name b%0) (type_ I64)) ((name count%0) (type_ I64))
                     ((name a%0) (type_ I64))))))
-                (args
-                 (((name b%1) (type_ I64)) ((name count%1) (type_ I64))
-                  ((name a%1) (type_ I64))))))))))))
+                (args ((Value_id 9) (Value_id 10) (Value_id 8)))))))))))
         (fib_exit (args ())
-         (instrs
-          (((id (Instr_id 24)) (ir (Return (Var ((name a%0) (type_ I64)))))))))))
+         (instrs (((id (Instr_id 24)) (ir (Return (Var (Value_id 7))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))
@@ -2636,8 +2569,8 @@ let%expect_test "sum 100" =
       (root
        ((start (args ())
          (instrs
-          (((id (Instr_id 18)) (ir (Move ((name i) (type_ I64)) (Lit 1))))
-           ((id (Instr_id 3)) (ir (Move ((name sum) (type_ I64)) (Lit 0))))
+          (((id (Instr_id 18)) (ir (Move (Value_id 0) (Lit 1))))
+           ((id (Instr_id 3)) (ir (Move (Value_id 1) (Lit 0))))
            ((id (Instr_id 4))
             (ir
              (Branch
@@ -2646,42 +2579,38 @@ let%expect_test "sum 100" =
                 ((block
                   ((id_hum check)
                    (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))))
-                 (args (((name i) (type_ I64)) ((name sum) (type_ I64))))))
+                 (args ((Value_id 0) (Value_id 1)))))
                (if_false
                 ((block
                   ((id_hum exit)
                    (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
-                 (args (((name i) (type_ I64)) ((name sum) (type_ I64)))))))))))))
+                 (args ((Value_id 0) (Value_id 1))))))))))))
         (check (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))
          (instrs
           (((id (Instr_id 20))
             (ir
              (Sub
-              ((dest ((name cond) (type_ I64)))
-               (src1 (Var ((name i%1) (type_ I64)))) (src2 (Lit 100))))))
+              ((dest (Value_id 2)) (src1 (Var (Value_id 5))) (src2 (Lit 100))))))
            ((id (Instr_id 6))
             (ir
              (Branch
-              (Cond (cond (Var ((name cond) (type_ I64))))
+              (Cond (cond (Var (Value_id 2)))
                (if_true ((block ((id_hum body) (args ()))) (args ())))
                (if_false
                 ((block
                   ((id_hum exit)
                    (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
-                 (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64)))))))))))))
+                 (args ((Value_id 5) (Value_id 6))))))))))))
         (body (args ())
          (instrs
           (((id (Instr_id 21))
             (ir
              (Add
-              ((dest ((name sum%2) (type_ I64)))
-               (src1 (Var ((name sum%1) (type_ I64))))
-               (src2 (Var ((name i%1) (type_ I64))))))))
+              ((dest (Value_id 7)) (src1 (Var (Value_id 6)))
+               (src2 (Var (Value_id 5)))))))
            ((id (Instr_id 7))
             (ir
-             (Add
-              ((dest ((name i%2) (type_ I64)))
-               (src1 (Var ((name i%1) (type_ I64)))) (src2 (Lit 1))))))
+             (Add ((dest (Value_id 8)) (src1 (Var (Value_id 5))) (src2 (Lit 1))))))
            ((id (Instr_id 1))
             (ir
              (Branch
@@ -2690,15 +2619,14 @@ let%expect_test "sum 100" =
                 ((block
                   ((id_hum check)
                    (args (((name i%1) (type_ I64)) ((name sum%1) (type_ I64))))))
-                 (args (((name i%2) (type_ I64)) ((name sum%2) (type_ I64))))))
+                 (args ((Value_id 8) (Value_id 7)))))
                (if_false
                 ((block
                   ((id_hum exit)
                    (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))))
-                 (args (((name i%2) (type_ I64)) ((name sum%2) (type_ I64)))))))))))))
+                 (args ((Value_id 8) (Value_id 7))))))))))))
         (exit (args (((name i%0) (type_ I64)) ((name sum%0) (type_ I64))))
-         (instrs
-          (((id (Instr_id 19)) (ir (Return (Var ((name sum%0) (type_ I64)))))))))))
+         (instrs (((id (Instr_id 19)) (ir (Return (Var (Value_id 4))))))))))
       (args ()) (name root) (prologue ()) (epilogue ())
       (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
       (bytes_statically_alloca'd 0)))

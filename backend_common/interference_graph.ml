@@ -31,6 +31,7 @@ module M (A : Arch.S) = struct
     ~root
     =
     let open Calc_liveness in
+    let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var in
     let edges = ref empty in
     let add_edge u v = edges := interfere !edges u v in
     Block.iter root ~f:(fun block ->
@@ -46,7 +47,9 @@ module M (A : Arch.S) = struct
       let zipped =
         List.zip_exn
           (Instr_state.to_ir_list (Block.instructions block)
-           @ [ (Block.terminal block).Instr_state.ir ])
+           |> List.map ~f:var_ir
+           |> fun instrs ->
+           instrs @ [ var_ir (Block.terminal block).Instr_state.ir ])
           (Vec.to_list block_liveness.instructions @ [ block_liveness.terminal ])
       in
       List.iter zipped ~f:(fun (ir, liveness (* , _) *)) ->

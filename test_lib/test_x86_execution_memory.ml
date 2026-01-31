@@ -36,12 +36,16 @@ let make_fn ~fn_state ~name ~args ~root =
 ;;
 
 let mk_block fn_state ~id_hum ~terminal =
-  Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+  Block.create
+    ~id_hum
+    ~terminal:
+      (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
 ;;
 
 let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
   let block = mk_block fn_state ~id_hum ~terminal in
-  List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+  List.iter instrs ~f:(fun ir ->
+    Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
   block
 ;;
 
@@ -251,7 +255,8 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
         ~terminal:
           (Fn_state.alloc_instr
              fn_state
-             ~ir:(Ir.return (Ir.Lit_or_var.Var res)))
+             ~ir:
+               (Fn_state.value_ir fn_state (Ir.return (Ir.Lit_or_var.Var res))))
     in
     Block.set_dfs_id swap_block (Some 1);
     Fn_state.set_block_args
@@ -262,20 +267,24 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
       fn_state
       ~block:swap_block
       ~ir:
-        (Ir.mul
-           { dest = tmp10
-           ; src1 = Ir.Lit_or_var.Var a
-           ; src2 = Ir.Lit_or_var.Lit 10L
-           });
+        (Fn_state.value_ir
+           fn_state
+           (Ir.mul
+              { dest = tmp10
+              ; src1 = Ir.Lit_or_var.Var a
+              ; src2 = Ir.Lit_or_var.Lit 10L
+              }));
     Fn_state.append_ir
       fn_state
       ~block:swap_block
       ~ir:
-        (Ir.add
-           { dest = res
-           ; src1 = Ir.Lit_or_var.Var tmp10
-           ; src2 = Ir.Lit_or_var.Var b
-           });
+        (Fn_state.value_ir
+           fn_state
+           (Ir.add
+              { dest = res
+              ; src1 = Ir.Lit_or_var.Var tmp10
+              ; src2 = Ir.Lit_or_var.Var b
+              }));
     let start =
       Block.create
         ~id_hum:"%root"
@@ -283,19 +292,23 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
           (Fn_state.alloc_instr
              fn_state
              ~ir:
-               (Ir.branch
-                  (Ir.Branch.Uncond
-                     { Call_block.block = swap_block; args = [ b; a ] })))
+               (Fn_state.value_ir
+                  fn_state
+                  (Ir.branch
+                     (Ir.Branch.Uncond
+                        { Call_block.block = swap_block; args = [ b; a ] }))))
     in
     Block.set_dfs_id start (Some 0);
     Fn_state.append_ir
       fn_state
       ~block:start
-      ~ir:(Ir.move a (Ir.Lit_or_var.Lit 1L));
+      ~ir:
+        (Fn_state.value_ir fn_state (Ir.move a (Ir.Lit_or_var.Lit 1L)));
     Fn_state.append_ir
       fn_state
       ~block:start
-      ~ir:(Ir.move b (Ir.Lit_or_var.Lit 2L));
+      ~ir:
+        (Fn_state.value_ir fn_state (Ir.move b (Ir.Lit_or_var.Lit 2L)));
     Block.Expert.add_child start ~child:swap_block;
     let fn = Function.create ~name:"root" ~args:[] ~root:start in
     String.Map.of_alist_exn [ "root", fn ]

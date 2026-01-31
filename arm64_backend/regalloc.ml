@@ -19,7 +19,8 @@ let note_var_class table var class_ =
 let collect_var_classes root =
   let classes = Var.Table.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.arm64_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Unallocated var | Raw.Allocated (var, _) ->
@@ -45,7 +46,8 @@ let initialize_assignments root =
   let assignments = Var.Table.create () in
   let don't_spill = Var.Hash_set.create () in
   Block.iter_instructions root ~f:(fun instr ->
-    Ir.arm64_regs instr.Instr_state.ir
+    let ir = Nod_ir.Ir.map_vars instr.Instr_state.ir ~f:Value_state.var in
+    Ir.arm64_regs ir
     |> List.iter ~f:(fun (reg : Reg.t) ->
       match reg.reg with
       | Raw.Allocated (_, Some (Raw.Allocated _))
@@ -285,6 +287,7 @@ let replace_regs
     s := Set.add !s reg
   in
   let map_ir ir =
+    let ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var in
     let on_ir (ir : ('a, 'b) Arm64_ir.t) : ('a, 'b) Arm64_ir.t list =
       let scratch_mapping = Var.Table.create () in
       let map var =
@@ -346,12 +349,15 @@ let replace_regs
         release_scratch ~class_:(class_of_var var) reg);
       !pre_moves @ [ ir ] @ !post_moves
     in
-    match ir with
-    | Nod_ir.Ir.Arm64 arm64_ir ->
-      List.map (on_ir arm64_ir) ~f:(fun ir -> Nod_ir.Ir.Arm64 ir)
-    | Nod_ir.Ir.Arm64_terminal arm64_irs ->
-      [ Nod_ir.Ir.Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
-    | _ -> [ ir ]
+    let mapped =
+      match ir with
+      | Nod_ir.Ir.Arm64 arm64_ir ->
+        List.map (on_ir arm64_ir) ~f:(fun ir -> Nod_ir.Ir.Arm64 ir)
+      | Nod_ir.Ir.Arm64_terminal arm64_irs ->
+        [ Nod_ir.Ir.Arm64_terminal (List.concat_map ~f:on_ir arm64_irs) ]
+      | _ -> [ ir ]
+    in
+    List.map mapped ~f:(Fn_state.value_ir fn_state)
   in
   Block.iter root ~f:(fun block ->
     let block_liveness = Liveness_state.block_liveness liveness_state block in

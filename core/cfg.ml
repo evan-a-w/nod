@@ -31,7 +31,9 @@ let process ~fn_state (~instrs_by_label, ~labels) =
       let new_terminal =
         Fn_state.alloc_instr
           fn_state
-          ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) ir)
+          ~ir:
+            (Ir.map_blocks ~f:(Map.find_exn blocks) ir
+             |> Fn_state.value_ir fn_state)
       in
       Fn_state.replace_terminal fn_state ~block ~with_:new_terminal
     in
@@ -47,7 +49,9 @@ let process ~fn_state (~instrs_by_label, ~labels) =
           Fn_state.append_ir
             fn_state
             ~block
-            ~ir:(Ir.map_blocks ~f:(Map.find_exn blocks) instr));
+            ~ir:
+              (Ir.map_blocks ~f:(Map.find_exn blocks) instr
+               |> Fn_state.value_ir fn_state));
     if not !found_terminal
     then (
       match Vec.get_opt labels (i + 1) with

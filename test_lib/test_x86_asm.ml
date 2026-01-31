@@ -25,12 +25,16 @@ let make_fn ~fn_state ~name ~args ~root =
 ;;
 
 let mk_block fn_state ~id_hum ~terminal =
-  Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+  Block.create
+    ~id_hum
+    ~terminal:
+      (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
 ;;
 
 let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
   let block = mk_block fn_state ~id_hum ~terminal in
-  List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+  List.iter instrs ~f:(fun ir ->
+    Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
   block
 ;;
 

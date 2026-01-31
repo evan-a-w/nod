@@ -28,7 +28,9 @@ let test_cfg s =
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
-            @ [ (Block.terminal block).Instr_state.ir ]
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
           in
           print_s [%message (Block.id_hum block) (instrs : Ir.t list)]))
 ;;
@@ -53,7 +55,9 @@ let test_ssa ?don't_opt s =
           Vec.iter ssa.in_order ~f:(fun block ->
             let instrs =
               Instr_state.to_ir_list (Block.instructions block)
-              @ [ (Block.terminal block).Instr_state.ir ]
+              |> List.map ~f:Fn_state.var_ir
+              |> fun instrs ->
+              instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
             in
             print_s
               [%message
@@ -121,11 +125,15 @@ let%expect_test "temp alloca passed to child; child loads value" =
     Function.create ~name ~args ~root
   in
   let mk_block fn_state ~id_hum ~terminal =
-    Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in
-    List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+    List.iter instrs ~f:(fun ir ->
+      Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
     block
   in
   let mk_functions (_arch : [ `X86_64 | `Arm64 ]) =
@@ -281,11 +289,15 @@ let%expect_test "print helper" =
     Function.create ~name ~args ~root
   in
   let mk_block fn_state ~id_hum ~terminal =
-    Block.create ~id_hum ~terminal:(Fn_state.alloc_instr fn_state ~ir:terminal)
+    Block.create
+      ~id_hum
+      ~terminal:
+        (Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal))
   in
   let mk_block_with_instrs fn_state ~id_hum ~terminal ~instrs =
     let block = mk_block fn_state ~id_hum ~terminal in
-    List.iter instrs ~f:(fun ir -> Fn_state.append_ir fn_state ~block ~ir);
+    List.iter instrs ~f:(fun ir ->
+      Fn_state.append_ir fn_state ~block ~ir:(Fn_state.value_ir fn_state ir));
     block
   in
   let child_state = Fn_state.create () in
@@ -331,9 +343,9 @@ let%expect_test "print helper" =
           (instrs
            (((id (Instr_id 1))
              (ir
-              (Load ((name loaded) (type_ I64))
-               (Address ((base (Var ((name p) (type_ Ptr)))) (offset 0))))))
-            ((id (Instr_id 0)) (ir (Return (Var ((name loaded) (type_ I64)))))))))))
+              (Load (Value_id 0)
+               (Address ((base (Var (Value_id 1))) (offset 0))))))
+            ((id (Instr_id 0)) (ir (Return (Var (Value_id 0))))))))))
        (args (((name p) (type_ Ptr)))) (name child) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0)))
@@ -343,16 +355,15 @@ let%expect_test "print helper" =
         ((%root (args ())
           (instrs
            (((id (Instr_id 1))
-             (ir (Alloca ((dest ((name slot) (type_ Ptr))) (size (Lit 8))))))
+             (ir (Alloca ((dest (Value_id 1)) (size (Lit 8))))))
             ((id (Instr_id 2))
              (ir
-              (Store (Lit 41)
-               (Address ((base (Var ((name slot) (type_ Ptr)))) (offset 0))))))
+              (Store (Lit 41) (Address ((base (Var (Value_id 1))) (offset 0))))))
             ((id (Instr_id 3))
              (ir
-              (Call (fn child) (results (((name res) (type_ I64))))
-               (args ((Var ((name slot) (type_ Ptr))))))))
-            ((id (Instr_id 0)) (ir (Return (Var ((name res) (type_ I64)))))))))))
+              (Call (fn child) (results ((Value_id 0)))
+               (args ((Var (Value_id 1)))))))
+            ((id (Instr_id 0)) (ir (Return (Var (Value_id 0))))))))))
        (args ()) (name root) (prologue ()) (epilogue ())
        (bytes_for_clobber_saves 0) (bytes_for_padding 0) (bytes_for_spills 0)
        (bytes_statically_alloca'd 0))))

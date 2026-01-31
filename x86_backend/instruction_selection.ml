@@ -1,6 +1,8 @@
 open! Core
 open! Import
 open! Common
+module Ir_helpers = Nod_ir.Ir_helpers
+let var_ir ir = Nod_ir.Ir.map_vars ir ~f:Value_state.var
 module Class = X86_reg.Class
 
 type t =
@@ -147,10 +149,21 @@ let expand_atomic_rmw t =
           ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:Noop)
       in
       Block.set_dfs_id loop_block (Some 0);
+      let atomic =
+        { atomic with
+          dest = Value_state.var atomic.dest
+        ; addr = Nod_ir.Mem.map_vars atomic.addr ~f:Value_state.var
+        ; src = Nod_ir.Lit_or_var.map_vars atomic.src ~f:Value_state.var
+        }
+      in
       let loop_instrs, success_var = rmw_loop_instrs atomic in
+      let loop_instrs =
+        List.map loop_instrs ~f:(Fn_state.value_ir t.fn_state)
+      in
       Fn_state.replace_irs t.fn_state ~block:loop_block ~irs:loop_instrs;
       let loop_cb = { Call_block.block = loop_block; args = [] } in
       let cont_cb = { Call_block.block = cont_block; args = [] } in
+      let success_var = Fn_state.ensure_value t.fn_state ~var:success_var in
       Fn_state.replace_terminal_ir
         t.fn_state
         ~block:loop_block
@@ -168,6 +181,7 @@ let expand_atomic_rmw t =
           ; order = Ir.Memory_order.Relaxed
           }
       in
+      let init_load = Fn_state.value_ir t.fn_state init_load in
       Fn_state.replace_irs t.fn_state ~block ~irs:(before @ [ init_load ]);
       Fn_state.replace_terminal_ir
         t.fn_state
@@ -565,7 +579,9 @@ let mint_intermediate
     Block.create
       ~id_hum
       ~terminal:
-        (Fn_state.alloc_instr t.fn_state ~ir:(X86 (X86_ir.jmp to_call_block)))
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:(Fn_state.value_ir t.fn_state (X86 (X86_ir.jmp to_call_block))))
   in
   (* I can't be bothered to make this not confusing, but we want to set this
        so it gets updated in [Block.iter_and_update_bookkeeping]*)
@@ -609,7 +625,10 @@ let make_prologue t =
       ~terminal:
         (Fn_state.alloc_instr
            t.fn_state
-           ~ir:(X86 (jmp { block = t.fn.root; args })))
+           ~ir:
+             (Fn_state.value_ir
+                t.fn_state
+                (X86 (jmp { block = t.fn.root; args }))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
@@ -621,12 +640,12 @@ let make_prologue t =
     ~block
     ~irs:
       (List.map
-         ~f:Ir.x86
          (reg_arg_moves
           @ stack_arg_moves
           @ [ tag_def noop (Reg Reg.rbp) ]
             (* clobber and stack adjustment/saves will be added here later. Also subtracting stack for spills and alloca *)
-         ));
+         )
+         ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.x86 ir)));
   block
 ;;
 
@@ -658,7 +677,10 @@ let make_epilogue t ~ret_shape =
   let block =
     Block.create
       ~id_hum
-      ~terminal:(Fn_state.alloc_instr t.fn_state ~ir:(X86 (RET args')))
+      ~terminal:
+        (Fn_state.alloc_instr
+           t.fn_state
+           ~ir:(Fn_state.value_ir t.fn_state (X86 (RET args'))))
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   (* I can't be bothered to make this not confusing, but we want to set this
@@ -670,8 +692,8 @@ let make_epilogue t ~ret_shape =
     ~block
     ~irs:
       (List.map
-         ~f:Ir.x86
-         reg_res_moves (* clobbers restores will be added here later *));
+         reg_res_moves
+         ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir.x86 ir)));
   block
 ;;
 
@@ -691,7 +713,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
       | None, Some _ -> r := this
     in
     Block.iter_instructions t.fn.root ~f:(fun instr ->
-      on_arch_irs instr.Instr_state.ir ~f:update);
+      on_arch_irs (var_ir instr.Instr_state.ir) ~f:update);
     !r
   in
   let prologue = make_prologue t in
@@ -734,14 +756,20 @@ let split_blocks_and_add_prologue_and_epilogue t =
                  Fn_state.append_ir
                    t.fn_state
                    ~block
-                   ~ir:(X86 (mov (Reg (Reg.unallocated v)) operand));
+                   ~ir:
+                     (Fn_state.value_ir
+                        t.fn_state
+                        (X86 (mov (Reg (Reg.unallocated v)) operand)));
                  v)
             | other ->
               let v = fresh_like_var t arg in
               Fn_state.append_ir
                 t.fn_state
                 ~block
-                ~ir:(X86 (mov (Reg (Reg.unallocated v)) other));
+                ~ir:
+                  (Fn_state.value_ir
+                     t.fn_state
+                     (X86 (mov (Reg (Reg.unallocated v)) other)));
               v)
         in
         jmp { Call_block.block = epilogue; args }
@@ -852,7 +880,10 @@ let insert_par_moves t =
            Fn_state.append_irs
              t.fn_state
              ~block
-             ~irs:(par_moves t ~dst_to_src |> Vec.to_list)
+             ~irs:
+               (par_moves t ~dst_to_src
+                |> Vec.to_list
+                |> List.map ~f:(Fn_state.value_ir t.fn_state))
          | RET _ -> ()
          | JNE _ | JE _ ->
            (* [block.insert_phi_moves] should be false *)
@@ -891,7 +922,10 @@ let remove_call_block_args t =
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
-      ~with_:(Ir.remove_block_args (Block.terminal block).Instr_state.ir)
+      ~with_:
+        (Nod_ir.Ir.map_call_blocks
+           (Block.terminal block).Instr_state.ir
+           ~f:(fun cb -> { cb with args = [] }))
     (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
@@ -908,13 +942,19 @@ let simple_translation_to_x86_ir ~this_call_conv t =
     add_count t.block_names (Block.id_hum block);
     let instructions =
       Instr_state.to_ir_list (Block.instructions block)
-      |> List.concat_map ~f:(fun ir -> lower_ir ir |> List.map ~f:Ir0.x86)
+      |> List.concat_map ~f:(fun ir ->
+           lower_ir (var_ir ir)
+           |> List.map ~f:(fun ir -> Fn_state.value_ir t.fn_state (Ir0.x86 ir)))
     in
     Fn_state.replace_irs t.fn_state ~block ~irs:instructions;
     Fn_state.replace_terminal_ir
       t.fn_state
       ~block
-      ~with_:(Ir.x86_terminal (lower_ir (Block.terminal block).Instr_state.ir)));
+      ~with_:
+        (Fn_state.value_ir
+           t.fn_state
+           (Ir.x86_terminal
+              (lower_ir (var_ir (Block.terminal block).Instr_state.ir)))));
   t
 ;;
 

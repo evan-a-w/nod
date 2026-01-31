@@ -30,7 +30,9 @@ let test s =
         Vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
-            @ [ (Block.terminal block).Instr_state.ir ]
+            |> List.map ~f:Fn_state.var_ir
+            |> fun instrs ->
+            instrs @ [ Fn_state.var_ir (Block.terminal block).Instr_state.ir ]
           in
           print_s [%message (Block.id_hum block) (instrs : Ir.t list)]))
 ;;
