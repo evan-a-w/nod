@@ -442,3 +442,38 @@ let%expect_test "mod and comparisons fold to constants" =
     (%entry (args ()) (instrs ((Return (Lit 0)))))
     |}]
 ;;
+
+let%expect_test "peepholes simplify loads from globals" =
+  run
+    {|
+global @g:i64 = 7
+
+entry() {
+entry:
+  mov %ptr:ptr(i64), @g
+  mov %alias:ptr(i64), %ptr
+  load %value:i64, %alias
+  return %value
+}
+|};
+  [%expect
+    {|
+    before
+    (entry (args ())
+     (instrs
+      ((Move ((name ptr) (type_ (Ptr_typed I64)))
+        (Global ((name g) (type_ I64) (init (Int 7)))))
+       (Move ((name alias) (type_ (Ptr_typed I64)))
+        (Var ((name ptr) (type_ (Ptr_typed I64)))))
+       (Load ((name value) (type_ I64))
+        (Address
+         ((base (Var ((name alias) (type_ (Ptr_typed I64))))) (offset 0))))
+       (Return (Var ((name value) (type_ I64)))))))
+    after
+    (entry (args ())
+     (instrs
+      ((Load ((name value) (type_ I64))
+        (Global ((name g) (type_ I64) (init (Int 7)))))
+       (Return (Var ((name value) (type_ I64)))))))
+    |}]
+;;

@@ -2,6 +2,7 @@ open! Core
 open! Import
 module Ir = Nod_ir.Ir
 module Lit_or_var = Nod_ir.Lit_or_var
+module Mem = Nod_ir.Mem
 
 let literal_of_operand = function
   | Lit_or_var.Lit lit -> Some lit
@@ -35,6 +36,81 @@ let replace_with_neg ~value operand =
 let non_zero_constant operand =
   match literal_of_operand operand with
   | Some lit when not (Int64.equal lit Int64.zero) -> Some lit
+  | _ -> None
+;;
+
+let defining_instruction fn_state (value : Value_state.t) =
+  match value.Value_state.def with
+  | Def_site.Instr instr_id -> Fn_state.instr fn_state instr_id
+  | Def_site.Block_arg _ | Def_site.Undefined -> None
+;;
+
+let simplify_operand fn_state operand =
+  let rec loop operand visited =
+    match operand with
+    | Lit_or_var.Lit _ | Lit_or_var.Global _ -> operand, false
+    | Lit_or_var.Var value ->
+      let id = value.Value_state.id in
+      if Set.mem visited id
+      then operand, false
+      else (
+        let visited = Set.add visited id in
+        match defining_instruction fn_state value with
+        | None -> operand, false
+        | Some instr ->
+          (match instr.Instr_state.ir with
+           | Ir.Move (_, src) ->
+             let simplified, _ = loop src visited in
+             if Lit_or_var.equal Value_state.equal operand simplified
+             then operand, false
+             else simplified, true
+           | _ -> operand, false))
+  in
+  loop operand Value_id.Set.empty
+;;
+
+let simplify_mem fn_state mem =
+  match mem with
+  | Mem.Address ({ base; offset } as address) ->
+    let base', base_changed = simplify_operand fn_state base in
+    (match base' with
+     | Lit_or_var.Global global when Int.equal offset 0 ->
+       Mem.Global global, true
+     | _ ->
+       if base_changed
+       then Mem.Address { address with base = base' }, true
+       else mem, false)
+  | _ -> mem, false
+;;
+
+let simplify_non_arith ~fn_state ~ir =
+  match ir with
+  | Ir.Move (dest, operand) ->
+    let operand', changed = simplify_operand fn_state operand in
+    if changed then Some (Ir.Move (dest, operand')) else None
+  | Ir.Load (dest, mem) ->
+    let mem', changed = simplify_mem fn_state mem in
+    if changed then Some (Ir.Load (dest, mem')) else None
+  | Ir.Atomic_load atomic_load ->
+    let addr', changed = simplify_mem fn_state atomic_load.addr in
+    if changed
+    then Some (Ir.Atomic_load { atomic_load with addr = addr' })
+    else None
+  | Ir.Atomic_rmw atomic_rmw ->
+    let addr', changed = simplify_mem fn_state atomic_rmw.addr in
+    if changed
+    then Some (Ir.Atomic_rmw { atomic_rmw with addr = addr' })
+    else None
+  | Ir.Atomic_cmpxchg atomic_cmpxchg ->
+    let addr', changed = simplify_mem fn_state atomic_cmpxchg.addr in
+    if changed
+    then Some (Ir.Atomic_cmpxchg { atomic_cmpxchg with addr = addr' })
+    else None
+  | Ir.Load_field load_field ->
+    let base', changed = simplify_operand fn_state load_field.base in
+    if changed
+    then Some (Ir.Load_field { load_field with base = base' })
+    else None
   | _ -> None
 ;;
 
@@ -100,4 +176,8 @@ let simplify1 ~value ~ir =
   | _ -> None
 ;;
 
-let simplify ~value ~ir = simplify1 ~value ~ir
+let simplify ~fn_state ~value ~ir =
+  match simplify1 ~value ~ir with
+  | Some _ as simplified -> simplified
+  | None -> simplify_non_arith ~fn_state ~ir
+;;

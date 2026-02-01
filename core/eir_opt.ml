@@ -608,7 +608,12 @@ let pass_arithmetic_simplify =
             let instr =
               Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
             in
-            (match Peepholes.simplify ~value ~ir:instr.Instr_state.ir with
+            (match
+               Peepholes.simplify
+                 ~fn_state:ctx.fn_state
+                 ~value
+                 ~ir:instr.Instr_state.ir
+             with
              | None -> ()
              | Some new_ir ->
                Transform.replace_defining_instruction ctx ~value ~new_ir)
