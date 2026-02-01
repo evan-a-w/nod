@@ -598,24 +598,6 @@ let pass_terminal_simplify =
 ;;
 
 let pass_arithmetic_simplify =
-  let open Nod_ir in
-  let is_const operand target =
-    match operand with
-    | Lit_or_var.Lit lit -> Int64.equal lit target
-    | Lit_or_var.Var v ->
-      (match v.Value_state.opt_tags.constant with
-       | Some lit -> Int64.equal lit target
-       | None -> false)
-    | Lit_or_var.Global _ -> false
-  in
-  let is_zero operand = is_const operand Int64.zero in
-  let is_one operand = is_const operand Int64.one in
-  let is_minus_one operand = is_const operand Int64.minus_one in
-  let same_vars a b =
-    match a, b with
-    | Lit_or_var.Var v1, Lit_or_var.Var v2 -> Value_state.equal v1 v2
-    | _ -> false
-  in
   Value
     { Value_pass.name = "simplify_arith"
     ; enabled = Opt_flags.constant_propagation
@@ -626,41 +608,12 @@ let pass_arithmetic_simplify =
             let instr =
               Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
             in
-            let move_to lit_or_var =
-              Transform.replace_defining_instruction
-                ctx
-                ~value
-                ~new_ir:(Ir.Move (value, lit_or_var))
-            in
-            let move_var operand = move_to operand in
-            let move_lit lit = move_to (Lit_or_var.Lit lit) in
-            (match instr.Instr_state.ir with
-             | Ir.Mul { src1; src2; _ } when is_zero src1 || is_zero src2 ->
-               move_lit Int64.zero
-             | Ir.Mul { src1; src2; _ } when is_one src1 -> move_var src2
-             | Ir.Mul { src1; src2; _ } when is_one src2 -> move_var src1
-             | Ir.Div { src1; src2; _ } when is_one src2 -> move_var src1
-             | Ir.And { src1; src2; _ } when is_zero src1 || is_zero src2 ->
-               move_lit Int64.zero
-             | Ir.And { src1; src2; _ } when is_minus_one src1 -> move_var src2
-             | Ir.And { src1; src2; _ } when is_minus_one src2 -> move_var src1
-             | Ir.Or { src1; src2; _ } when is_zero src1 -> move_var src2
-             | Ir.Or { src1; src2; _ } when is_zero src2 -> move_var src1
-             | Ir.Or { src1; src2; _ }
-               when is_minus_one src1 || is_minus_one src2 ->
-               move_lit Int64.minus_one
-             | Ir.And { src1; src2; _ } when same_vars src1 src2 ->
-               move_var src1
-             | Ir.Or { src1; src2; _ } when same_vars src1 src2 -> move_var src1
-             | Ir.Add { src1; src2; _ } when is_zero src1 -> move_var src2
-             | Ir.Add { src1; src2; _ } when is_zero src2 -> move_var src1
-             | Ir.Sub { src1; src2; _ } when same_vars src1 src2 ->
-               move_lit Int64.zero
-             | Ir.Mod { src2; _ } when is_one src2 || is_minus_one src2 ->
-               move_lit Int64.zero
-             | Ir.Lt { src1; src2; _ } when same_vars src1 src2 ->
-               move_lit Int64.zero
-             | _ -> ())
+            ignore
+              (Peepholes.simplify
+                 ~value
+                 ~ir:instr.Instr_state.ir
+                 ~replace:(fun new_ir ->
+                   Transform.replace_defining_instruction ctx ~value ~new_ir))
           | _ -> ())
     ; fixpoint = true
     }
