@@ -21,19 +21,15 @@ let operands_equal a b =
   | _ -> false
 ;;
 
-let replace_with_move replace ~value operand =
-  replace (Ir.Move (value, operand));
-  true
+let replace_with_move ~value operand = Some (Ir.Move (value, operand))
+
+let replace_with_zero ~value =
+  replace_with_move ~value (Lit_or_var.Lit Int64.zero)
 ;;
 
-let replace_with_zero replace ~value =
-  replace_with_move replace ~value (Lit_or_var.Lit Int64.zero)
-;;
-
-let replace_with_neg replace ~value operand =
+let replace_with_neg ~value operand =
   let zero = Lit_or_var.Lit Int64.zero in
-  replace (Ir.Sub { dest = value; src1 = zero; src2 = operand });
-  true
+  Some (Ir.Sub { dest = value; src1 = zero; src2 = operand })
 ;;
 
 let non_zero_constant operand =
@@ -42,64 +38,66 @@ let non_zero_constant operand =
   | _ -> None
 ;;
 
-let simplify ~value ~ir ~replace =
+let simplify1 ~value ~ir =
   let open Ir in
   match ir with
   | Ir.Add { src1; src2; _ } when is_const src1 Int64.zero ->
-    replace_with_move replace ~value src2
+    replace_with_move ~value src2
   | Ir.Add { src1; src2; _ } when is_const src2 Int64.zero ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Sub { src1; src2; _ } when operands_equal src1 src2 ->
-    replace_with_zero replace ~value
+    replace_with_zero ~value
   | Ir.Sub { src1; src2; _ } when is_const src2 Int64.zero ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Mul { src1; src2; _ }
     when is_const src1 Int64.zero || is_const src2 Int64.zero ->
-    replace_with_zero replace ~value
+    replace_with_zero ~value
   | Ir.Mul { src1; src2; _ } when is_const src1 Int64.one ->
-    replace_with_move replace ~value src2
+    replace_with_move ~value src2
   | Ir.Mul { src1; src2; _ } when is_const src2 Int64.one ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Mul { src1; src2; _ } when is_const src1 Int64.minus_one ->
-    replace_with_neg replace ~value src2
+    replace_with_neg ~value src2
   | Ir.Mul { src1; src2; _ } when is_const src2 Int64.minus_one ->
-    replace_with_neg replace ~value src1
+    replace_with_neg ~value src1
   | Ir.Div { src1; src2; _ } when is_const src2 Int64.one ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Div { src1; src2; _ } when is_const src2 Int64.minus_one ->
-    replace_with_neg replace ~value src1
+    replace_with_neg ~value src1
   | Ir.Div { src1; src2; _ } ->
     (match literal_of_operand src1, non_zero_constant src2 with
      | Some numerator, Some _ when Int64.equal numerator Int64.zero ->
-       replace_with_zero replace ~value
-     | _ -> false)
+       replace_with_zero ~value
+     | _ -> None)
   | Ir.Mod { src1; src2; _ }
     when is_const src2 Int64.one || is_const src2 Int64.minus_one ->
-    replace_with_zero replace ~value
+    replace_with_zero ~value
   | Ir.Mod { src1; src2; _ } ->
     (match literal_of_operand src1, non_zero_constant src2 with
      | Some numerator, Some _ when Int64.equal numerator Int64.zero ->
-       replace_with_zero replace ~value
-     | _ -> false)
+       replace_with_zero ~value
+     | _ -> None)
   | Ir.And { src1; src2; _ }
     when is_const src1 Int64.zero || is_const src2 Int64.zero ->
-    replace_with_zero replace ~value
+    replace_with_zero ~value
   | Ir.And { src1; src2; _ } when is_const src1 Int64.minus_one ->
-    replace_with_move replace ~value src2
+    replace_with_move ~value src2
   | Ir.And { src1; src2; _ } when is_const src2 Int64.minus_one ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.And { src1; src2; _ } when operands_equal src1 src2 ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Or { src1; src2; _ } when is_const src1 Int64.zero ->
-    replace_with_move replace ~value src2
+    replace_with_move ~value src2
   | Ir.Or { src1; src2; _ } when is_const src2 Int64.zero ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Or { src1; src2; _ }
     when is_const src1 Int64.minus_one || is_const src2 Int64.minus_one ->
-    replace_with_move replace ~value (Nod_ir.Lit_or_var.Lit Int64.minus_one)
+    replace_with_move ~value (Nod_ir.Lit_or_var.Lit Int64.minus_one)
   | Ir.Or { src1; src2; _ } when operands_equal src1 src2 ->
-    replace_with_move replace ~value src1
+    replace_with_move ~value src1
   | Ir.Lt { src1; src2; _ } when operands_equal src1 src2 ->
-    replace_with_zero replace ~value
-  | _ -> false
+    replace_with_zero ~value
+  | _ -> None
 ;;
+
+let simplify ~value ~ir = simplify1 ~value ~ir
