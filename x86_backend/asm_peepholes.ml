@@ -1,6 +1,7 @@
 open! Core
 open! Import
 module Asm = X86_asm
+module Reg = X86_reg
 
 (* Architecture-specific peephole optimizations for x86_64.
    These run after register allocation on concrete assembly instructions. *)
@@ -9,6 +10,12 @@ let equal_operand = Asm.equal_operand
 
 (* Check if two instructions are the same *)
 let equal_instr = Asm.equal_instr
+let is_stack_base reg = Asm.equal_reg reg Reg.rsp || Asm.equal_reg reg Reg.rbp
+
+let is_mem = function
+  | Mem _ -> true
+  | Reg _ | Imm _ | Spill_slot _ | Symbol _ -> false
+;;
 
 (* Peephole patterns for x86_64 assembly *)
 
@@ -24,8 +31,7 @@ let eliminate_redundant_move_pair items =
 (* Pattern: mov dst, src where dst = src -> eliminated *)
 let eliminate_nop_move items =
   match items with
-  | Asm.Instr (Mov (dst, src)) :: rest when equal_operand dst src ->
-    Some rest
+  | Asm.Instr (Mov (dst, src)) :: rest when equal_operand dst src -> Some rest
   | _ -> None
 ;;
 
@@ -34,6 +40,17 @@ let eliminate_push_pop_same items =
   match items with
   | Asm.Instr (Push (Reg r1)) :: Asm.Instr (Pop r2) :: rest
     when Asm.equal_reg r1 r2 -> Some rest
+  | _ -> None
+;;
+
+(* Pattern: push r1; pop r2 -> mov r2, r1 (avoid stack traffic) *)
+let fold_push_pop_to_mov items =
+  match items with
+  | Asm.Instr (Push (Reg r1)) :: Asm.Instr (Pop r2) :: rest
+    when (not (Asm.equal_reg r1 Reg.rsp))
+         && (not (Asm.equal_reg r2 Reg.rsp))
+         && not (Asm.equal_reg r1 r2) ->
+    Some (Asm.Instr (Mov (Reg r2, Reg r1)) :: rest)
   | _ -> None
 ;;
 
@@ -54,7 +71,7 @@ let eliminate_sub_zero items =
 (* Pattern: and dst, -1 -> eliminated (all bits set) *)
 let eliminate_and_all_ones items =
   match items with
-  | Asm.Instr (And (_, Imm (-1L))) :: rest -> Some rest
+  | Asm.Instr (And (_, Imm -1L)) :: rest -> Some rest
   | _ -> None
 ;;
 
@@ -78,11 +95,66 @@ let fold_move_into_binop items =
   | _ -> None
 ;;
 
+(* Pattern: mov [stack], src; mov dst, [stack] -> mov [stack], src; mov dst, src *)
+let forward_stack_store_load items =
+  match items with
+  | Asm.Instr (Mov (Mem (base1, disp1), src))
+    :: Asm.Instr (Mov ((Reg _ as dst), Mem (base2, disp2)))
+    :: rest
+    when (not (is_mem src))
+         && Asm.equal_reg base1 base2
+         && Int.equal disp1 disp2
+         && is_stack_base base1 ->
+    Some
+      (Asm.Instr (Mov (Mem (base1, disp1), src))
+       :: Asm.Instr (Mov (dst, src))
+       :: rest)
+  | _ -> None
+;;
+
+(* Pattern: mov tmp, r1; mov r1, r2; mov r2, tmp -> xchg r1, r2; mov tmp, r2 *)
+let fold_swap_via_temp items =
+  match items with
+  | Asm.Instr (Mov (Reg tmp, Reg r1))
+    :: Asm.Instr (Mov (Reg r1', Reg r2))
+    :: Asm.Instr (Mov (Reg r2', Reg tmp'))
+    :: rest
+    when Asm.equal_reg tmp tmp'
+         && Asm.equal_reg r1 r1'
+         && Asm.equal_reg r2 r2'
+         && (not (Asm.equal_reg r1 r2))
+         && (not (Asm.equal_reg tmp r1))
+         && not (Asm.equal_reg tmp r2) ->
+    Some
+      (Asm.Instr (Xchg (Reg r1, Reg r2))
+       :: Asm.Instr (Mov (Reg tmp, Reg r2))
+       :: rest)
+  | _ -> None
+;;
+
 (* Pattern: jmp L1; L1: -> L1: (eliminate jump to next instruction) *)
 let eliminate_jump_to_next items =
   match items with
   | Asm.Instr (Jmp target) :: Asm.Label label :: rest
     when String.equal target label -> Some (Asm.Label label :: rest)
+  | _ -> None
+;;
+
+(* Pattern: je L1; jmp L2; L1: -> jne L2; L1: (invert branch) *)
+let invert_branch_with_fallthrough items =
+  match items with
+  | Asm.Instr (Je target)
+    :: Asm.Instr (Jmp fallthrough)
+    :: Asm.Label label
+    :: rest
+    when String.equal target label ->
+    Some (Asm.Instr (Jne fallthrough) :: Asm.Label label :: rest)
+  | Asm.Instr (Jne target)
+    :: Asm.Instr (Jmp fallthrough)
+    :: Asm.Label label
+    :: rest
+    when String.equal target label ->
+    Some (Asm.Instr (Je fallthrough) :: Asm.Label label :: rest)
   | _ -> None
 ;;
 
@@ -121,12 +193,16 @@ let patterns =
   [ eliminate_nop_move
   ; eliminate_redundant_move_pair
   ; eliminate_push_pop_same
+  ; fold_push_pop_to_mov
   ; eliminate_add_zero
   ; eliminate_sub_zero
   ; eliminate_and_all_ones
   ; eliminate_or_zero
+  ; forward_stack_store_load
+  ; fold_swap_via_temp
   ; fold_move_into_binop
   ; eliminate_jump_to_next
+  ; invert_branch_with_fallthrough
   ; eliminate_cond_jump_to_next
   ; simplify_cmp_same_reg
   ]
@@ -172,5 +248,6 @@ let optimize ?(max_iterations = 5) items =
 let optimize_function (fn : Asm.fn) = { fn with items = optimize fn.items }
 
 (* Optimize a program *)
-let optimize_program (program : Asm.program) = List.map program ~f:optimize_function
+let optimize_program (program : Asm.program) =
+  List.map program ~f:optimize_function
 ;;
