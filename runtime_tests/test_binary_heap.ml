@@ -526,7 +526,6 @@ let%expect_test "x86 test push pop program" =
       mov rsi, 0
       call nod_fn_25_6
       mov r15, rax
-      mov rax, r15
     nod_fn_200_6__nod_fn_200_6__epilogue:
       sub rbp, 8
       mov rsp, rbp
@@ -702,7 +701,6 @@ let%expect_test "x86 test push pop program" =
       mov rsi, r15
       call nod_fn_8_4
       mov r15, rax
-      mov rax, r15
     nod_fn_35_6__nod_fn_35_6__epilogue:
       sub rbp, 24
       mov rsp, rbp
@@ -825,7 +823,6 @@ let%expect_test "x86 test push pop program" =
       cqo
       idiv r15
       mov r15, rax
-      mov rax, r15
     nod_fn_78_6__nod_fn_78_6__epilogue:
       sub rbp, 16
       mov rsp, rbp

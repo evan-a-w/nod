@@ -68,7 +68,6 @@ let%expect_test "super triv lowers to assembly" =
       sub x28, x28, x27
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x27, [sp]
       ldr x28, [sp, #8]
@@ -118,20 +117,15 @@ let%expect_test "branches lower with labels" =
       b.ne root__intermediate_c_to_end
       b root__intermediate_c_to_end0
     root__intermediate_b_to_end:
-      mov x28, x28
       b root__end
     root__intermediate_b_to_end0:
-      mov x28, x28
       b root__end
     root__intermediate_c_to_end:
-      mov x28, x28
       b root__end
     root__intermediate_c_to_end0:
-      mov x28, x28
     root__end:
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x27, [sp]
       ldr x28, [sp, #8]
@@ -157,7 +151,6 @@ let%expect_test "recursive fib" =
       str x29, [sp, #16]
       str x30, [sp, #24]
       mov x29, sp
-      mov x0, x0
       mov x27, x0
     fib___root:
       cmp x27, #0
@@ -165,7 +158,6 @@ let%expect_test "recursive fib" =
     fib__intermediate__root_to_check1_:
       b fib__check1_
     fib__intermediate__root_to_ret_1:
-      mov x28, x28
       b fib__ret_1
     fib__check1_:
       mov x14, #1
@@ -175,7 +167,6 @@ let%expect_test "recursive fib" =
     fib__intermediate_check1__to_rec:
       b fib__rec
     fib__intermediate_check1__to_ret_1:
-      mov x28, x28
     fib__ret_1:
       mov x28, #1
       mov x0, x28
@@ -188,11 +179,9 @@ let%expect_test "recursive fib" =
       sub x28, x28, x14
       mov x0, x28
       bl fib
-      mov x28, x0
-      add x28, x27, x28
+      add x28, x27, x0
       mov x0, x28
     fib__fib__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x27, [sp]
       ldr x28, [sp, #8]
@@ -231,7 +220,6 @@ ret %result
       fcvtzs x28, d28
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x28, [sp]
       ldr x29, [sp, #8]
@@ -288,7 +276,6 @@ root() {
       add x28, x27, x28
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x27, [sp]
       ldr x28, [sp, #8]
@@ -336,7 +323,6 @@ root() {
       add x28, x28, x27
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x27, [sp]
       ldr x28, [sp, #8]
@@ -382,7 +368,6 @@ root() {
       ldr x28, [x28]
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x28, [sp]
       ldr x29, [sp, #8]
@@ -420,14 +405,11 @@ root() {
       str x28, [sp]
       str x29, [sp, #8]
       mov x29, sp
-      mov x0, x0
       mov x28, x0
     id___root:
-      mov x28, x28
       mov x28, #0
       mov x0, x28
     id__id__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x28, [sp]
       ldr x29, [sp, #8]
@@ -450,7 +432,6 @@ root() {
       mov x28, #0
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x28, [sp]
       ldr x29, [sp, #8]
@@ -511,7 +492,6 @@ root() {
       mov x28, #0
       mov x0, x28
     root__root__epilogue:
-      mov x0, x0
       mov sp, x29
       ldr x28, [sp]
       ldr x29, [sp, #8]
