@@ -90,18 +90,13 @@ module Dominance = struct
   ;;
 end
 
-type block_tracker =
-  { mutable needed : Value_state.Set.t Block.Map.t
-  ; once_ready : Block.t -> unit
-  }
-
 type context =
   { root : Block.t
   ; fn_state : Fn_state.t
   ; opt_flags : Opt_flags.t
   ; block_by_id : Block.t String.Table.t
   ; immediate_dominees : Block.Hash_set.t Block.Table.t
-  ; mutable block_tracker : block_tracker option
+  ; mutable changed : bool
   }
 
 let create_context ~opt_flags ~fn_state root =
@@ -113,9 +108,11 @@ let create_context ~opt_flags ~fn_state root =
   ; opt_flags
   ; block_by_id
   ; immediate_dominees = Dominance.immediate_dominees root
-  ; block_tracker = None
+  ; changed = false
   }
 ;;
+
+let mark_changed ctx = ctx.changed <- true
 
 let rec iter_blocks ctx ~block ~f =
   f block;
@@ -139,37 +136,6 @@ let active_value (value : Value_state.t) =
 let active_value_of_var ctx var =
   value_of_var ctx var |> Option.bind ~f:active_value
 ;;
-
-module Block_tracker = struct
-  type t = block_tracker
-
-  let ready t ~var ~block =
-    t.needed
-    <- Map.change t.needed block ~f:(function
-         | None -> None
-         | Some vars ->
-           let vars = Set.remove vars var in
-           if Set.length vars = 0
-           then (
-             t.once_ready block;
-             None)
-           else Some vars)
-  ;;
-
-  let create ctx ~once_ready =
-    let t = { needed = Block.Map.empty; once_ready } in
-    iter_blocks ctx ~f:(fun block ->
-      let data =
-        Ir.uses (Block.terminal block).Instr_state.ir
-        |> List.filter_map ~f:active_value
-        |> Value_state.Set.of_list
-      in
-      if Set.length data = 0
-      then once_ready block
-      else t.needed <- Map.set t.needed ~key:block ~data);
-    t
-  ;;
-end
 
 let block_for_instr_id_exn ctx instr_id =
   Fn_state.instr_block ctx.fn_state instr_id |> Option.value_exn
@@ -205,160 +171,212 @@ let defining_values_for_block_arg ctx ~block ~arg_index =
   |> List.concat
 ;;
 
-(* --- Dead code elimination helpers --- *)
-let rec remove_instr ctx ~block ~instr =
-  let used_values = Ir.uses instr.Instr_state.ir in
-  Fn_state.remove_instr ctx.fn_state ~block ~instr;
-  List.iter used_values ~f:(fun value ->
-    match active_value value with
-    | None -> ()
-    | Some value ->
-      if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
+module Transform = struct
+  let rec update_uses ctx ~old_ir ~new_ir =
+    let old_values = Value_state.Set.of_list (Ir.uses old_ir) in
+    let new_values = Value_state.Set.of_list (Ir.uses new_ir) in
+    Set.iter (Set.diff old_values new_values) ~f:(fun value ->
+      match active_value value with
+      | None -> ()
+      | Some value ->
+        if Opt_flags.unused_vars ctx.opt_flags
+           && Set.is_empty value.Value_state.uses
+        then try_kill_value ctx ~value)
 
-and remove_arg_from_parent ctx ~parent ~idx ~from_block =
-  let removed = ref [] in
-  let parent_terminal = Block.terminal parent in
-  let new_ir =
-    Ir.map_call_blocks parent_terminal.Instr_state.ir ~f:(fun cb ->
-      if not (phys_equal cb.block from_block)
-      then cb
-      else
-        { cb with
-          args =
-            List.filteri cb.args ~f:(fun i var ->
-              if i = idx
-              then (
-                removed := var :: !removed;
-                false)
-              else true)
-        })
-  in
-  Fn_state.replace_terminal_ir ctx.fn_state ~block:parent ~with_:new_ir;
-  List.iter !removed ~f:(fun value ->
-    match active_value value with
-    | None -> ()
-    | Some value ->
-      if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
+  and remove_instr ctx ~block ~instr =
+    mark_changed ctx;
+    let used_values = Ir.uses instr.Instr_state.ir in
+    Fn_state.remove_instr ctx.fn_state ~block ~instr;
+    List.iter used_values ~f:(fun value ->
+      match active_value value with
+      | None -> ()
+      | Some value ->
+        if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
 
-and remove_arg ctx ~block ~arg_index =
-  let args = Block.args block in
-  let new_args = Vec.create () in
-  Vec.iteri args ~f:(fun i arg ->
-    if not (Int.equal i arg_index) then Vec.push new_args arg);
-  Fn_state.set_block_args ctx.fn_state ~block ~args:new_args;
-  Vec.iter (Block.parents block) ~f:(fun parent ->
-    remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
-
-and kill_definition ctx (value : Value_state.t) =
-  if not value.Value_state.active
-  then ()
-  else (
-    Value_state.Expert.set_active value false;
-    let def_block =
-      match value.Value_state.def with
-      | Def_site.Undefined -> None
-      | _ -> Some (def_block_exn ctx value)
+  and remove_arg_from_parent ctx ~parent ~idx ~from_block =
+    mark_changed ctx;
+    let removed = ref [] in
+    let parent_terminal = Block.terminal parent in
+    let new_ir =
+      Ir.map_call_blocks parent_terminal.Instr_state.ir ~f:(fun cb ->
+        if not (phys_equal cb.block from_block)
+        then cb
+        else
+          { cb with
+            args =
+              List.filteri cb.args ~f:(fun i var ->
+                if i = idx
+                then (
+                  removed := var :: !removed;
+                  false)
+                else true)
+          })
     in
-    (match value.Value_state.def with
-     | Def_site.Instr instr_id ->
-       let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
-       Option.iter def_block ~f:(fun block -> remove_instr ctx ~block ~instr)
-     | Def_site.Block_arg { block_id; arg } ->
-       let block = Hashtbl.find_exn ctx.block_by_id block_id in
-       remove_arg ctx ~block ~arg_index:arg
-     | Def_site.Undefined -> ());
-    Option.iter ctx.block_tracker ~f:(fun tracker ->
-      Option.iter def_block ~f:(fun block ->
-        Block_tracker.ready tracker ~var:value ~block)))
+    Fn_state.replace_terminal_ir ctx.fn_state ~block:parent ~with_:new_ir;
+    List.iter !removed ~f:(fun value ->
+      match active_value value with
+      | None -> ()
+      | Some value ->
+        if Set.is_empty value.Value_state.uses then try_kill_value ctx ~value)
 
-and try_kill_value ctx ~(value : Value_state.t) =
-  if not value.Value_state.active
+  and remove_arg ctx ~block ~arg_index =
+    mark_changed ctx;
+    let args = Block.args block in
+    let new_args = Vec.create () in
+    Vec.iteri args ~f:(fun i arg ->
+      if not (Int.equal i arg_index) then Vec.push new_args arg);
+    Fn_state.set_block_args ctx.fn_state ~block ~args:new_args;
+    Vec.iter (Block.parents block) ~f:(fun parent ->
+      remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
+
+  and kill_definition ctx (value : Value_state.t) =
+    if not value.Value_state.active
+    then ()
+    else (
+      mark_changed ctx;
+      Value_state.Expert.set_active value false;
+      let def_block =
+        match value.Value_state.def with
+        | Def_site.Undefined -> None
+        | _ -> Some (def_block_exn ctx value)
+      in
+      match value.Value_state.def with
+      | Def_site.Instr instr_id ->
+        let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
+        Option.iter def_block ~f:(fun block -> remove_instr ctx ~block ~instr)
+      | Def_site.Block_arg { block_id; arg } ->
+        let block = Hashtbl.find_exn ctx.block_by_id block_id in
+        remove_arg ctx ~block ~arg_index:arg
+      | Def_site.Undefined -> ())
+
+  and try_kill_value ctx ~(value : Value_state.t) =
+    if not value.Value_state.active
+    then ()
+    else (
+      match Set.length value.Value_state.uses, value.Value_state.def with
+      | 0, _ -> kill_definition ctx value
+      | 1, Def_site.Block_arg { block_id; arg } ->
+        let block = Hashtbl.find_exn ctx.block_by_id block_id in
+        let use_id = Set.min_elt_exn value.Value_state.uses in
+        let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
+        if Instr_id.equal use_id (Block.terminal block).Instr_state.id
+           && List.equal
+                Value_state.equal
+                [ arg_value ]
+                (defining_values_for_block_arg ctx ~block ~arg_index:arg)
+        then kill_definition ctx value
+        else ()
+      | _, _ -> ())
+  ;;
+
+  let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
+    let old_instr_id =
+      match value.Value_state.def with
+      | Def_site.Block_arg _ ->
+        failwith "Can't replace defining instr for block arg"
+      | Def_site.Instr instr_id -> instr_id
+      | Def_site.Undefined -> failwith "value has no definition"
+    in
+    let def_block = def_block_exn ctx value in
+    let old_instr =
+      Fn_state.instr ctx.fn_state old_instr_id |> Option.value_exn
+    in
+    let new_instr = Fn_state.alloc_instr ctx.fn_state ~ir:new_ir in
+    mark_changed ctx;
+    Fn_state.replace_instr
+      ctx.fn_state
+      ~block:def_block
+      ~instr:old_instr
+      ~with_instrs:[ new_instr ];
+    update_uses ctx ~old_ir:old_instr.Instr_state.ir ~new_ir
+  ;;
+
+  let replace_terminal ctx ~block ~new_terminal_ir =
+    let old_terminal = Block.terminal block in
+    let old_blocks = Ir.blocks old_terminal.Instr_state.ir in
+    let new_blocks = Ir.blocks new_terminal_ir in
+    let diff =
+      List.filter old_blocks ~f:(fun block' ->
+        not (List.mem new_blocks block' ~equal:phys_equal))
+    in
+    mark_changed ctx;
+    Vec.switch (Block.Expert.children block) (Vec.of_list new_blocks);
+    List.iter diff ~f:(fun block' ->
+      Vec.switch
+        (Block.Expert.parents block')
+        (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
+    Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_terminal_ir;
+    update_uses ctx ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
+  ;;
+
+  let replace_instruction_ir
+    ctx
+    ~(block : Block.t)
+    ~(instr : _ Instr_state.t)
+    ~new_ir
+    =
+    let old_ir = instr.Instr_state.ir in
+    mark_changed ctx;
+    if phys_equal instr (Block.terminal block)
+    then Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_ir
+    else
+      Fn_state.replace_instr_with_irs
+        ctx.fn_state
+        ~block
+        ~instr
+        ~with_irs:[ new_ir ];
+    update_uses ctx ~old_ir ~new_ir
+  ;;
+end
+
+let try_kill_value = Transform.try_kill_value
+
+let replace_value_uses
+  ctx
+  ~(from_value : Value_state.t)
+  ~(to_value : Value_state.t)
+  =
+  if Value_state.equal from_value to_value
   then ()
   else (
-    match Set.length value.Value_state.uses, value.Value_state.def with
-    | 0, _ -> kill_definition ctx value
-    | 1, Def_site.Block_arg { block_id; arg } ->
-      (* weird case in our ssa algo that is borked, fix it here *)
-      let block = Hashtbl.find_exn ctx.block_by_id block_id in
-      let use_id = Set.min_elt_exn value.Value_state.uses in
-      let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
-      if Instr_id.equal use_id (Block.terminal block).Instr_state.id
-         && List.equal
-              Value_state.equal
-              [ arg_value ]
-              (defining_values_for_block_arg ctx ~block ~arg_index:arg)
-      then kill_definition ctx value
-      else ()
-    | _, _ ->
-      (* can't trim *)
-      ())
-;;
-
-let update_uses ctx ~old_ir ~new_ir =
-  let old_values = Value_state.Set.of_list (Ir.uses old_ir) in
-  let new_values = Value_state.Set.of_list (Ir.uses new_ir) in
-  Set.iter (Set.diff old_values new_values) ~f:(fun value ->
-    match active_value value with
-    | None -> ()
-    | Some value ->
-      if Opt_flags.unused_vars ctx.opt_flags
-         && Set.is_empty value.Value_state.uses
-      then try_kill_value ctx ~value)
+    let uses = Set.to_list from_value.Value_state.uses in
+    List.iter uses ~f:(fun instr_id ->
+      let block = block_for_instr_id_exn ctx instr_id in
+      let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
+      let new_ir =
+        Ir.map_uses instr.Instr_state.ir ~f:(fun use ->
+          if Value_state.equal use from_value then to_value else use)
+      in
+      Transform.replace_instruction_ir ctx ~block ~instr ~new_ir);
+    try_kill_value ctx ~value:from_value)
 ;;
 
 (* --- Constant propagation helpers --- *)
 let constant_fold ctx ~instr =
-  let instr =
+  let substituted = ref false in
+  let mapped =
     Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
       match lit_or_var with
       | Lit _ -> lit_or_var
       | Var value ->
         (match value.Value_state.opt_tags.constant with
-         | Some i -> Lit i
+         | Some i ->
+           substituted := true;
+           Lit i
          | None -> lit_or_var)
       | Global _ -> lit_or_var)
   in
-  Ir.constant_fold instr
+  let base = if !substituted then mapped else instr in
+  let folded = Ir.constant_fold base in
+  !substituted || not (phys_equal folded instr), folded
 ;;
 
-(* must be strict subset of uses and such *)
-let replace_defining_instruction ctx ~(value : Value_state.t) ~new_ir =
-  let old_instr_id =
-    match value.Value_state.def with
-    | Def_site.Block_arg _ ->
-      failwith "Can't replace defining instr for block arg"
-    | Def_site.Instr instr_id -> instr_id
-    | Def_site.Undefined -> failwith "value has no definition"
-  in
-  let def_block = def_block_exn ctx value in
-  let old_instr =
-    Fn_state.instr ctx.fn_state old_instr_id |> Option.value_exn
-  in
-  let new_instr = Fn_state.alloc_instr ctx.fn_state ~ir:new_ir in
-  Fn_state.replace_instr
-    ctx.fn_state
-    ~block:def_block
-    ~instr:old_instr
-    ~with_instrs:[ new_instr ];
-  update_uses ctx ~old_ir:old_instr.Instr_state.ir ~new_ir
-;;
-
-(* must be strict subset of uses and such *)
-let replace_terminal ctx ~block ~new_terminal_ir =
-  let old_terminal = Block.terminal block in
-  let old_blocks = Ir.blocks old_terminal.Instr_state.ir in
-  let new_blocks = Ir.blocks new_terminal_ir in
-  let diff =
-    List.filter old_blocks ~f:(fun block' ->
-      not (List.mem new_blocks block' ~equal:phys_equal))
-  in
-  Vec.switch (Block.Expert.children block) (Vec.of_list new_blocks);
-  List.iter diff ~f:(fun block' ->
-    Vec.switch
-      (Block.Expert.parents block')
-      (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
-  Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_terminal_ir;
-  update_uses ctx ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
+let set_constant_tag ctx value constant =
+  let prev = value.Value_state.opt_tags.constant in
+  if not (Option.equal Int64.equal prev constant)
+  then (
+    Value_state.Expert.set_opt_tags value { constant };
+    mark_changed ctx)
 ;;
 
 let rec refine_type ctx ~(value : Value_state.t) =
@@ -384,16 +402,22 @@ and refine_type_block_arg ctx ~value ~block ~arg_index =
         | Some a, Some b when Int64.equal a b -> acc
         | _ -> None)
     in
-    Value_state.Expert.set_opt_tags value { constant }
+    set_constant_tag ctx value constant
 
 and refine_type_instr ctx ~value ~instr_id =
   let instr = Fn_state.instr ctx.fn_state instr_id |> Option.value_exn in
-  let new_ir = constant_fold ctx ~instr:instr.Instr_state.ir in
-  replace_defining_instruction ctx ~value ~new_ir;
-  match Ir.constant new_ir with
+  let changed, new_ir = constant_fold ctx ~instr:instr.Instr_state.ir in
+  let ir =
+    if changed
+    then (
+      Transform.replace_defining_instruction ctx ~value ~new_ir;
+      new_ir)
+    else instr.Instr_state.ir
+  in
+  match Ir.constant ir with
   | None -> ()
   | Some _ as constant ->
-    Value_state.Expert.set_opt_tags value { constant };
+    set_constant_tag ctx value constant;
     let terminal_uses =
       Ir.uses (Block.terminal (def_block_exn ctx value)).Instr_state.ir
     in
@@ -402,8 +426,10 @@ and refine_type_instr ctx ~value ~instr_id =
 
 and refine_terminal ctx ~block =
   let terminal = Block.terminal block in
-  let new_terminal_ir = constant_fold ctx ~instr:terminal.Instr_state.ir in
-  replace_terminal ctx ~block ~new_terminal_ir
+  let changed, new_terminal_ir =
+    constant_fold ctx ~instr:terminal.Instr_state.ir
+  in
+  if changed then Transform.replace_terminal ctx ~block ~new_terminal_ir
 ;;
 
 let gvn (_ctx : context) ~(value : Value_state.t) =
@@ -411,100 +437,223 @@ let gvn (_ctx : context) ~(value : Value_state.t) =
   ()
 ;;
 
-type pass =
-  { name : string
-  ; enabled : Opt_flags.t -> bool
-  ; on_value : (context -> Value_state.t -> unit) option
-  ; on_terminal : (context -> Block.t -> unit) option
-  }
+module Value_pass = struct
+  type t =
+    { name : string
+    ; enabled : Opt_flags.t -> bool
+    ; visit : context -> Value_state.t -> unit
+    ; fixpoint : bool
+    }
+end
 
-let sweep_values ?on_terminal ctx ~on_value =
-  let seen = Int.Hash_set.create () in
-  Option.iter on_terminal ~f:(fun once_ready ->
-    let tracker = Block_tracker.create ctx ~once_ready in
-    assert (Option.is_none ctx.block_tracker);
-    ctx.block_tracker <- Some tracker);
-  let instr_exn instr_id =
-    Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
-  in
-  let rec go (value : Value_state.t) =
-    let (Value_id id) = value.id in
-    if Hash_set.mem seen id
-    then ()
-    else (
-      Hash_set.add seen id;
-      let def_block =
-        match value.Value_state.def with
-        | Def_site.Block_arg { block_id; _ } ->
-          Some (Hashtbl.find_exn ctx.block_by_id block_id)
-        | Def_site.Instr _ -> Some (def_block_exn ctx value)
-        | Def_site.Undefined -> None
+module Block_pass = struct
+  type t =
+    { name : string
+    ; enabled : Opt_flags.t -> bool
+    ; visit : context -> Block.t -> unit
+    ; fixpoint : bool
+    }
+end
+
+module Function_pass = struct
+  type t =
+    { name : string
+    ; enabled : Opt_flags.t -> bool
+    ; run : context -> unit
+    ; fixpoint : bool
+    }
+end
+
+type pass =
+  | Value of Value_pass.t
+  | Block of Block_pass.t
+  | Function of Function_pass.t
+
+module Pass_runner = struct
+  let max_fixpoint_iterations = 8
+
+  let run_value_pass ctx (pass : Value_pass.t) =
+    if pass.enabled ctx.opt_flags
+    then (
+      let rec loop iteration =
+        ctx.changed <- false;
+        let seen = Int.Hash_set.create () in
+        let instr_exn instr_id =
+          Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
+        in
+        let rec go (value : Value_state.t) =
+          if not value.Value_state.active
+          then ()
+          else (
+            let (Value_id id) = value.id in
+            if Hash_set.mem seen id
+            then ()
+            else (
+              Hash_set.add seen id;
+              match value.Value_state.def with
+              | Def_site.Block_arg _ -> pass.visit ctx value
+              | Def_site.Instr instr_id ->
+                let instr = instr_exn instr_id in
+                List.iter (Ir.uses instr.Instr_state.ir) ~f:(fun use ->
+                  Option.iter (active_value use) ~f:go);
+                pass.visit ctx value
+              | Def_site.Undefined -> ()))
+        in
+        Vec.iter ctx.fn_state.values ~f:(function
+          | None -> ()
+          | Some value -> go value);
+        if pass.fixpoint && ctx.changed && iteration < max_fixpoint_iterations
+        then loop (iteration + 1)
       in
-      (match value.Value_state.def with
-       | Def_site.Block_arg _ -> on_value value
-       | Def_site.Instr instr_id ->
-         let instr = instr_exn instr_id in
-         List.iter (Ir.uses instr.Instr_state.ir) ~f:(fun use ->
-           Option.iter (active_value use) ~f:go);
-         on_value value
-       | Def_site.Undefined -> ());
-      Option.iter ctx.block_tracker ~f:(fun tracker ->
-        Option.iter def_block ~f:(fun block ->
-          Block_tracker.ready tracker ~var:value ~block)))
-  in
-  Vec.iter ctx.fn_state.values ~f:(function
-    | None -> ()
-    | Some value -> if value.Value_state.active then go value);
-  Option.iter on_terminal ~f:(fun _ -> ctx.block_tracker <- None)
+      loop 1)
+  ;;
+
+  let run_block_pass ctx (pass : Block_pass.t) =
+    if pass.enabled ctx.opt_flags
+    then (
+      let rec loop iteration =
+        ctx.changed <- false;
+        iter_blocks ctx ~f:(fun block -> pass.visit ctx block);
+        if pass.fixpoint && ctx.changed && iteration < max_fixpoint_iterations
+        then loop (iteration + 1)
+      in
+      loop 1)
+  ;;
+
+  let run_function_pass ctx (pass : Function_pass.t) =
+    if pass.enabled ctx.opt_flags
+    then (
+      let rec loop iteration =
+        ctx.changed <- false;
+        pass.run ctx;
+        if pass.fixpoint && ctx.changed && iteration < max_fixpoint_iterations
+        then loop (iteration + 1)
+      in
+      loop 1)
+  ;;
+
+  let run ctx passes =
+    List.iter passes ~f:(function
+      | Value pass -> run_value_pass ctx pass
+      | Block pass -> run_block_pass ctx pass
+      | Function pass -> run_function_pass ctx pass)
+  ;;
+end
+
+let pass_constant_propagation_values =
+  Value
+    { Value_pass.name = "constant_propagation_values"
+    ; enabled = Opt_flags.constant_propagation
+    ; visit = (fun ctx value -> refine_type ctx ~value)
+    ; fixpoint = true
+    }
 ;;
 
-let pass_constant_propagation =
-  { name = "constant_propagation"
-  ; enabled = Opt_flags.constant_propagation
-  ; on_value = Some (fun ctx value -> refine_type ctx ~value)
-  ; on_terminal = Some (fun ctx block -> refine_terminal ctx ~block)
-  }
+let pass_copy_propagation =
+  Value
+    { Value_pass.name = "copy_propagation"
+    ; enabled = Opt_flags.constant_propagation
+    ; visit =
+        (fun ctx value ->
+          match value.Value_state.def with
+          | Def_site.Instr instr_id ->
+            let instr =
+              Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
+            in
+            (match instr.Instr_state.ir with
+             | Nod_ir.Ir.Move (_, Nod_ir.Lit_or_var.Var src)
+               when src.Value_state.active && not (Value_state.equal value src)
+               -> replace_value_uses ctx ~from_value:value ~to_value:src
+             | _ -> ())
+          | _ -> ())
+    ; fixpoint = true
+    }
+;;
+
+let pass_phi_simplify =
+  Block
+    { Block_pass.name = "phi_simplify"
+    ; enabled = Opt_flags.constant_propagation
+    ; visit =
+        (fun ctx block ->
+          Vec.iteri (Block.args block) ~f:(fun arg_index arg ->
+            let value = value_of_var_exn ctx arg in
+            match defining_values_for_block_arg ctx ~block ~arg_index with
+            | [] -> ()
+            | first :: rest ->
+              if first.Value_state.active
+                 && List.for_all rest ~f:(fun v -> Value_state.equal v first)
+              then replace_value_uses ctx ~from_value:value ~to_value:first))
+    ; fixpoint = true
+    }
+;;
+
+let pass_terminal_simplify =
+  Block
+    { Block_pass.name = "simplify_terminals"
+    ; enabled = Opt_flags.constant_propagation
+    ; visit = (fun ctx block -> refine_terminal ctx ~block)
+    ; fixpoint = true
+    }
+;;
+
+let pass_arithmetic_simplify =
+  Value
+    { Value_pass.name = "simplify_arith"
+    ; enabled = Opt_flags.constant_propagation
+    ; visit =
+        (fun ctx value ->
+          match value.Value_state.def with
+          | Def_site.Instr instr_id ->
+            let instr =
+              Fn_state.instr ctx.fn_state instr_id |> Option.value_exn
+            in
+            (match
+               Peepholes.simplify
+                 ~fn_state:ctx.fn_state
+                 ~value
+                 ~ir:instr.Instr_state.ir
+             with
+             | None -> ()
+             | Some new_ir ->
+               Transform.replace_defining_instruction ctx ~value ~new_ir)
+          | _ -> ())
+    ; fixpoint = true
+    }
 ;;
 
 let pass_dce =
-  { name = "dce"
-  ; enabled = Opt_flags.unused_vars
-  ; on_value = Some (fun ctx value -> try_kill_value ctx ~value)
-  ; on_terminal = None
-  }
+  Value
+    { Value_pass.name = "dce"
+    ; enabled = Opt_flags.unused_vars
+    ; visit = (fun ctx value -> try_kill_value ctx ~value)
+    ; fixpoint = true
+    }
 ;;
 
 let pass_gvn =
-  { name = "gvn"
-  ; enabled = Opt_flags.gvn
-  ; on_value =
-      Some (fun ctx value -> if value.Value_state.active then gvn ctx ~value)
-  ; on_terminal = None
-  }
+  Value
+    { Value_pass.name = "gvn"
+    ; enabled = Opt_flags.gvn
+    ; visit = (fun ctx value -> if value.Value_state.active then gvn ctx ~value)
+    ; fixpoint = false
+    }
 ;;
 
-let passes = [ pass_constant_propagation; pass_dce; pass_gvn ]
-
-let run ctx =
-  let enabled_passes =
-    List.filter passes ~f:(fun pass -> pass.enabled ctx.opt_flags)
-  in
-  let on_value value =
-    List.iter enabled_passes ~f:(fun pass ->
-      Option.iter pass.on_value ~f:(fun f -> f ctx value))
-  in
-  let on_terminal =
-    if List.exists enabled_passes ~f:(fun pass ->
-         Option.is_some pass.on_terminal)
-    then
-      Some
-        (fun block ->
-          List.iter enabled_passes ~f:(fun pass ->
-            Option.iter pass.on_terminal ~f:(fun f -> f ctx block)))
-    else None
-  in
-  sweep_values ctx ~on_value ?on_terminal
+let passes =
+  [ pass_constant_propagation_values
+  ; pass_copy_propagation
+  ; pass_phi_simplify
+  ; pass_arithmetic_simplify
+  ; pass_terminal_simplify
+  ; pass_dce
+  ; pass_gvn
+  ; pass_constant_propagation_values
+  ; pass_copy_propagation
+  ]
 ;;
+
+let run ctx = Pass_runner.run ctx passes
 
 let optimize_root ?(opt_flags = Opt_flags.default) ~fn_state root =
   let ctx = create_context ~opt_flags ~fn_state root in

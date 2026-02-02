@@ -203,8 +203,6 @@ let%expect_test "fib" =
       ((Add
         ((dest ((name next) (type_ I64))) (src1 (Var ((name a%0) (type_ I64))))
          (src2 (Var ((name b%0) (type_ I64))))))
-       (Move ((name a%1) (type_ I64)) (Var ((name b%0) (type_ I64))))
-       (Move ((name b%1) (type_ I64)) (Var ((name next) (type_ I64))))
        (Sub
         ((dest ((name count%1) (type_ I64)))
          (src1 (Var ((name count%0) (type_ I64)))) (src2 (Lit 1))))
@@ -216,8 +214,8 @@ let%expect_test "fib" =
              (((name b%0) (type_ I64)) ((name count%0) (type_ I64))
               ((name a%0) (type_ I64))))))
           (args
-           (((name b%1) (type_ I64)) ((name count%1) (type_ I64))
-            ((name a%1) (type_ I64))))))))))
+           (((name next) (type_ I64)) ((name count%1) (type_ I64))
+            ((name b%0) (type_ I64))))))))))
     (fib_exit (args ()) (instrs ((Return (Var ((name a%0) (type_ I64)))))))
     |}]
 ;;
@@ -1320,6 +1318,7 @@ let%expect_test "longer example" =
     (start (args ())
      (instrs
       ((Move ((name i) (type_ I64)) (Lit 0))
+       (Move ((name total) (type_ I64)) (Lit 0))
        (Branch
         (Uncond
          ((block
@@ -1341,7 +1340,9 @@ let%expect_test "longer example" =
        (Branch
         (Cond (cond (Var ((name condOuter) (type_ I64))))
          (if_true ((block ((id_hum outerBody) (args ()))) (args ())))
-         (if_false ((block ((id_hum exit) (args ()))) (args ()))))))))
+         (if_false
+          ((block ((id_hum exit) (args (((name total%2) (type_ I64))))))
+           (args (((name total) (type_ I64)))))))))))
     (outerBody (args ())
      (instrs
       ((Move ((name j%0) (type_ I64)) (Lit 0))
@@ -1366,9 +1367,8 @@ let%expect_test "longer example" =
       ((And
         ((dest ((name isEven) (type_ I64))) (src1 (Var ((name j%1) (type_ I64))))
          (src2 (Lit 1))))
-       (Move ((name condSkip) (type_ I64)) (Var ((name isEven) (type_ I64))))
        (Branch
-        (Cond (cond (Var ((name condSkip) (type_ I64))))
+        (Cond (cond (Var ((name isEven) (type_ I64))))
          (if_true ((block ((id_hum doWork) (args ()))) (args ())))
          (if_false ((block ((id_hum skipEven) (args ()))) (args ()))))))))
     (doWork (args ())
@@ -1395,13 +1395,11 @@ let%expect_test "longer example" =
         ((dest ((name j%4) (type_ I64))) (src1 (Lit 1))
          (src2 (Var ((name j%1) (type_ I64))))))
        (Branch
-        (Cond (cond (Lit 1))
-         (if_true
-          ((block
-            ((id_hum innerCheck)
-             (args (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))))
-           (args (((name j%4) (type_ I64)) ((name partial%1) (type_ I64))))))
-         (if_false ((block ((id_hum innerExit) (args ()))) (args ()))))))))
+        (Uncond
+         ((block
+           ((id_hum innerCheck)
+            (args (((name j%1) (type_ I64)) ((name partial%1) (type_ I64))))))
+          (args (((name j%4) (type_ I64)) ((name partial%1) (type_ I64))))))))))
     (innerExit (args ())
      (instrs
       ((Branch (Uncond ((block ((id_hum outerInc) (args ()))) (args ())))))))
@@ -1420,6 +1418,7 @@ let%expect_test "longer example" =
           (args
            (((name i%1) (type_ I64)) ((name j%0) (type_ I64))
             ((name partial%0) (type_ I64))))))))))
-    (exit (args ()) (instrs ((Return (Lit 0)))))
+    (exit (args (((name total%2) (type_ I64))))
+     (instrs ((Return (Var ((name total%2) (type_ I64)))))))
     |}]
 ;;
