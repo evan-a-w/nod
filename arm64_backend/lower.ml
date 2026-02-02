@@ -375,5 +375,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
 ;;
 
 let run ~system ?(globals = []) functions =
-  lower_to_items ~system functions |> Emit_asm.run ~system ~globals
+  lower_to_items ~system functions
+  |> Asm_peepholes.optimize_program
+  |> Emit_asm.run ~system ~globals
 ;;
