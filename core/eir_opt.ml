@@ -6,13 +6,424 @@ module Opt_flags = struct
     { unused_vars : bool
     ; constant_propagation : bool
     ; gvn : bool
+    ; inline : bool
     }
   [@@deriving fields]
 
-  let default = { unused_vars = true; constant_propagation = true; gvn = true }
+  let default =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; inline = true
+    }
+  ;;
 
   let no_opt =
-    { unused_vars = false; constant_propagation = false; gvn = false }
+    { unused_vars = false
+    ; constant_propagation = false
+    ; gvn = false
+    ; inline = false
+    }
+  ;;
+end
+
+module Inline = struct
+  let max_inline_instrs = 32
+  let max_inline_blocks = 6
+
+  type metrics =
+    { instrs : int
+    ; blocks : int
+    }
+
+  let instrs_in_block block =
+    Instr_state.fold (Block.instructions block) ~init:0 ~f:(fun acc _ ->
+      acc + 1)
+  ;;
+
+  let metrics_of_root root =
+    let blocks = ref 0 in
+    let instrs = ref 0 in
+    Block.iter root ~f:(fun block ->
+      incr blocks;
+      instrs := !instrs + instrs_in_block block + 1);
+    { instrs = !instrs; blocks = !blocks }
+  ;;
+
+  let should_inline metrics =
+    metrics.instrs <= max_inline_instrs && metrics.blocks <= max_inline_blocks
+  ;;
+
+  module Name_supply = struct
+    type t =
+      { var_names : String.Hash_set.t
+      ; block_names : String.Hash_set.t
+      ; mutable var_counter : int
+      ; mutable block_counter : int
+      }
+
+    let sanitize_name base =
+      String.map base ~f:(function
+        | '%' -> '_'
+        | c -> c)
+    ;;
+
+    let create ~fn_state ~root =
+      let var_names = String.Hash_set.create () in
+      Vec.iter fn_state.Fn_state.values ~f:(function
+        | None -> ()
+        | Some value ->
+          Hash_set.add var_names (Typed_var.name (Value_state.var value)));
+      let block_names = String.Hash_set.create () in
+      Block.iter root ~f:(fun block ->
+        Hash_set.add block_names (Block.id_hum block));
+      { var_names; block_names; var_counter = 0; block_counter = 0 }
+    ;;
+
+    let fresh_name names counter base =
+      let base = sanitize_name base in
+      let rec loop attempt =
+        let candidate =
+          if attempt = 0
+          then sprintf "%s__inline_%d" base counter
+          else sprintf "%s__inline_%d_%d" base counter attempt
+        in
+        if Hash_set.mem names candidate then loop (attempt + 1) else candidate
+      in
+      loop 0
+    ;;
+
+    let fresh_block_name t base =
+      let name = fresh_name t.block_names t.block_counter base in
+      Hash_set.add t.block_names name;
+      t.block_counter <- t.block_counter + 1;
+      name
+    ;;
+
+    let fresh_var_name t ?hint () =
+      let base = Option.value hint ~default:"tmp" in
+      let name = fresh_name t.var_names t.var_counter base in
+      Hash_set.add t.var_names name;
+      t.var_counter <- t.var_counter + 1;
+      name
+    ;;
+
+    let fresh_var t ?hint type_ =
+      let name = fresh_var_name t ?hint () in
+      Typed_var.create ~name ~type_
+    ;;
+  end
+
+  let collect_instrs ~fn_state block =
+    let rec loop instr acc =
+      match instr with
+      | None -> List.rev acc
+      | Some instr ->
+        loop
+          instr.Instr_state.next
+          ((instr, Fn_state.var_ir instr.Instr_state.ir) :: acc)
+    in
+    loop (Block.instructions block) []
+  ;;
+
+  let split_around_call entries ~call_instr =
+    let rec loop prefix = function
+      | [] -> None
+      | (instr, ir) :: rest ->
+        if phys_equal instr call_instr
+        then Some (List.rev prefix, ir, rest)
+        else loop ((instr, ir) :: prefix) rest
+    in
+    loop [] entries
+  ;;
+
+  let has_return root =
+    let found = ref false in
+    Block.iter root ~f:(fun block ->
+      if !found
+      then ()
+      else (
+        match (Block.terminal block).Instr_state.ir with
+        | Return _ -> found := true
+        | _ -> ()));
+    !found
+  ;;
+
+  let install_instrs ~fn_state ~block irs =
+    let irs = List.map irs ~f:(Fn_state.value_ir fn_state) in
+    Fn_state.replace_irs fn_state ~block ~irs
+  ;;
+
+  let create_block supply ~fn_state ~base ~terminal_ir =
+    let id_hum = Name_supply.fresh_block_name supply base in
+    let terminal =
+      Fn_state.alloc_instr fn_state ~ir:(Fn_state.value_ir fn_state terminal_ir)
+    in
+    let block = Block.create ~id_hum ~terminal in
+    Block.set_dfs_id block (Some 0);
+    Fn_state.set_instr_block fn_state ~block ~instr:terminal;
+    block
+  ;;
+
+  let rec inline_call
+    ~program
+    ~state
+    ~caller_name
+    ~caller_fn_state
+    ~caller_root
+    ~block
+    ~call_instr
+    =
+    match call_instr.Instr_state.ir with
+    | Call call_value ->
+      let callee_name = call_value.fn in
+      if String.equal callee_name caller_name
+      then false
+      else (
+        match Map.find program.Program.functions callee_name with
+        | None -> false
+        | Some callee_fn ->
+          let callee_root = Function.root callee_fn in
+          let callee_metrics = metrics_of_root callee_root in
+          if (not (should_inline callee_metrics))
+             || not (has_return callee_root)
+          then false
+          else (
+            let entries = collect_instrs ~fn_state:caller_fn_state block in
+            match split_around_call entries ~call_instr with
+            | None -> false
+            | Some (before, call_ir_typed, after) ->
+              (match call_ir_typed with
+               | Call call_typed_ir ->
+                 let entry_args = Vec.to_list (Block.args callee_root) in
+                 if List.length call_typed_ir.args <> List.length entry_args
+                 then false
+                 else (
+                   let call_result_vars =
+                     List.map call_value.results ~f:(fun value ->
+                       Value_state.var value)
+                   in
+                   if List.length call_result_vars > 1
+                   then false
+                   else (
+                     let supply =
+                       Name_supply.create
+                         ~fn_state:caller_fn_state
+                         ~root:caller_root
+                     in
+                     let actual_args, prep_instrs =
+                       List.fold2_exn
+                         entry_args
+                         call_typed_ir.args
+                         ~init:([], [])
+                         ~f:(fun (args, instrs) param arg ->
+                           match arg with
+                           | Var var -> var :: args, instrs
+                           | Lit lit ->
+                             let temp =
+                               Name_supply.fresh_var
+                                 supply
+                                 ~hint:(Typed_var.name param)
+                                 (Typed_var.type_ param)
+                             in
+                             ( temp :: args
+                             , Nod_ir.Ir.Move (temp, Lit lit) :: instrs )
+                           | Global g ->
+                             let temp =
+                               Name_supply.fresh_var
+                                 supply
+                                 ~hint:(Typed_var.name param)
+                                 (Typed_var.type_ param)
+                             in
+                             ( temp :: args
+                             , Nod_ir.Ir.Move (temp, Global g) :: instrs ))
+                     in
+                     let actual_args = List.rev actual_args in
+                     let prep_instrs = List.rev prep_instrs in
+                     let before_instrs = List.map before ~f:snd @ prep_instrs in
+                     install_instrs
+                       ~fn_state:caller_fn_state
+                       ~block
+                       before_instrs;
+                     let after_instrs = List.map after ~f:snd in
+                     let original_terminal =
+                       Fn_state.var_ir (Block.terminal block).Instr_state.ir
+                     in
+                     let cont_block =
+                       create_block
+                         supply
+                         ~fn_state:caller_fn_state
+                         ~base:(Block.id_hum block ^ "__cont")
+                         ~terminal_ir:original_terminal
+                     in
+                     install_instrs
+                       ~fn_state:caller_fn_state
+                       ~block:cont_block
+                       after_instrs;
+                     Fn_state.set_block_args
+                       caller_fn_state
+                       ~block:cont_block
+                       ~args:(Vec.of_list call_result_vars);
+                     let callee_blocks = Block.to_list callee_root in
+                     let block_map = Block.Table.create () in
+                     List.iter callee_blocks ~f:(fun callee_block ->
+                       let clone =
+                         create_block
+                           supply
+                           ~fn_state:caller_fn_state
+                           ~base:(Block.id_hum callee_block)
+                           ~terminal_ir:Ir.unreachable
+                       in
+                       Hashtbl.set block_map ~key:callee_block ~data:clone);
+                     let var_map = Typed_var.Table.create () in
+                     List.iter callee_blocks ~f:(fun callee_block ->
+                       let clone = Hashtbl.find_exn block_map callee_block in
+                       let args = Vec.to_list (Block.args callee_block) in
+                       let new_args =
+                         List.map args ~f:(fun arg ->
+                           let mapped =
+                             Name_supply.fresh_var
+                               supply
+                               ~hint:(Typed_var.name arg)
+                               (Typed_var.type_ arg)
+                           in
+                           Hashtbl.set var_map ~key:arg ~data:mapped;
+                           mapped)
+                       in
+                       Fn_state.set_block_args
+                         caller_fn_state
+                         ~block:clone
+                         ~args:(Vec.of_list new_args));
+                     let map_var var =
+                       match Hashtbl.find var_map var with
+                       | Some mapped -> mapped
+                       | None -> failwith "inline: missing var mapping"
+                     in
+                     let map_lit_or_var lit_or_var =
+                       Nod_ir.Lit_or_var.map_vars lit_or_var ~f:map_var
+                     in
+                     List.iter callee_blocks ~f:(fun callee_block ->
+                       let clone = Hashtbl.find_exn block_map callee_block in
+                       let typed_instrs =
+                         Block.instructions callee_block
+                         |> Instr_state.to_ir_list
+                         |> List.map ~f:Fn_state.var_ir
+                       in
+                       let mapped_instrs =
+                         List.fold typed_instrs ~init:[] ~f:(fun acc instr ->
+                           List.iter (Ir.defs instr) ~f:(fun var ->
+                             if not (Hashtbl.mem var_map var)
+                             then (
+                               let mapped =
+                                 Name_supply.fresh_var
+                                   supply
+                                   ~hint:(Typed_var.name var)
+                                   (Typed_var.type_ var)
+                               in
+                               Hashtbl.set var_map ~key:var ~data:mapped));
+                           Ir.map_vars instr ~f:map_var :: acc)
+                         |> List.rev
+                       in
+                       let terminal_ir =
+                         Fn_state.var_ir
+                           (Block.terminal callee_block).Instr_state.ir
+                       in
+                       let mapped_terminal, extra_instrs =
+                         match terminal_ir with
+                         | Return ret ->
+                           let args, extra =
+                             match call_result_vars with
+                             | [] -> [], []
+                             | [ result_var ] ->
+                               (match map_lit_or_var ret with
+                                | Var var -> [ var ], []
+                                | lit ->
+                                  let temp =
+                                    Name_supply.fresh_var
+                                      supply
+                                      ~hint:(Typed_var.name result_var)
+                                      (Typed_var.type_ result_var)
+                                  in
+                                  [ temp ], [ Nod_ir.Ir.Move (temp, lit) ])
+                             | _ -> [], []
+                           in
+                           ( Nod_ir.Ir.Branch
+                               (Nod_ir.Branch.Uncond
+                                  { Call_block.block = cont_block; args })
+                           , extra )
+                         | _ ->
+                           ( terminal_ir
+                             |> Ir.map_vars ~f:map_var
+                             |> Ir.map_blocks ~f:(fun block ->
+                               Hashtbl.find_exn block_map block)
+                           , [] )
+                       in
+                       install_instrs
+                         ~fn_state:caller_fn_state
+                         ~block:clone
+                         (mapped_instrs @ extra_instrs);
+                       Fn_state.replace_terminal_ir
+                         caller_fn_state
+                         ~block:clone
+                         ~with_:
+                           (Fn_state.value_ir caller_fn_state mapped_terminal));
+                     let entry_clone = Hashtbl.find_exn block_map callee_root in
+                     let branch_to_inline =
+                       Nod_ir.Ir.Branch
+                         (Nod_ir.Branch.Uncond
+                            { Call_block.block = entry_clone
+                            ; args = actual_args
+                            })
+                     in
+                     Fn_state.replace_terminal_ir
+                       caller_fn_state
+                       ~block
+                       ~with_:
+                         (Fn_state.value_ir caller_fn_state branch_to_inline);
+                     Block.iter_and_update_bookkeeping caller_root ~f:(fun _ ->
+                       ());
+                     true))
+               | _ -> false)))
+    | _ -> false
+  ;;
+
+  let inline_function ~program ~state ~caller_name ~fn =
+    let caller_fn_state = State.fn_state state caller_name in
+    let root = Function.root fn in
+    let rec loop () =
+      let changed = ref false in
+      Block.iter root ~f:(fun block ->
+        if !changed
+        then ()
+        else (
+          let rec scan instr =
+            match instr with
+            | None -> ()
+            | Some instr ->
+              if inline_call
+                   ~program
+                   ~state
+                   ~caller_name
+                   ~caller_fn_state
+                   ~caller_root:root
+                   ~block
+                   ~call_instr:instr
+              then changed := true
+              else scan instr.Instr_state.next
+          in
+          scan (Block.instructions block)));
+      if !changed then loop ()
+    in
+    loop ()
+  ;;
+
+  let run ~state ~opt_flags program =
+    if not (Opt_flags.inline opt_flags)
+    then program
+    else (
+      Map.iteri program.Program.functions ~f:(fun ~key:name ~data:fn ->
+        inline_function ~program ~state ~caller_name:name ~fn);
+      program)
   ;;
 end
 
@@ -660,9 +1071,10 @@ let optimize_root ?(opt_flags = Opt_flags.default) ~fn_state root =
   run ctx
 ;;
 
-let optimize ?opt_flags ~state program =
+let optimize ?(opt_flags = Opt_flags.default) ~state program =
+  let program = Inline.run ~state ~opt_flags program in
   Map.iteri program.Program.functions ~f:(fun ~key:name ~data:fn ->
     let fn_state = State.fn_state state name in
-    optimize_root ?opt_flags ~fn_state (Function.root fn));
+    optimize_root ~opt_flags ~fn_state (Function.root fn));
   program
 ;;

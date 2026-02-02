@@ -2,8 +2,19 @@ open! Core
 open! Import
 open! Dsl
 
-let opt_flags ~unused_vars ~constant_propagation ~gvn : Eir.Opt_flags.t =
-  { unused_vars; constant_propagation; gvn }
+let opt_flags
+  ~unused_vars:unused_vars_flag
+  ~constant_propagation:constant_propagation_flag
+  ~gvn:gvn_flag
+  ?(inline_pass = true)
+  ()
+  =
+  Eir.Opt_flags.
+    { unused_vars = unused_vars_flag
+    ; constant_propagation = constant_propagation_flag
+    ; gvn = gvn_flag
+    ; inline = inline_pass
+    }
 ;;
 
 let lower_to_ssa program =
@@ -75,7 +86,7 @@ let run ?opt_flags s =
 let%expect_test "constant propagation folds arithmetic" =
   run
     ~opt_flags:
-      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:false ~constant_propagation:true ~gvn:false ())
     {|
 entry:
   mov %x:i64, 10
@@ -103,7 +114,7 @@ entry:
 let%expect_test "dce removes unused values" =
   run
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:false ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:false ~gvn:false ())
     {|
 entry:
   mov %x:i64, 10
@@ -155,7 +166,7 @@ entry:
 let%expect_test "gvn pass is a no-op for now" =
   run
     ~opt_flags:
-      (opt_flags ~unused_vars:false ~constant_propagation:false ~gvn:true)
+      (opt_flags ~unused_vars:false ~constant_propagation:false ~gvn:true ())
     {|
 entry:
   mov %x:i64, 10
@@ -200,7 +211,7 @@ let%expect_test "copy propagation eliminates redundant moves" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false ())
     [ fn ];
   [%expect
     {|
@@ -213,6 +224,130 @@ let%expect_test "copy propagation eliminates redundant moves" =
     after
     (%entry (args (((name input) (type_ I64))))
      (instrs ((Return (Var ((name input) (type_ I64)))))))
+    |}]
+;;
+
+let inline_test_functions () =
+  let add_five =
+    [%nod
+      fun (arg : int64) ->
+        let shifted = add arg (lit 5L) in
+        return shifted]
+    |> Dsl.Fn.renamed ~name:"add_five"
+  in
+  let root =
+    [%nod
+      fun (input : int64) ->
+        let bumped = add input (lit 1L) in
+        let result = add_five bumped in
+        return result]
+    |> Dsl.Fn.renamed ~name:"root"
+  in
+  [ add_five; root ]
+;;
+
+let%expect_test "inlining disabled keeps call" =
+  run_dsl
+    ~opt_flags:
+      (opt_flags
+         ~inline_pass:false
+         ~unused_vars:false
+         ~constant_propagation:false
+         ~gvn:false
+         ())
+    (inline_test_functions ());
+  [%expect
+    {|
+before
+(%entry (args (((name arg) (type_ I64))))
+ (instrs
+  ((Add
+    ((dest ((name shifted) (type_ I64)))
+     (src1 (Var ((name arg) (type_ I64)))) (src2 (Lit 5))))
+   (Return (Var ((name shifted) (type_ I64)))))))
+(%entry (args (((name input) (type_ I64))))
+ (instrs
+  ((Add
+    ((dest ((name bumped) (type_ I64)))
+     (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 1))))
+   (Call (fn add_five) (results (((name result) (type_ I64))))
+    (args ((Var ((name bumped) (type_ I64))))))
+   (Return (Var ((name result) (type_ I64)))))))
+after
+(%entry (args (((name arg) (type_ I64))))
+ (instrs
+  ((Add
+    ((dest ((name shifted) (type_ I64)))
+     (src1 (Var ((name arg) (type_ I64)))) (src2 (Lit 5))))
+   (Return (Var ((name shifted) (type_ I64)))))))
+(%entry (args (((name input) (type_ I64))))
+ (instrs
+  ((Add
+    ((dest ((name bumped) (type_ I64)))
+     (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 1))))
+   (Call (fn add_five) (results (((name result) (type_ I64))))
+    (args ((Var ((name bumped) (type_ I64))))))
+   (Return (Var ((name result) (type_ I64)))))))
+|}]
+;;
+
+let%expect_test "inlining enabled expands callee" =
+  run_dsl
+    ~opt_flags:
+      (opt_flags
+         ~inline_pass:true
+         ~unused_vars:false
+         ~constant_propagation:false
+         ~gvn:false
+         ())
+    (inline_test_functions ());
+  [%expect
+    {|
+    before
+    (%entry (args (((name arg) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name shifted) (type_ I64)))
+         (src1 (Var ((name arg) (type_ I64)))) (src2 (Lit 5))))
+       (Return (Var ((name shifted) (type_ I64)))))))
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name bumped) (type_ I64)))
+         (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 1))))
+       (Call (fn add_five) (results (((name result) (type_ I64))))
+        (args ((Var ((name bumped) (type_ I64))))))
+       (Return (Var ((name result) (type_ I64)))))))
+    after
+    (%entry (args (((name arg) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name shifted) (type_ I64)))
+         (src1 (Var ((name arg) (type_ I64)))) (src2 (Lit 5))))
+       (Return (Var ((name shifted) (type_ I64)))))))
+    (%entry (args (((name input) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name bumped) (type_ I64)))
+         (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 1))))
+       (Branch
+        (Uncond
+         ((block
+           ((id_hum _entry__inline_1)
+            (args (((name arg__inline_0) (type_ I64))))))
+          (args (((name bumped) (type_ I64))))))))))
+    (_entry__inline_1 (args (((name arg__inline_0) (type_ I64))))
+     (instrs
+      ((Add
+        ((dest ((name shifted__inline_1) (type_ I64)))
+         (src1 (Var ((name arg__inline_0) (type_ I64)))) (src2 (Lit 5))))
+       (Branch
+        (Uncond
+         ((block
+           ((id_hum _entry__cont__inline_0) (args (((name result) (type_ I64))))))
+          (args (((name shifted__inline_1) (type_ I64))))))))))
+    (_entry__cont__inline_0 (args (((name result) (type_ I64))))
+     (instrs ((Return (Var ((name result) (type_ I64)))))))
     |}]
 ;;
 
@@ -294,7 +429,7 @@ let%expect_test "arithmetic simplification canonicalizes identities" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false ())
     [ fn ];
   [%expect
     {|
@@ -353,7 +488,7 @@ let%expect_test "peephole identities simplify arithmetic chains" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false ())
     [ fn ];
   [%expect
     {|
@@ -385,7 +520,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false ())
     [ fn ];
   [%expect
     {|
@@ -421,7 +556,7 @@ let%expect_test "mod and comparisons fold to constants" =
   in
   run_dsl
     ~opt_flags:
-      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false)
+      (opt_flags ~unused_vars:true ~constant_propagation:true ~gvn:false ())
     [ fn ];
   [%expect
     {|
