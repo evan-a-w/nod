@@ -11,6 +11,9 @@
   nod_core
   nod_dsl
   nod_backend_common
+  nod_ir
+  nod_x86_backend
+  nod_arm64_backend
   nod_runtime)
  (flags
   (:standard -extension-universe beta)))
