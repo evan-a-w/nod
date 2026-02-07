@@ -7,9 +7,6 @@ module Reg = X86_reg
    These run after register allocation on concrete assembly instructions. *)
 
 let equal_operand = Asm.equal_operand
-
-(* Check if two instructions are the same *)
-let equal_instr = Asm.equal_instr
 let is_stack_base reg = Asm.equal_reg reg Reg.rsp || Asm.equal_reg reg Reg.rbp
 
 let is_mem = function

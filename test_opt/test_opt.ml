@@ -377,7 +377,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
   let fn =
     [%nod
       fun (input : int64) ->
-        let cleared = and_ input (lit 0L) in
+        let _cleared = and_ input (lit 0L) in
         let masked = and_ input (lit (-1L)) in
         let merged = or_ masked (lit 0L) in
         let saturated = or_ merged (lit (-1L)) in
@@ -393,7 +393,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
     (%entry (args (((name input) (type_ I64))))
      (instrs
       ((And
-        ((dest ((name cleared) (type_ I64)))
+        ((dest ((name _cleared) (type_ I64)))
          (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 0))))
        (And
         ((dest ((name masked) (type_ I64)))

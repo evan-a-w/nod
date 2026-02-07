@@ -204,92 +204,6 @@ let fn = function
   | Casal _ -> None
 ;;
 
-let fold_operand op ~f ~init = f init op
-
-let fold_jump_target target ~f ~init =
-  match target with
-  | Jump_target.Reg reg -> fold_operand (Reg reg) ~f ~init
-  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> init
-;;
-
-let rec fold_operands ins ~f ~init =
-  match ins with
-  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> init
-  | Alloca (dst, _) -> fold_operand dst ~f ~init
-  | Tag_use (ins, op) | Tag_def (ins, op) ->
-    fold_operand op ~f ~init:(fold_operands ins ~f ~init)
-  | Move { dst; src } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_operand src ~f ~init
-  | Load { dst; addr } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_operand addr ~f ~init
-  | Store { src; addr } ->
-    let init = fold_operand src ~f ~init in
-    fold_operand addr ~f ~init
-  | Int_binary { op = _; dst; lhs; rhs }
-  | Float_binary { op = _; dst; lhs; rhs } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    let init = fold_operand lhs ~f ~init in
-    fold_operand rhs ~f ~init
-  | Convert { op = _; dst; src } | Bitcast { dst; src } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_operand src ~f ~init
-  | Adr { dst; target } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_jump_target target ~f ~init
-  | Comp { lhs; rhs; _ } ->
-    let init = fold_operand lhs ~f ~init in
-    fold_operand rhs ~f ~init
-  | Cset { dst; _ } -> fold_operand (Reg dst) ~f ~init
-  | Ret ops ->
-    List.fold ops ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
-  | Call { results; args; _ } ->
-    let init =
-      List.fold results ~init ~f:(fun acc reg ->
-        fold_operand (Reg reg) ~f ~init:acc)
-    in
-    List.fold args ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
-  | Conditional_branch _ | Jump _ -> init
-  (* Atomic operations *)
-  | Ldar { dst; addr } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_operand addr ~f ~init
-  | Stlr { src; addr } ->
-    let init = fold_operand src ~f ~init in
-    fold_operand addr ~f ~init
-  | Ldaxr { dst; addr } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    fold_operand addr ~f ~init
-  | Stlxr { status; src; addr } ->
-    let init = fold_operand (Reg status) ~f ~init in
-    let init = fold_operand src ~f ~init in
-    fold_operand addr ~f ~init
-  | Casal { dst; expected; desired; addr } ->
-    let init = fold_operand (Reg dst) ~f ~init in
-    let init = fold_operand expected ~f ~init in
-    let init = fold_operand desired ~f ~init in
-    fold_operand addr ~f ~init
-;;
-
-let rebuild_virtual_reg (reg : 'var Reg.t) ~var =
-  match Reg.raw reg with
-  | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
-  | Raw.Allocated (_, forced) ->
-    let forced =
-      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
-    in
-    Reg.allocated ~class_:(Reg.class_ reg) var forced
-  | _ -> reg
-;;
-
-let map_reg (reg : 'var Reg.t) ~f =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) ->
-    Reg (rebuild_virtual_reg reg ~var:(f v))
-  | _ -> Reg reg
-;;
-
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
@@ -391,18 +305,6 @@ let var_of_reg (reg : 'var Reg.t) =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
-;;
-
-let vars_of_reg (reg : 'var Reg.t) =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
-  | _ -> []
-;;
-
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ -> []
-  | Mem (r, _) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
@@ -643,7 +545,7 @@ let rec map_operands t ~f =
   let map_reg_operand reg =
     match f (Reg reg) with
     | Reg reg' -> reg'
-    | op -> Error.raise_s [%message "expected register operand"]
+    | _op -> Error.raise_s [%message "expected register operand"]
   in
   let map_op op = f op in
   match t with

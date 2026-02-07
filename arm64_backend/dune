@@ -1,5 +1,6 @@
 (library
  (name nod_arm64_backend)
+ (public_name nod.arm64_backend)
  (preprocess
   (pps ppx_jane))
  (inline_tests)

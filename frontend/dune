@@ -1,5 +1,6 @@
 (library
  (name nod_frontend)
+ (public_name nod.frontend)
  (preprocess
   (pps ppx_jane))
  (inline_tests)

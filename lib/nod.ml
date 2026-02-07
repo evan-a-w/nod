@@ -24,7 +24,6 @@ module X86_backend = Nod_x86_backend.X86_backend
 module X86_jit = Nod_x86_backend.Jit
 module Arm64_asm = Nod_arm64_backend.Arm64_asm
 module Arm64_backend = Nod_arm64_backend.Arm64_backend
-module Examples = Nod_examples.Examples
 
 type arch =
   [ `Arm64

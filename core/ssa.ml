@@ -188,36 +188,12 @@ module Def_uses = struct
     |> Hash_set.to_list
     |> List.map ~f:(fun i -> Vec.get t.dominator.blocks i)
   ;;
-
-  let rec uniq_name t var =
-    if not (Hash_set.mem t.vars var)
-    then (
-      Hash_set.add t.vars var;
-      var)
-    else (
-      let name = Typed_var.name var in
-      let base = String.rstrip name ~drop:Char.is_digit in
-      let suffix = String.drop_prefix name (String.length base) in
-      let next_suffix =
-        if String.is_empty suffix
-        then "1"
-        else Int.to_string (Int.of_string suffix + 1)
-      in
-      let next_name = base ^ next_suffix in
-      uniq_name
-        t
-        (Typed_var.create ~name:next_name ~type_:(Typed_var.type_ var)))
-  ;;
 end
 
 type t =
-  { reaching_def : string String.Table.t
-  ; definition : Block.t String.Table.t
-  ; in_order : Block.t Vec.t
-  ; def_uses : Def_uses.t
+  { def_uses : Def_uses.t
   ; numbers : int String.Table.t
   ; immediate_dominees : Block.Hash_set.t Block.Table.t
-  ; dominate_queries : bool Block.Pair.Table.t
   }
 
 let calculate_dominator_tree t =
@@ -241,28 +217,6 @@ let calculate_dominator_tree t =
   in
   go t.def_uses.root;
   t
-;;
-
-let rec dominates t block1 block2 =
-  (* print_s [%message "dominates" block1.Block.id_hum block2.Block.id_hum]; *)
-  if phys_equal block1 block2
-     || Hashtbl.find t.immediate_dominees block1
-        |> Option.map ~f:(fun set -> Hash_set.mem set block2)
-        |> Option.value ~default:false
-  then true
-  else (
-    match Hashtbl.find t.dominate_queries (block1, block2) with
-    | Some res -> res
-    | None ->
-      (* set to false so dfs doesn't loop *)
-      Hashtbl.set t.dominate_queries ~key:(block1, block2) ~data:false;
-      let res =
-        Hashtbl.find t.immediate_dominees block1
-        |> Option.value ~default:(Block.Hash_set.create ~size:0 ())
-        |> Hash_set.exists ~f:(fun block -> dominates t block block2)
-      in
-      Hashtbl.set t.dominate_queries ~key:(block1, block2) ~data:res;
-      res)
 ;;
 
 let new_name t var =
@@ -444,20 +398,16 @@ let rename t =
   t
 ;;
 
-let create_uninit ~in_order def_uses =
+let create_uninit def_uses =
   { def_uses
-  ; in_order
   ; immediate_dominees = Block.Table.create ()
-  ; reaching_def = String.Table.create ()
-  ; definition = String.Table.create ()
   ; numbers = String.Table.create ()
-  ; dominate_queries = Block.Pair.Table.create ()
   }
 ;;
 
-let create ~fn_state (~root, ~blocks:_, ~in_order) =
+let create ~fn_state (~root, ~blocks:_, ~in_order:_) =
   Def_uses.create ~fn_state root
-  |> create_uninit ~in_order
+  |> create_uninit
   |> calculate_dominator_tree
   |> insert_args
   |> add_args_to_calls
@@ -466,35 +416,6 @@ let create ~fn_state (~root, ~blocks:_, ~in_order) =
 ;;
 
 let root t = t.def_uses.root
-
-type value_ir = (Value_state.t, Block.t) Nod_ir.Ir.t
-
-let value_of_var t var = Fn_state.ensure_value (fn_state t) ~var
-
-let value_of_var_exn t var =
-  Fn_state.value_by_var (fn_state t) var |> Option.value_exn
-;;
-
-let value_ir t (ir : Ir.t) : value_ir =
-  Nod_ir.Ir.map_vars ir ~f:(value_of_var t)
-;;
-
-let var_ir (ir : value_ir) : Ir.t = Nod_ir.Ir.map_vars ir ~f:Value_state.var
-let uses_values _ ir = Nod_ir.Ir.uses ir
-let defs_values _ ir = Nod_ir.Ir.defs ir
-let block_args_values t block = Vec.map (Block.args block) ~f:(value_of_var t)
-
-let replace_instr_value_ir t ~block ~instr ~with_ir =
-  Fn_state.replace_instr_with_irs
-    (fn_state t)
-    ~block
-    ~instr
-    ~with_irs:[ with_ir ]
-;;
-
-let replace_terminal_value_ir t ~block ~with_ir =
-  Fn_state.replace_terminal_ir (fn_state t) ~block ~with_:with_ir
-;;
 
 let convert_program program ~state =
   let functions =

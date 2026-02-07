@@ -121,53 +121,6 @@ let fn = function
   | ALLOCA (_, _) -> None
 ;;
 
-let fold_operand op ~f ~init = f init op
-
-let fold_operands ins ~f ~init =
-  match ins with
-  | Save_clobbers | Restore_clobbers | MFENCE -> init
-  | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
-  | MOV (dst, src)
-  | AND (dst, src)
-  | OR (dst, src)
-  | ADD (dst, src)
-  | SUB (dst, src)
-  | CMP (dst, src)
-  | ADDSD (dst, src)
-  | SUBSD (dst, src)
-  | MULSD (dst, src)
-  | DIVSD (dst, src)
-  | MOVSD (dst, src)
-  | MOVQ (dst, src)
-  | CVTSI2SD (dst, src)
-  | CVTTSD2SI (dst, src)
-  | XCHG (dst, src)
-  | LOCK_ADD (dst, src)
-  | LOCK_SUB (dst, src)
-  | LOCK_AND (dst, src)
-  | LOCK_OR (dst, src)
-  | LOCK_XOR (dst, src) ->
-    let init = fold_operand dst ~f ~init in
-    fold_operand src ~f ~init
-  | SETE dst | SETL dst -> fold_operand dst ~f ~init
-  | LOCK_CMPXCHG { dest; expected; desired } ->
-    let init = fold_operand dest ~f ~init in
-    let init = fold_operand expected ~f ~init in
-    fold_operand desired ~f ~init
-  | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
-  | RET ops -> List.fold ops ~init ~f:(fun acc -> fold_operand ~f ~init:acc)
-  | CALL { results; args; _ } ->
-    let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
-    List.fold args ~init ~f:(fun acc op -> f acc op)
-  | PUSH op ->
-    let init = fold_operand op ~f ~init in
-    fold_operand (Reg Reg.rsp) ~f ~init
-  | POP reg ->
-    let init = fold_operand (Reg reg) ~f ~init in
-    fold_operand (Reg Reg.rsp) ~f ~init
-  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
-;;
-
 let map_var_operand op ~f =
   match op with
   | Reg r -> Reg (Reg.map_vars r ~f)
@@ -255,18 +208,6 @@ let var_of_reg (reg : 'var Reg.t) =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
-;;
-
-let vars_of_reg (reg : 'var Reg.t) =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
-  | _ -> []
-;;
-
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ | Symbol _ -> []
-  | Mem (r, _disp) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
@@ -537,8 +478,6 @@ let rec filter_map_call_blocks t ~f =
   | JE (lbl, next) | JNE (lbl, next) ->
     (f lbl |> Option.to_list) @ (Option.bind next ~f |> Option.to_list)
 ;;
-
-let unreachable = NOOP
 
 let rec map_defs t ~f =
   let map_dst op = map_def_operand op ~f in

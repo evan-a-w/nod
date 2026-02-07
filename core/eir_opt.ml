@@ -154,7 +154,7 @@ let def_block_exn ctx (value : Value_state.t) =
 (* if [block] is unnecessary, remove it *)
 let kill_block (_ : context) ~block:_ = ()
 
-let defining_values_for_block_arg ctx ~block ~arg_index =
+let defining_values_for_block_arg ~block ~arg_index =
   Vec.filter_map (Block.parents block) ~f:(fun parent ->
     let parent_terminal = Block.terminal parent in
     match
@@ -263,7 +263,7 @@ module Transform = struct
            && List.equal
                 Value_state.equal
                 [ arg_value ]
-                (defining_values_for_block_arg ctx ~block ~arg_index:arg)
+                (defining_values_for_block_arg ~block ~arg_index:arg)
         then kill_definition ctx value
         else ()
       | _, _ -> ())
@@ -352,7 +352,7 @@ let replace_value_uses
 ;;
 
 (* --- Constant propagation helpers --- *)
-let constant_fold ctx ~instr =
+let constant_fold _ctx ~instr =
   let substituted = ref false in
   let mapped =
     Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
@@ -391,7 +391,7 @@ let rec refine_type ctx ~(value : Value_state.t) =
      | Def_site.Undefined -> ())
 
 and refine_type_block_arg ctx ~value ~block ~arg_index =
-  defining_values_for_block_arg ctx ~block ~arg_index
+  defining_values_for_block_arg ~block ~arg_index
   |> List.map ~f:(fun x -> x.opt_tags.constant)
   |> function
   | [] -> ()
@@ -578,7 +578,7 @@ let pass_phi_simplify =
         (fun ctx block ->
           Vec.iteri (Block.args block) ~f:(fun arg_index arg ->
             let value = value_of_var_exn ctx arg in
-            match defining_values_for_block_arg ctx ~block ~arg_index with
+            match defining_values_for_block_arg ~block ~arg_index with
             | [] -> ()
             | first :: rest ->
               if first.Value_state.active

@@ -115,7 +115,6 @@ let simplify_non_arith ~fn_state ~ir =
 ;;
 
 let simplify1 ~value ~ir =
-  let open Ir in
   match ir with
   | Ir.Add { src1; src2; _ } when is_const src1 Int64.zero ->
     replace_with_move ~value src2
@@ -145,7 +144,7 @@ let simplify1 ~value ~ir =
      | Some numerator, Some _ when Int64.equal numerator Int64.zero ->
        replace_with_zero ~value
      | _ -> None)
-  | Ir.Mod { src1; src2; _ }
+  | Ir.Mod { src1 = _; src2; _ }
     when is_const src2 Int64.one || is_const src2 Int64.minus_one ->
     replace_with_zero ~value
   | Ir.Mod { src1; src2; _ } ->

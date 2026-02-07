@@ -8,7 +8,6 @@ module Reg = Arm64_reg
 
 let equal_operand = Asm.equal_operand
 let equal_reg = Asm.equal_reg
-let equal_instr = Asm.equal_instr
 let is_stack_base reg = equal_reg reg Reg.sp || equal_reg reg Reg.fp
 
 (* Peephole patterns for ARM64 assembly *)
@@ -75,12 +74,12 @@ let invert_condition (condition : Arm64_ir.Condition.t) =
 (* Pattern: add dst, lhs, rhs where rhs is zero register or #0 -> mov dst, lhs *)
 let simplify_add_zero items =
   match items with
-  | Asm.Instr (Add { dst; lhs; rhs }) :: rest
+  | Asm.Instr (Add { dst; lhs; rhs }) :: _
     when equal_reg rhs lhs && equal_reg dst lhs ->
     (* add dst, dst, dst is unusual but if it happens, becomes lsl dst, dst, #1
        Actually for now just skip this pattern if dst = lhs = rhs *)
     None
-  | Asm.Instr (Add { dst; lhs; rhs = _ }) :: rest
+  | Asm.Instr (Add { dst = _; lhs = _; rhs = _ }) :: _
   (* In ARM64, we can't add immediate directly in Add instruction in our IR
        so this pattern is less common *)
     -> None
@@ -404,6 +403,7 @@ let patterns =
   ; eliminate_redundant_move_chain
   ; eliminate_store_load_same
   ; forward_stack_store_load
+  ; simplify_add_zero
   ; simplify_sub_same
   ; simplify_orr_same
   ; simplify_and_same
