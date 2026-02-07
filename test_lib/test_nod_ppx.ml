@@ -11,7 +11,7 @@ let block_of_instrs instrs =
         | Error err -> Nod_error.to_string err |> failwith)
   |> Cfg.process ~fn_state:(Fn_state.create ())
   |> fun (~root, ~blocks:_, ~in_order) ->
-  Vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
+  Nod_vec.iteri in_order ~f:(fun i block -> Block.set_dfs_id block (Some i));
   root
 ;;
 

@@ -3,46 +3,46 @@ open! Import
 
 module Dominator = struct
   type t =
-    { parent : int Vec.t
-    ; semi : int Vec.t
-    ; blocks : Block.t Vec.t
-    ; bucket : Int.Hash_set.t Vec.t
-    ; dom : int Vec.t
-    ; ancestor : int Vec.t
-    ; label : int Vec.t
-    ; dominance_frontier : Int.Hash_set.t Vec.t
+    { parent : int Nod_vec.t
+    ; semi : int Nod_vec.t
+    ; blocks : Block.t Nod_vec.t
+    ; bucket : Int.Hash_set.t Nod_vec.t
+    ; dom : int Nod_vec.t
+    ; ancestor : int Nod_vec.t
+    ; label : int Nod_vec.t
+    ; dominance_frontier : Int.Hash_set.t Nod_vec.t
     ; fn_state : Fn_state.t
     }
   [@@deriving fields]
 
   let dfs ~fn_state block =
-    let blocks = Vec.create () in
-    let parent = Vec.create () in
-    let semi = Vec.create () in
+    let blocks = Nod_vec.create () in
+    let parent = Nod_vec.create () in
+    let semi = Nod_vec.create () in
     let i = ref 0 in
     let rec go block =
       match Block.dfs_id block with
       | None ->
         Block.set_dfs_id block (Some !i);
-        Vec.push semi !i;
+        Nod_vec.push semi !i;
         incr i;
-        Vec.push blocks block;
-        Vec.iter (Block.children block) ~f:(fun b ->
+        Nod_vec.push blocks block;
+        Nod_vec.iter (Block.children block) ~f:(fun b ->
           go b;
-          Vec.fill_to_length
+          Nod_vec.fill_to_length
             parent
             ~length:(Block.id_exn b + 1)
             ~f:(fun _ -> -1);
-          Vec.set parent (Block.id_exn b) (Block.id_exn block))
+          Nod_vec.set parent (Block.id_exn b) (Block.id_exn block))
       | Some _ -> ()
     in
     go block;
-    let bucket = Vec.map blocks ~f:(fun _ -> Int.Hash_set.create ()) in
-    let dom = Vec.map blocks ~f:(fun _ -> -1) in
-    let ancestor = Vec.map semi ~f:(fun _ -> -1) in
-    let label = Vec.map semi ~f:Fn.id in
+    let bucket = Nod_vec.map blocks ~f:(fun _ -> Int.Hash_set.create ()) in
+    let dom = Nod_vec.map blocks ~f:(fun _ -> -1) in
+    let ancestor = Nod_vec.map semi ~f:(fun _ -> -1) in
+    let label = Nod_vec.map semi ~f:Fn.id in
     let dominance_frontier =
-      Vec.map semi ~f:(fun _ -> Int.Hash_set.create ())
+      Nod_vec.map semi ~f:(fun _ -> Int.Hash_set.create ())
     in
     { parent
     ; blocks
@@ -56,69 +56,76 @@ module Dominator = struct
     }
   ;;
 
-  let link st v w = Vec.set st.ancestor w v
+  let link st v w = Nod_vec.set st.ancestor w v
 
   let rec compress st v =
-    if Vec.get st.ancestor (Vec.get st.ancestor v) <> -1
+    if Nod_vec.get st.ancestor (Nod_vec.get st.ancestor v) <> -1
     then (
-      compress st (Vec.get st.ancestor v);
-      if Vec.get st.semi (Vec.get st.label (Vec.get st.ancestor v))
-         < Vec.get st.semi (Vec.get st.label v)
-      then Vec.set st.label v (Vec.get st.label (Vec.get st.ancestor v));
-      Vec.set st.ancestor v (Vec.get st.ancestor (Vec.get st.ancestor v)))
+      compress st (Nod_vec.get st.ancestor v);
+      if Nod_vec.get st.semi (Nod_vec.get st.label (Nod_vec.get st.ancestor v))
+         < Nod_vec.get st.semi (Nod_vec.get st.label v)
+      then
+        Nod_vec.set
+          st.label
+          v
+          (Nod_vec.get st.label (Nod_vec.get st.ancestor v));
+      Nod_vec.set
+        st.ancestor
+        v
+        (Nod_vec.get st.ancestor (Nod_vec.get st.ancestor v)))
   ;;
 
   let eval st v =
-    if Vec.get st.ancestor v = -1
+    if Nod_vec.get st.ancestor v = -1
     then v
     else (
       compress st v;
-      Vec.get st.label v)
+      Nod_vec.get st.label v)
   ;;
 
   let step_2_3 st =
-    for i = Vec.length st.blocks - 1 downto 1 do
-      let w = Vec.get st.blocks i in
-      Vec.iter (Block.parents w) ~f:(fun v ->
+    for i = Nod_vec.length st.blocks - 1 downto 1 do
+      let w = Nod_vec.get st.blocks i in
+      Nod_vec.iter (Block.parents w) ~f:(fun v ->
         let u = eval st (Block.id_exn v) in
-        if Vec.get st.semi u < Vec.get st.semi i
-        then Vec.set st.semi i (Vec.get st.semi u));
-      Hash_set.add (Vec.get st.bucket (Vec.get st.semi i)) i;
-      link st (Vec.get st.parent i) i;
+        if Nod_vec.get st.semi u < Nod_vec.get st.semi i
+        then Nod_vec.set st.semi i (Nod_vec.get st.semi u));
+      Hash_set.add (Nod_vec.get st.bucket (Nod_vec.get st.semi i)) i;
+      link st (Nod_vec.get st.parent i) i;
       List.iter
-        (Hash_set.to_list (Vec.get st.bucket (Vec.get st.parent i)))
+        (Hash_set.to_list (Nod_vec.get st.bucket (Nod_vec.get st.parent i)))
         ~f:(fun v ->
-          Hash_set.remove (Vec.get st.bucket (Vec.get st.parent v)) v;
+          Hash_set.remove (Nod_vec.get st.bucket (Nod_vec.get st.parent v)) v;
           let u = eval st v in
-          Vec.set
+          Nod_vec.set
             st.dom
             v
-            (if Vec.get st.semi u < Vec.get st.semi v
+            (if Nod_vec.get st.semi u < Nod_vec.get st.semi v
              then u
-             else Vec.get st.parent i))
+             else Nod_vec.get st.parent i))
     done;
     st
   ;;
 
   let step_4 st =
-    for i = 1 to Vec.length st.blocks - 1 do
-      if Vec.get st.dom i <> Vec.get st.semi i
-      then Vec.set st.dom i (Vec.get st.dom (Vec.get st.dom i))
+    for i = 1 to Nod_vec.length st.blocks - 1 do
+      if Nod_vec.get st.dom i <> Nod_vec.get st.semi i
+      then Nod_vec.set st.dom i (Nod_vec.get st.dom (Nod_vec.get st.dom i))
     done;
-    Vec.set st.dom 0 0;
+    Nod_vec.set st.dom 0 0;
     st
   ;;
 
   let dominance_frontier st =
-    Vec.iter st.blocks ~f:(fun block ->
+    Nod_vec.iter st.blocks ~f:(fun block ->
       let b = Block.id_exn block in
-      if Vec.length (Block.parents block) >= 2
+      if Nod_vec.length (Block.parents block) >= 2
       then
-        Vec.iter (Block.parents block) ~f:(fun p ->
+        Nod_vec.iter (Block.parents block) ~f:(fun p ->
           let runner = ref (Block.id_exn p) in
-          while !runner <> Vec.get st.dom b do
-            Hash_set.add (Vec.get st.dominance_frontier !runner) b;
-            runner := Vec.get st.dom !runner
+          while !runner <> Nod_vec.get st.dom b do
+            Hash_set.add (Nod_vec.get st.dominance_frontier !runner) b;
+            runner := Nod_vec.get st.dom !runner
           done)
       else ());
     st
@@ -150,7 +157,7 @@ module Def_uses = struct
         (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
         block
     in
-    Vec.iter (Block.args block) ~f:(update t.defs);
+    Nod_vec.iter (Block.args block) ~f:(update t.defs);
     Instr_state.iter (Block.instructions block) ~f:(fun instr ->
       let uses = Ir.uses instr.ir |> List.map ~f:var_of_value in
       let defs = Ir.defs instr.ir |> List.map ~f:var_of_value in
@@ -165,7 +172,7 @@ module Def_uses = struct
       then (
         Hash_set.add seen block;
         update_def_uses t ~block;
-        Vec.iter (Block.children block) ~f:go)
+        Nod_vec.iter (Block.children block) ~f:go)
     in
     go t.root;
     t
@@ -184,9 +191,9 @@ module Def_uses = struct
   ;;
 
   let df t ~block =
-    Vec.get t.dominator.dominance_frontier (Block.id_exn block)
+    Nod_vec.get t.dominator.dominance_frontier (Block.id_exn block)
     |> Hash_set.to_list
-    |> List.map ~f:(fun i -> Vec.get t.dominator.blocks i)
+    |> List.map ~f:(fun i -> Nod_vec.get t.dominator.blocks i)
   ;;
 end
 
@@ -204,8 +211,8 @@ let calculate_dominator_tree t =
     else (
       Hash_set.add seen block;
       let idom =
-        Vec.get t.def_uses.dominator.dom (Block.id_exn block)
-        |> Vec.get t.def_uses.dominator.blocks
+        Nod_vec.get t.def_uses.dominator.dom (Block.id_exn block)
+        |> Nod_vec.get t.def_uses.dominator.blocks
       in
       Hash_set.add
         (Hashtbl.find_or_add
@@ -213,7 +220,7 @@ let calculate_dominator_tree t =
            idom
            ~default:Block.Hash_set.create)
         block;
-      Vec.iter (Block.children block) ~f:go)
+      Nod_vec.iter (Block.children block) ~f:go)
   in
   go t.def_uses.root;
   t
@@ -241,12 +248,13 @@ let insert_args t =
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
         Def_uses.df def_uses ~block:d
         |> List.iter ~f:(fun block ->
-          if not (Vec.mem (Block.args block) var ~compare:Typed_var.compare)
+          if not (Nod_vec.mem (Block.args block) var ~compare:Typed_var.compare)
           then
             Fn_state.set_block_args
               (Def_uses.fn_state t.def_uses)
               ~block
-              ~args:(Vec.of_list (Vec.to_list (Block.args block) @ [ var ]));
+              ~args:
+                (Nod_vec.of_list (Nod_vec.to_list (Block.args block) @ [ var ]));
           Hash_set.add defs block)));
   t
 ;;
@@ -256,7 +264,7 @@ let fn_state t = Def_uses.fn_state t.def_uses
 let add_block_args_value_ir t ir =
   Ir.map_call_blocks ir ~f:(fun { Call_block.block; args = _ } ->
     let args =
-      Vec.to_list (Block.args block)
+      Nod_vec.to_list (Block.args block)
       |> List.map ~f:(fun var -> Fn_state.ensure_value (fn_state t) ~var)
     in
     { Call_block.block; args })
@@ -316,11 +324,11 @@ let prune_args t =
   in
   let uses = go Typed_var.Set.empty t.def_uses.root in
   let rec go' block =
-    let new_args = Vec.filter (Block.args block) ~f:(Set.mem uses) in
-    if Vec.length new_args <> Vec.length (Block.args block)
+    let new_args = Nod_vec.filter (Block.args block) ~f:(Set.mem uses) in
+    if Nod_vec.length new_args <> Nod_vec.length (Block.args block)
     then (
       Fn_state.set_block_args (fn_state t) ~block ~args:new_args;
-      Vec.iter (Block.parents block) ~f:(fun block' ->
+      Nod_vec.iter (Block.parents block) ~f:(fun block' ->
         Fn_state.replace_terminal_ir
           (fn_state t)
           ~block:block'
@@ -367,7 +375,7 @@ let rename t =
     Fn_state.set_block_args
       (fn_state t)
       ~block
-      ~args:(Vec.map (Block.args block) ~f:replace_arg);
+      ~args:(Nod_vec.map (Block.args block) ~f:replace_arg);
     let rec rename_instrs instr =
       match instr with
       | None -> ()

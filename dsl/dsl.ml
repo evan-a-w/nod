@@ -31,25 +31,25 @@ module Instr = struct
   let ir ir0 = Ir ir0
 
   let process ?(root_name = "%entry") ts =
-    let labels = Vec.create () in
-    let instrs = Vec.create () in
+    let labels = Nod_vec.create () in
+    let instrs = Nod_vec.create () in
     let end_this_label current_label instrs_by_label =
-      if Vec.length instrs = 0
+      if Nod_vec.length instrs = 0
       then Map.remove instrs_by_label current_label
       else (
-        Vec.push labels current_label;
+        Nod_vec.push labels current_label;
         let instrs_in_map = Map.find_exn instrs_by_label current_label in
-        Vec.switch instrs_in_map instrs;
+        Nod_vec.switch instrs_in_map instrs;
         instrs_by_label)
     in
     let instrs_by_label =
-      Map.set String.Map.empty ~key:root_name ~data:(Vec.create ())
+      Map.set String.Map.empty ~key:root_name ~data:(Nod_vec.create ())
     in
     let rec go current_label instrs_by_label ts =
       match ts with
       | [] -> Ok (~current_label, ~instrs_by_label)
       | Ir ir :: rest ->
-        Vec.push instrs ir;
+        Nod_vec.push instrs ir;
         go current_label instrs_by_label rest
       | Label new_label :: rest ->
         if Map.mem instrs_by_label new_label
@@ -57,7 +57,7 @@ module Instr = struct
         else (
           let instrs_by_label = end_this_label current_label instrs_by_label in
           let instrs_by_label =
-            Map.set instrs_by_label ~key:new_label ~data:(Vec.create ())
+            Map.set instrs_by_label ~key:new_label ~data:(Nod_vec.create ())
           in
           go new_label instrs_by_label rest)
     in

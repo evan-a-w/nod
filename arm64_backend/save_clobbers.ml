@@ -28,12 +28,12 @@ let regs_to_save ~state ~call_fn ~live_out =
 let rec find_following_call
   ~(start : int)
   ~(len : int)
-  ~(instructions : ('var, 'block) Nod_ir.Ir.t Vec.t)
+  ~(instructions : ('var, 'block) Nod_ir.Ir.t Nod_vec.t)
   =
   if Int.(start >= len)
   then None
   else (
-    match Vec.get instructions start with
+    match Nod_vec.get instructions start with
     | Arm64 (Call { fn; _ }) -> Some fn
     | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
 ;;
@@ -134,38 +134,38 @@ let save_and_restore_in_prologue_and_epilogue
     let to_value = Fn_state.value_ir fn_state in
     let () =
       (* change prologue *)
-      let new_prologue : (Value_state.t, Block.t) Nod_ir.Ir.t Vec.t =
-        Vec.create ()
+      let new_prologue : (Value_state.t, Block.t) Nod_ir.Ir.t Nod_vec.t =
+        Nod_vec.create ()
       in
       if Int.(aligned_stack_usage > 0)
-      then Vec.push new_prologue (to_value (sub_sp aligned_stack_usage));
+      then Nod_vec.push new_prologue (to_value (sub_sp aligned_stack_usage));
       List.iter save_slots ~f:(fun (reg, offset) ->
-        Vec.push
+        Nod_vec.push
           new_prologue
           (to_value
              (store_reg_at_sp
                 reg
                 (offset + fn.bytes_for_spills + fn.bytes_statically_alloca'd))));
-      Vec.push new_prologue (to_value move_fp_to_sp);
-      Vec.append
+      Nod_vec.push new_prologue (to_value move_fp_to_sp);
+      Nod_vec.append
         new_prologue
-        (Instr_state.to_ir_list (Block.instructions prologue) |> Vec.of_list);
+        (Instr_state.to_ir_list (Block.instructions prologue) |> Nod_vec.of_list);
       Fn_state.replace_irs
         fn_state
         ~block:prologue
-        ~irs:(Vec.to_list new_prologue)
+        ~irs:(Nod_vec.to_list new_prologue)
     in
     let () =
       (* change epilogue *)
       let new_epilogue =
-        Instr_state.to_ir_list (Block.instructions epilogue) |> Vec.of_list
+        Instr_state.to_ir_list (Block.instructions epilogue) |> Nod_vec.of_list
       in
       if List.is_empty to_restore
       then (
-        Vec.push new_epilogue (to_value move_sp_to_fp);
+        Nod_vec.push new_epilogue (to_value move_sp_to_fp);
         if Int.(header_bytes_excl_clobber_saves > 0)
         then
-          Vec.push
+          Nod_vec.push
             new_epilogue
             (to_value (add_sp header_bytes_excl_clobber_saves)))
       else
@@ -178,11 +178,11 @@ let save_and_restore_in_prologue_and_epilogue
          if Int.(aligned_stack_usage > 0)
          then [ add_sp aligned_stack_usage ]
          else [])
-        |> List.iter ~f:(fun ir -> Vec.push new_epilogue (to_value ir));
+        |> List.iter ~f:(fun ir -> Nod_vec.push new_epilogue (to_value ir));
       Fn_state.replace_irs
         fn_state
         ~block:epilogue
-        ~irs:(Vec.to_list new_epilogue)
+        ~irs:(Nod_vec.to_list new_epilogue)
     in
     ())
 ;;
@@ -200,22 +200,22 @@ let save_and_restore_around_calls
   let open Calc_liveness in
   let block_state = Liveness_state.block_liveness liveness_state block in
   let instructions =
-    Instr_state.to_ir_list (Block.instructions block) |> Vec.of_list
+    Instr_state.to_ir_list (Block.instructions block) |> Nod_vec.of_list
   in
   let to_value = Fn_state.value_ir fn_state in
-  let len = Vec.length instructions in
-  let new_instructions : (Value_state.t, Block.t) Nod_ir.Ir.t Vec.t =
-    Vec.create ()
+  let len = Nod_vec.length instructions in
+  let new_instructions : (Value_state.t, Block.t) Nod_ir.Ir.t Nod_vec.t =
+    Nod_vec.create ()
   in
   let pending = Stack.create () in
   let rec loop idx =
     if Int.(idx >= len)
     then ()
     else (
-      let ir = Vec.get instructions idx in
+      let ir = Nod_vec.get instructions idx in
       (match ir with
        | Nod_ir.Ir.Arm64 Save_clobbers ->
-         let liveness_at_instr = Vec.get block_state.instructions idx in
+         let liveness_at_instr = Nod_vec.get block_state.instructions idx in
          let call_fn =
            match find_following_call ~start:(idx + 1) ~len ~instructions with
            | Some fn -> fn
@@ -231,9 +231,9 @@ let save_and_restore_around_calls
          let aligned_bytes = align_stack bytes in
          Stack.push pending (slots, aligned_bytes);
          if Int.(aligned_bytes > 0)
-         then Vec.push new_instructions (to_value (sub_sp aligned_bytes));
+         then Nod_vec.push new_instructions (to_value (sub_sp aligned_bytes));
          List.iter slots ~f:(fun (reg, off) ->
-           Vec.push new_instructions (to_value (store_reg_at_sp reg off)))
+           Nod_vec.push new_instructions (to_value (store_reg_at_sp reg off)))
        | Nod_ir.Ir.Arm64 Restore_clobbers ->
          let slots, bytes =
            match Stack.pop pending with
@@ -241,16 +241,16 @@ let save_and_restore_around_calls
            | None -> failwith "Restore_clobbers without matching save"
          in
          List.iter (List.rev slots) ~f:(fun (reg, off) ->
-           Vec.push new_instructions (to_value (load_reg_from_sp reg off)));
+           Nod_vec.push new_instructions (to_value (load_reg_from_sp reg off)));
          if Int.(bytes > 0)
-         then Vec.push new_instructions (to_value (add_sp bytes))
-       | _ -> Vec.push new_instructions ir);
+         then Nod_vec.push new_instructions (to_value (add_sp bytes))
+       | _ -> Nod_vec.push new_instructions ir);
       loop (idx + 1))
   in
   loop 0;
   if not (Stack.is_empty pending)
   then failwith "Unbalanced Save_clobbers markers";
-  Fn_state.replace_irs fn_state ~block ~irs:(Vec.to_list new_instructions);
+  Fn_state.replace_irs fn_state ~block ~irs:(Nod_vec.to_list new_instructions);
   match (Block.terminal block).Instr_state.ir with
   | Nod_ir.Ir.Arm64 Save_clobbers | Nod_ir.Ir.Arm64 Restore_clobbers ->
     failwith "unexpected save/restore marker in terminal"

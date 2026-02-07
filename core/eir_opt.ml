@@ -47,7 +47,7 @@ module Dominance = struct
         if phys_equal block root
         then ()
         else (
-          let preds = Block.parents block |> Vec.to_list in
+          let preds = Block.parents block |> Nod_vec.to_list in
           if List.is_empty preds
           then ()
           else (
@@ -155,7 +155,7 @@ let def_block_exn ctx (value : Value_state.t) =
 let kill_block (_ : context) ~block:_ = ()
 
 let defining_values_for_block_arg ~block ~arg_index =
-  Vec.filter_map (Block.parents block) ~f:(fun parent ->
+  Nod_vec.filter_map (Block.parents block) ~f:(fun parent ->
     let parent_terminal = Block.terminal parent in
     match
       Ir.filter_map_call_blocks
@@ -167,7 +167,7 @@ let defining_values_for_block_arg ~block ~arg_index =
     with
     | [] -> None
     | xs -> Some xs)
-  |> Vec.to_list
+  |> Nod_vec.to_list
   |> List.concat
 ;;
 
@@ -222,11 +222,11 @@ module Transform = struct
   and remove_arg ctx ~block ~arg_index =
     mark_changed ctx;
     let args = Block.args block in
-    let new_args = Vec.create () in
-    Vec.iteri args ~f:(fun i arg ->
-      if not (Int.equal i arg_index) then Vec.push new_args arg);
+    let new_args = Nod_vec.create () in
+    Nod_vec.iteri args ~f:(fun i arg ->
+      if not (Int.equal i arg_index) then Nod_vec.push new_args arg);
     Fn_state.set_block_args ctx.fn_state ~block ~args:new_args;
-    Vec.iter (Block.parents block) ~f:(fun parent ->
+    Nod_vec.iter (Block.parents block) ~f:(fun parent ->
       remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
 
   and kill_definition ctx (value : Value_state.t) =
@@ -258,7 +258,9 @@ module Transform = struct
       | 1, Def_site.Block_arg { block_id; arg } ->
         let block = Hashtbl.find_exn ctx.block_by_id block_id in
         let use_id = Set.min_elt_exn value.Value_state.uses in
-        let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
+        let arg_value =
+          value_of_var_exn ctx (Nod_vec.get (Block.args block) arg)
+        in
         if Instr_id.equal use_id (Block.terminal block).Instr_state.id
            && List.equal
                 Value_state.equal
@@ -300,11 +302,11 @@ module Transform = struct
         not (List.mem new_blocks block' ~equal:phys_equal))
     in
     mark_changed ctx;
-    Vec.switch (Block.Expert.children block) (Vec.of_list new_blocks);
+    Nod_vec.switch (Block.Expert.children block) (Nod_vec.of_list new_blocks);
     List.iter diff ~f:(fun block' ->
-      Vec.switch
+      Nod_vec.switch
         (Block.Expert.parents block')
-        (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
+        (Nod_vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
     Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_terminal_ir;
     update_uses ctx ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
   ;;
@@ -499,7 +501,7 @@ module Pass_runner = struct
                 pass.visit ctx value
               | Def_site.Undefined -> ()))
         in
-        Vec.iter ctx.fn_state.values ~f:(function
+        Nod_vec.iter ctx.fn_state.values ~f:(function
           | None -> ()
           | Some value -> go value);
         if pass.fixpoint && ctx.changed && iteration < max_fixpoint_iterations
@@ -576,7 +578,7 @@ let pass_phi_simplify =
     ; enabled = Opt_flags.constant_propagation
     ; visit =
         (fun ctx block ->
-          Vec.iteri (Block.args block) ~f:(fun arg_index arg ->
+          Nod_vec.iteri (Block.args block) ~f:(fun arg_index arg ->
             let value = value_of_var_exn ctx arg in
             match defining_values_for_block_arg ~block ~arg_index with
             | [] -> ()

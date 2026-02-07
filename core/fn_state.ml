@@ -3,34 +3,34 @@ open! Import
 
 (** per function ssa state to map between values and instrs etc. *)
 type t =
-  { values : Value_state.t option Vec.t
-  ; free_values : int Vec.t
-  ; instrs : Block.t Instr_state.t option Vec.t
-  ; free_instrs : int Vec.t
-  ; instr_block_by_id : Block.t option Vec.t
+  { values : Value_state.t option Nod_vec.t
+  ; free_values : int Nod_vec.t
+  ; instrs : Block.t Instr_state.t option Nod_vec.t
+  ; free_instrs : int Nod_vec.t
+  ; instr_block_by_id : Block.t option Nod_vec.t
   ; value_id_by_var : Value_id.t Typed_var.Table.t
   }
 
 let create () =
-  { values = Vec.create ()
-  ; free_values = Vec.create ()
-  ; instrs = Vec.create ()
-  ; free_instrs = Vec.create ()
-  ; instr_block_by_id = Vec.create ()
+  { values = Nod_vec.create ()
+  ; free_values = Nod_vec.create ()
+  ; instrs = Nod_vec.create ()
+  ; free_instrs = Nod_vec.create ()
+  ; instr_block_by_id = Nod_vec.create ()
   ; value_id_by_var = Typed_var.Table.create ()
   }
 ;;
 
 let value t (Value_id idx : Value_id.t) =
-  Vec.get_opt t.values idx |> Option.join
+  Nod_vec.get_opt t.values idx |> Option.join
 ;;
 
 let instr t (Instr_id idx : Instr_id.t) =
-  Vec.get_opt t.instrs idx |> Option.join
+  Nod_vec.get_opt t.instrs idx |> Option.join
 ;;
 
 let instr_block t (Instr_id idx : Instr_id.t) =
-  Vec.get_opt t.instr_block_by_id idx |> Option.join
+  Nod_vec.get_opt t.instr_block_by_id idx |> Option.join
 ;;
 
 let value_by_var t var =
@@ -49,48 +49,49 @@ let alloc_value t ~type_ ~var =
       ~uses:Instr_id.Set.empty
       ~active:true
   in
-  match Vec.pop t.free_values with
+  match Nod_vec.pop t.free_values with
   | Some id ->
     let res = res id in
-    Vec.set t.values id (Some res);
+    Nod_vec.set t.values id (Some res);
     res
   | None ->
-    let res = res (Vec.length t.values) in
-    Vec.push t.values (Some res);
+    let res = res (Nod_vec.length t.values) in
+    Nod_vec.push t.values (Some res);
     res
 ;;
 
 let free_value t ({ id = Value_id id; _ } : Value_state.t) =
   Hashtbl.remove
     t.value_id_by_var
-    (Option.value_exn (Vec.get t.values id) |> Value_state.var);
-  Vec.set t.values id None;
-  Vec.push t.free_values id
+    (Option.value_exn (Nod_vec.get t.values id) |> Value_state.var);
+  Nod_vec.set t.values id None;
+  Nod_vec.push t.free_values id
 ;;
 
 let alloc_instr ?prev ?next t ~ir =
   let res id : Block.t Instr_state.t = { id = Instr_id id; ir; prev; next } in
-  match Vec.pop t.free_instrs with
+  match Nod_vec.pop t.free_instrs with
   | Some id ->
     let res = res id in
-    Vec.set t.instrs id (Some res);
-    Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+    Nod_vec.set t.instrs id (Some res);
+    Nod_vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ ->
+      None);
     res
   | None ->
-    let res = res (Vec.length t.instrs) in
-    Vec.push t.instrs (Some res);
-    Vec.fill_to_length
+    let res = res (Nod_vec.length t.instrs) in
+    Nod_vec.push t.instrs (Some res);
+    Nod_vec.fill_to_length
       t.instr_block_by_id
-      ~length:(Vec.length t.instrs)
+      ~length:(Nod_vec.length t.instrs)
       ~f:(fun _ -> None);
     res
 ;;
 
 let free_instr t ({ id = Instr_id id; _ } : Block.t Instr_state.t) =
-  Vec.set t.instrs id None;
-  Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
-  Vec.set t.instr_block_by_id id None;
-  Vec.push t.free_instrs id
+  Nod_vec.set t.instrs id None;
+  Nod_vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+  Nod_vec.set t.instr_block_by_id id None;
+  Nod_vec.push t.free_instrs id
 ;;
 
 let ensure_value t ~var =
@@ -133,16 +134,17 @@ let of_cfg ~root =
   let t = create () in
   let register_instr ~block instr =
     let (Instr_id id) = instr.Instr_state.id in
-    Vec.fill_to_length t.instrs ~length:(id + 1) ~f:(fun _ -> None);
-    Vec.set t.instrs id (Some instr);
-    Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
-    Vec.set t.instr_block_by_id id (Some block)
+    Nod_vec.fill_to_length t.instrs ~length:(id + 1) ~f:(fun _ -> None);
+    Nod_vec.set t.instrs id (Some instr);
+    Nod_vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ ->
+      None);
+    Nod_vec.set t.instr_block_by_id id (Some block)
   in
   Block.iter root ~f:(fun block ->
     Instr_state.iter (Block.instructions block) ~f:(register_instr ~block);
     register_instr ~block (Block.terminal block));
   Block.iter root ~f:(fun block ->
-    Vec.iteri (Block.args block) ~f:(fun arg var ->
+    Nod_vec.iteri (Block.args block) ~f:(fun arg var ->
       let value = ensure_value t ~var in
       Value_state.Expert.set_def
         value
@@ -154,12 +156,12 @@ let of_cfg ~root =
 
 let set_instr_block t ~(block : Block.t) ~(instr : _ Instr_state.t) =
   let (Instr_id id) = instr.Instr_state.id in
-  Vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
-  Vec.set t.instr_block_by_id id (Some block)
+  Nod_vec.fill_to_length t.instr_block_by_id ~length:(id + 1) ~f:(fun _ -> None);
+  Nod_vec.set t.instr_block_by_id id (Some block)
 ;;
 
-let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Vec.t) =
-  Vec.iter (Block.args block) ~f:(fun var ->
+let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Nod_vec.t) =
+  Nod_vec.iter (Block.args block) ~f:(fun var ->
     match value_by_var t var with
     | None -> ()
     | Some value ->
@@ -169,7 +171,7 @@ let set_block_args t ~(block : Block.t) ~(args : Typed_var.t Vec.t) =
          Value_state.Expert.set_def value Undefined
        | _ -> ()));
   Block.Expert.set_args block args;
-  Vec.iteri args ~f:(fun arg var ->
+  Nod_vec.iteri args ~f:(fun arg var ->
     let value = ensure_value t ~var in
     Value_state.Expert.set_def
       value

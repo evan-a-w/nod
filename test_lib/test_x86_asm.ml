@@ -19,7 +19,7 @@ let compile_and_lower_functions functions =
 ;;
 
 let make_fn ~fn_state ~name ~args ~root =
-  Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
+  Fn_state.set_block_args fn_state ~block:root ~args:(Nod_vec.of_list args);
   Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
 ;;

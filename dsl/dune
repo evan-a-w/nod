@@ -10,7 +10,7 @@
   core_unix
   nod_frontend
   nod_core
-  vec
+  nod_vec
   feel
   nod_x86_backend
   nod_arm64_backend

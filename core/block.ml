@@ -3,9 +3,9 @@ open! Import
 
 type t =
   { id_hum : string
-  ; mutable args : Typed_var.t Vec.t
-  ; parents : t Vec.t
-  ; children : t Vec.t
+  ; mutable args : Typed_var.t Nod_vec.t
+  ; parents : t Nod_vec.t
+  ; children : t Nod_vec.t
   ; mutable instructions : t Instr_state.t option
   ; mutable terminal : t Instr_state.t
   ; mutable dfs_id : int option
@@ -13,7 +13,7 @@ type t =
   }
 [@@deriving fields]
 
-let args t = args t |> Vec.read
+let args t = args t |> Nod_vec.read
 let id_exn t = Option.value_exn t.dfs_id
 let compare t1 t2 = id_exn t1 - id_exn t2
 let hash_fold_t s t = Int.hash_fold_t s (Option.value_exn t.dfs_id)
@@ -23,14 +23,14 @@ let t_of_sexp _ = failwith ":()"
 let sexp_of_t t =
   let id_hum = t.id_hum in
   let args = t.args in
-  [%sexp { id_hum : string; args : Typed_var.t Vec.t }]
+  [%sexp { id_hum : string; args : Typed_var.t Nod_vec.t }]
 ;;
 
 let create ~id_hum ~terminal =
   { id_hum
-  ; args = Vec.create ()
-  ; parents = Vec.create ()
-  ; children = Vec.create ()
+  ; args = Nod_vec.create ()
+  ; parents = Nod_vec.create ()
+  ; children = Nod_vec.create ()
   ; instructions = None
   ; terminal
   ; dfs_id = None
@@ -49,7 +49,7 @@ let iter root ~f =
     | false ->
       Core.Hash_set.add seen block;
       f block;
-      Vec.iter block.children ~f:go
+      Nod_vec.iter block.children ~f:go
   in
   go root
 ;;
@@ -70,11 +70,11 @@ let iter_and_update_bookkeeping root ~f =
       let children =
         Nod_ir.Ir.call_blocks block.terminal.ir
         |> List.map ~f:Call_block.block
-        |> Vec.of_list
+        |> Nod_vec.of_list
       in
-      Vec.clear block.parents;
-      Vec.switch block.children children;
-      Vec.iter block.children ~f:go
+      Nod_vec.clear block.parents;
+      Nod_vec.switch block.children children;
+      Nod_vec.iter block.children ~f:go
   in
   go root;
   let i = ref 0 in
@@ -84,8 +84,8 @@ let iter_and_update_bookkeeping root ~f =
     | None ->
       set_dfs_id block (Some !i);
       incr i;
-      Vec.iter block.children ~f:(fun child ->
-        Vec.push child.parents block;
+      Nod_vec.iter block.children ~f:(fun child ->
+        Nod_vec.push child.parents block;
         go child)
   in
   go root
@@ -98,16 +98,16 @@ let iter_instructions t ~f =
 ;;
 
 let to_sexp_verbose root =
-  let ts = Vec.create () in
+  let ts = Nod_vec.create () in
   iter root ~f:(fun t ->
     let instrs = Instr_state.to_list t.instructions @ [ t.terminal ] in
-    Vec.push
+    Nod_vec.push
       ts
       [%message
         t.id_hum
-          ~args:(t.args : Typed_var.t Vec.t)
+          ~args:(t.args : Typed_var.t Nod_vec.t)
           (instrs : t Instr_state.t list)]);
-  [%sexp (ts : Sexp.t Vec.t)]
+  [%sexp (ts : Sexp.t Nod_vec.t)]
 ;;
 
 module Pair = struct
@@ -124,8 +124,8 @@ module Expert = struct
   let set_insert_phi_moves = set_insert_phi_moves
 
   let add_child t ~child =
-    Vec.push t.children child;
-    Vec.push child.parents t
+    Nod_vec.push t.children child;
+    Nod_vec.push child.parents t
   ;;
 
   let add_parent t ~parent = add_child parent ~child:t
@@ -133,5 +133,5 @@ module Expert = struct
   let parents = parents
 end
 
-let children t = children t |> Vec.read
-let parents t = parents t |> Vec.read
+let children t = children t |> Nod_vec.read
+let parents t = parents t |> Nod_vec.read

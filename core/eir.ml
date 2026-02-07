@@ -3,8 +3,8 @@ open! Core
 open! Import
 
 type raw_block =
-  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Vec.t String.Map.t
-  * labels:string Vec.t
+  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Nod_vec.t String.Map.t
+  * labels:string Nod_vec.t
 
 type input = (raw_block Program.t', Nod_error.t) Result.t
 
@@ -26,7 +26,7 @@ let set_entry_block_args program ~state =
     Fn_state.set_block_args
       (State.fn_state state name)
       ~block
-      ~args:(Vec.of_list args));
+      ~args:(Nod_vec.of_list args));
   program
 ;;
 
@@ -52,7 +52,7 @@ let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
     else (
       Hash_set.add seen (Block.id_hum block);
       let%bind () = type_check_block block in
-      Vec.fold (Block.children block) ~init:(Ok ()) ~f:(fun acc child ->
+      Nod_vec.fold (Block.children block) ~init:(Ok ()) ~f:(fun acc child ->
         let%bind () = acc in
         go child))
   in

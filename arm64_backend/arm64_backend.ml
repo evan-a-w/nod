@@ -89,7 +89,7 @@ module For_testing = struct
         [ [%message
             (block : string)
               ~instruction:
-                ([%message "block start" (args : Typed_var.t Vec.read)]
+                ([%message "block start" (args : Typed_var.t Nod_vec.read)]
                  : Sexp.t)
               ~live_in:(block_live_in : Typed_var.t list)
               ~live_out:

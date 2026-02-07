@@ -617,7 +617,7 @@ let make_prologue t =
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
-  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Nod_vec.of_list args);
   Fn_state.replace_irs
     t.fn_state
     ~block
@@ -669,7 +669,7 @@ let make_epilogue t ~ret_shape =
   in
   assert (Call_conv.(equal t.fn.call_conv default));
   Block.set_dfs_id block (Some 0);
-  Fn_state.set_block_args t.fn_state ~block ~args:(Vec.of_list args);
+  Fn_state.set_block_args t.fn_state ~block ~args:(Nod_vec.of_list args);
   Fn_state.replace_irs
     t.fn_state
     ~block
@@ -727,7 +727,7 @@ let split_blocks_and_add_prologue_and_epilogue t =
     | Some true_terminal ->
       let epilogue_jmp operands_to_ret =
         let args =
-          List.zip_exn operands_to_ret (Vec.to_list (Block.args epilogue))
+          List.zip_exn operands_to_ret (Nod_vec.to_list (Block.args epilogue))
           |> List.map ~f:(fun (operand, arg) ->
             match operand with
             | Reg reg ->
@@ -819,11 +819,11 @@ let par_moves t ~dst_to_src =
       ~class_
       (fresh_var ~type_:(type_of_class class_) t "regalloc_scratch")
   in
-  let emitted = Vec.create () in
+  let emitted = Nod_vec.create () in
   let emit dst src =
     if Reg.equal Poly.equal dst src
     then ()
-    else Vec.push emitted (Ir.arm64 (Move { dst; src = Reg src }))
+    else Nod_vec.push emitted (Ir.arm64 (Move { dst; src = Reg src }))
   in
   let rec go () =
     if Map.is_empty !pending
@@ -867,14 +867,14 @@ let insert_par_moves t =
         (match true_terminal with
          | Jump cb ->
            let dst_to_src =
-             List.zip_exn (Vec.to_list (Block.args cb.block)) cb.args
+             List.zip_exn (Nod_vec.to_list (Block.args cb.block)) cb.args
            in
            Fn_state.append_irs
              t.fn_state
              ~block
              ~irs:
                (par_moves t ~dst_to_src
-                |> Vec.to_list
+                |> Nod_vec.to_list
                 |> List.map ~f:(Fn_state.value_ir t.fn_state))
          | Ret _ -> ()
          | Conditional_branch _ -> failwith "bug"
@@ -914,7 +914,7 @@ let remove_call_block_args t =
         (Nod_ir.Ir.map_call_blocks
            (Block.terminal block).Instr_state.ir
            ~f:(fun cb -> { cb with args = [] }))
-    (* We don't need [Vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
+    (* We don't need [Nod_vec.clear_block_args] because we have a flag in liveness checking to consider them or not. *));
   t
 ;;
 
