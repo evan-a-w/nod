@@ -5,7 +5,6 @@ type t =
   | `Expected_digit of char
   | `Unexpected_character of char
   | `Unexpected_end_of_input
-  | `Unexpected_end_of_input
   | `Unexpected_eof_in_comment
   | `Unexpected_token of Token.t * Pos.t
   | `Unknown_instruction of string
