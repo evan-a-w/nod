@@ -6,6 +6,7 @@ type t =
   ; mutable args : Typed_var.t Vec.t
   ; parents : t Vec.t
   ; children : t Vec.t
+  ; mutable num_instructions : int option
   ; mutable instructions : t Instr_state.t option
   ; mutable terminal : t Instr_state.t
   ; mutable dfs_id : int option
@@ -35,6 +36,7 @@ let create ~id_hum ~terminal =
   ; terminal
   ; dfs_id = None
   ; insert_phi_moves = true
+  ; num_instructions = None
   }
 ;;
 
@@ -135,3 +137,15 @@ end
 
 let children t = children t |> Vec.read
 let parents t = parents t |> Vec.read
+
+let calc_num_instructions t =
+  let res = Instr_state.fold t.instructions ~init:1 ~f:(fun acc _ -> acc + 1) in
+  t.num_instructions <- Some res;
+  res
+;;
+
+let num_instructions t =
+  match t.num_instructions with
+  | Some num_instructions -> num_instructions
+  | None -> calc_num_instructions t
+;;
