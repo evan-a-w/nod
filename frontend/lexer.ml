@@ -118,6 +118,10 @@ let rec lex' () : (_, _, _) Frontend_state.Result.t =
     (match%bind peek with
      | Some '>' -> next >> rep Token.Arrow
      | _ -> rep Token.Minus)
+  | Some '!' ->
+    (match%bind peek with
+     | Some '=' -> next >> rep Token.Not_equal
+     | _ -> rep Token.Bang)
   | Some '(' ->
     (match%bind peek with
      | Some '*' -> next >> lex_comment () >>= rep
