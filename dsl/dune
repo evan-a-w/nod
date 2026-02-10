@@ -1,5 +1,6 @@
 (library
  (name nod_dsl)
+ (public_name nod.dsl)
  (wrapped false)
  (modules :standard \ gen_type_repr)
  (preprocess

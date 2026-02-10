@@ -6,6 +6,7 @@ type raw_block =
   instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Nod_vec.t String.Map.t
   * labels:string Nod_vec.t
 
+(* TODO: why is this a result lol *)
 type input = (raw_block Program.t', Nod_error.t) Result.t
 
 module Opt_flags = Eir_opt.Opt_flags
