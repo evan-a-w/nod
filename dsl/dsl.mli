@@ -115,13 +115,13 @@ end
 val program
   :  functions:Fn.Packed.t list
   -> globals:Nod_ir.Global.t list
-  -> (Eir.input, Nod_error.t) Result.t
+  -> (Eir.program, Nod_error.t) Result.t
 
 val compile_program_exn'
-  :  (Eir.input, Nod_error.t) Result.t
+  :  (Eir.program, Nod_error.t) Result.t
   -> Nod_core.Block.t Nod_core.Program.t'
 
-val compile_program_exn : Eir.input -> Nod_core.Block.t Nod_core.Program.t'
+val compile_program_exn : Eir.program -> Nod_core.Block.t Nod_core.Program.t'
 
 (** builder functions *)
 

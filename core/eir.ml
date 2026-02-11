@@ -1,13 +1,7 @@
 open! Ssa
 open! Core
 open! Import
-
-type raw_block =
-  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Nod_vec.t String.Map.t
-  * labels:string Nod_vec.t
-
-type input = raw_block Program.t'
-
+include Eir0
 module Opt_flags = Eir_opt.Opt_flags
 
 let map_program_roots_with_state program ~state ~f =
@@ -89,7 +83,7 @@ let optimize ?opt_flags ~state program =
   Eir_opt.optimize ?opt_flags ~state program
 ;;
 
-let compile ?opt_flags (input : input) =
+let compile ?opt_flags (input : program) =
   let open Result.Let_syntax in
   let state = State.create () in
   let program =
