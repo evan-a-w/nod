@@ -40,7 +40,7 @@ let hashmap_program =
 ;;
 
 let%expect_test "nod hashmap program compiles" =
-  let program = Dsl.compile_program_exn hashmap_program in
+  let program = Dsl.compile_program_exn' hashmap_program in
   let names = Map.keys program.Program.functions in
   print_s [%sexp (names : string list)];
   let root_fn = Map.find_exn program.Program.functions "root" in
@@ -271,7 +271,7 @@ let%expect_test "nod hashmap program compiles" =
 
 let compile_and_execute_program_exn program expected =
   List.iter test_architectures ~f:(fun arch ->
-    let compiled = Dsl.compile_program_exn program in
+    let compiled = Dsl.compile_program_exn' program in
     let asm =
       compile_and_lower_functions
         ~arch

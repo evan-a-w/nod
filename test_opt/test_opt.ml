@@ -53,11 +53,10 @@ let run_program ?opt_flags program =
 ;;
 
 let run_dsl ?opt_flags functions =
-  match
-    Dsl.program ~globals:[] ~functions:(List.map functions ~f:Dsl.Fn.pack)
-  with
-  | Ok program -> run_program ?opt_flags program
-  | Error err -> failwith (Nod_error.to_string err)
+  Dsl.program ~globals:[] ~functions:(List.map functions ~f:Dsl.Fn.pack)
+  |> Result.map_error ~f:Nod_error.to_string
+  |> Result.ok_or_failwith
+  |> run_program ?opt_flags
 ;;
 
 let run_dsl' ?opt_flags irs =

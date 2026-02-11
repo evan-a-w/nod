@@ -301,6 +301,14 @@ let branch_to cond ~if_true ~if_false =
 
 let jump_to label = Instr.ir (Nod_ir.Ir.jump_to label)
 
+let compile_program_exn' program =
+  match
+    Result.bind program ~f:(Eir.compile ~opt_flags:Eir.Opt_flags.no_opt)
+  with
+  | Ok program -> program
+  | Error err -> Nod_error.to_string err |> failwith
+;;
+
 let compile_program_exn program =
   match Eir.compile ~opt_flags:Eir.Opt_flags.no_opt program with
   | Ok program -> program

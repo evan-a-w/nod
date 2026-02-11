@@ -54,7 +54,7 @@ module Eir = struct
 
   let compile ?opt_flags program =
     Parser.parse_string program
-    |> Result.bind ~f:(fun parsed -> compile_parsed ?opt_flags (Ok parsed))
+    |> Result.bind ~f:(fun parsed -> compile_parsed ?opt_flags parsed)
   ;;
 end
 
@@ -140,6 +140,24 @@ let compile_and_lower_functions
   | `X86_64 -> X86_backend.compile_to_asm ~system ~globals functions
   | `Arm64 -> Arm64_backend.compile_to_asm ~system ~globals functions
   | `Other -> failwith "unsupported target architecture"
+;;
+
+let compile_and_lower_program'
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  program
+  =
+  let program =
+    match Eir.compile_parsed program with
+    | Ok program -> program
+    | Error err ->
+      Error.raise_s [%message "Failed to compile" (err : Nod_error.t)]
+  in
+  compile_and_lower_functions
+    ~arch
+    ~system
+    ~globals:program.Program.globals
+    program.Program.functions
 ;;
 
 type lowered_items =

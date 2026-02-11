@@ -14,6 +14,7 @@ type t =
   | `Type_mismatch of string
   | `Choices of t list
   ]
+[@@deriving sexp]
 
 let rec to_string : t -> string = function
   | `Duplicate_label s -> Printf.sprintf "Error: duplicate label '%s'\n" s

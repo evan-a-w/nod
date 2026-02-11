@@ -6,8 +6,7 @@ type raw_block =
   instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Nod_vec.t String.Map.t
   * labels:string Nod_vec.t
 
-(* TODO: why is this a result lol *)
-type input = (raw_block Program.t', Nod_error.t) Result.t
+type input = raw_block Program.t'
 
 module Opt_flags = Eir_opt.Opt_flags
 
@@ -91,17 +90,13 @@ let optimize ?opt_flags ~state program =
 ;;
 
 let compile ?opt_flags (input : input) =
+  let open Result.Let_syntax in
   let state = State.create () in
-  match
-    Result.map input ~f:(map_program_roots_with_state ~state ~f:Cfg.process)
-    |> Result.map ~f:(set_entry_block_args ~state)
-    |> Result.bind ~f:(fun program ->
-      type_check_program program |> Result.map ~f:(fun () -> program))
-    |> Result.bind ~f:(lower_aggregate_program ~state)
-    |> Result.map ~f:(fun program -> convert_program program ~state)
-  with
-  | Error _ as e -> e
-  | Ok program ->
-    let program = optimize ?opt_flags ~state program in
-    Ok program
+  let program =
+    map_program_roots_with_state ~state ~f:Cfg.process input
+    |> set_entry_block_args ~state
+  in
+  let%bind () = type_check_program program in
+  let%map program = lower_aggregate_program ~state program in
+  convert_program program ~state |> optimize ?opt_flags ~state
 ;;
