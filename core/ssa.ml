@@ -153,17 +153,20 @@ module Mem2reg = struct
 
   let create_slot ptr =
     { ptr; val_type = None; loads = ref []; stores = ref []; bad_use = false }
+  ;;
 
   let base_is_ptr_value_var ~ptr = function
     | Nod_ir.Mem.Address { base = Nod_ir.Lit_or_var.Var v; offset = 0 } ->
       Typed_var.compare (var_of_value v) ptr = 0
     | Nod_ir.Mem.Address _ | Nod_ir.Mem.Stack_slot _ | Nod_ir.Mem.Global _ ->
       false
+  ;;
 
   let update_type slot ty =
     match slot.val_type with
     | None -> slot.val_type <- Some ty
     | Some prev -> if not (Type.equal prev ty) then slot.bad_use <- true
+  ;;
 
   let scan_block_slots (slots : (Typed_var.t, slot) Hashtbl.t) (block : Block.t)
     =
@@ -175,12 +178,12 @@ module Mem2reg = struct
     let record_store ptr instr (src : Value_state.t Nod_ir.Lit_or_var.t) =
       let slot = Hashtbl.find_exn slots ptr in
       slot.stores := (block, instr) :: !(slot.stores);
-      (match src with
-       | Nod_ir.Lit_or_var.Var v ->
-         update_type slot (Typed_var.type_ (Value_state.var v))
-       | Nod_ir.Lit_or_var.Global g ->
-         update_type slot (Type.Ptr_typed g.Nod_ir.Global.type_)
-       | Nod_ir.Lit_or_var.Lit _ -> ())
+      match src with
+      | Nod_ir.Lit_or_var.Var v ->
+        update_type slot (Typed_var.type_ (Value_state.var v))
+      | Nod_ir.Lit_or_var.Global g ->
+        update_type slot (Type.Ptr_typed g.Nod_ir.Global.type_)
+      | Nod_ir.Lit_or_var.Lit _ -> ()
     in
     let mark_bad ptr = (Hashtbl.find_exn slots ptr).bad_use <- true in
     let rec iter_instrs instr =
@@ -227,6 +230,7 @@ module Mem2reg = struct
         iter_instrs i.Instr_state.next
     in
     iter_instrs (Block.instructions block)
+  ;;
 
   let allocas_in_block (block : Block.t) =
     let acc = ref [] in
@@ -252,56 +256,10 @@ module Mem2reg = struct
     Hashtbl.data slots
   ;;
 
-  let block_has_store_to slot block =
-    List.exists !(slot.stores) ~f:(fun (b, _) -> phys_equal b block)
-  ;;
-
-  let build_idom_parent idom_tree =
-    let parent = Block.Table.create () in
-    Hashtbl.iteri idom_tree ~f:(fun ~key:par ~data:children ->
-      Hash_set.iter children ~f:(fun ch ->
-        if phys_equal ch par then () else Hashtbl.set parent ~key:ch ~data:par));
-    parent
-  ;;
-
-  let load_dominated_by_store slot ~idom_parent : bool =
-    let has_store_in_ancestors b =
-      let rec up curr =
-        if block_has_store_to slot curr
-        then true
-        else (
-          match Hashtbl.find idom_parent curr with
-          | None -> false
-          | Some p -> if phys_equal p curr then false else up p)
-      in
-      up b
-    in
-    let same_block_store_before_load block load_instr =
-      let rec scan seen_store instr =
-        match instr with
-        | None -> false
-        | Some i ->
-          if phys_equal i load_instr
-          then seen_store
-          else (
-            let seen_store =
-              seen_store
-              || (match i.Instr_state.ir with
-                 | Nod_ir.Ir.Store (_, mem)
-                   when base_is_ptr_value_var ~ptr:slot.ptr mem ->
-                   true
-                 | _ -> false)
-            in
-            scan seen_store i.Instr_state.next)
-      in
-      scan false (Block.instructions block)
-    in
-    List.for_all !(slot.loads) ~f:(fun (b, load_i) ->
-      same_block_store_before_load b load_i || has_store_in_ancestors b)
-  ;;
-
   let df_of_block t ~block =
-    Analysis.Dominance.frontier_blocks (Analysis.Def_use.dominance t.analysis) ~block
+    Analysis.Dominance.frontier_blocks
+      (Analysis.Def_use.dominance t.analysis)
+      ~block
   ;;
 
   let rec insert_phi_for_var ~fn_state ~var ~work ~placed ~df_of =
@@ -316,9 +274,12 @@ module Mem2reg = struct
             Fn_state.set_block_args
               fn_state
               ~block:y
-              ~args:
-                (Nod_vec.of_list (Nod_vec.to_list (Block.args y) @ [ var ]));
-            if Hash_set.mem placed y then acc else (Hash_set.add placed y; y :: acc))
+              ~args:(Nod_vec.of_list (Nod_vec.to_list (Block.args y) @ [ var ]));
+            if Hash_set.mem placed y
+            then acc
+            else (
+              Hash_set.add placed y;
+              y :: acc))
           else acc)
       in
       insert_phi_for_var ~fn_state ~var ~work:rest ~placed ~df_of
@@ -341,12 +302,8 @@ module Mem2reg = struct
       in
       let placed = Block.Hash_set.create () in
       let work = Hash_set.to_list def_blocks in
-      insert_phi_for_var
-        ~fn_state
-        ~var:var_slot
-        ~work
-        ~placed
-        ~df_of:(fun b -> df_of_block t ~block:b);
+      insert_phi_for_var ~fn_state ~var:var_slot ~work ~placed ~df_of:(fun b ->
+        df_of_block t ~block:b);
       (* Rewrite loads/stores and remove allocas. *)
       let rewrite_block (block : Block.t) =
         let rec go instr =
@@ -357,15 +314,21 @@ module Mem2reg = struct
             (match i.Instr_state.ir with
              | Nod_ir.Ir.Load (dest, mem)
                when base_is_ptr_value_var ~ptr:slot.ptr mem ->
-               let var_slot_value = Fn_state.ensure_value fn_state ~var:var_slot in
+               let var_slot_value =
+                 Fn_state.ensure_value fn_state ~var:var_slot
+               in
                Fn_state.replace_instr_with_irs
                  fn_state
                  ~block
                  ~instr:i
-                 ~with_irs:[ Nod_ir.Ir.Move (dest, Nod_ir.Lit_or_var.Var var_slot_value) ]
+                 ~with_irs:
+                   [ Nod_ir.Ir.Move (dest, Nod_ir.Lit_or_var.Var var_slot_value)
+                   ]
              | Nod_ir.Ir.Store (src, mem)
                when base_is_ptr_value_var ~ptr:slot.ptr mem ->
-               let var_slot_value = Fn_state.ensure_value fn_state ~var:var_slot in
+               let var_slot_value =
+                 Fn_state.ensure_value fn_state ~var:var_slot
+               in
                Fn_state.replace_instr_with_irs
                  fn_state
                  ~block
@@ -373,7 +336,11 @@ module Mem2reg = struct
                  ~with_irs:[ Nod_ir.Ir.Move (var_slot_value, src) ]
              | Nod_ir.Ir.Alloca { dest; _ }
                when Typed_var.compare (var_of_value dest) slot.ptr = 0 ->
-               Fn_state.replace_instr_with_irs fn_state ~block ~instr:i ~with_irs:[]
+               Fn_state.replace_instr_with_irs
+                 fn_state
+                 ~block
+                 ~instr:i
+                 ~with_irs:[]
              | _ -> ());
             go next
         in
