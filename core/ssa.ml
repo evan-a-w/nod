@@ -326,7 +326,6 @@ module Mem2reg = struct
 
   let promote t =
     let fn_state = fn_state t in
-    let idom_parent = build_idom_parent t.idom_tree in
     let slots = collect_slots (Analysis.Def_use.root t.analysis) in
     let eligible =
       List.filter slots ~f:(fun s ->

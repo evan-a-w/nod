@@ -3,7 +3,7 @@ open! Import
 open! Dsl
 
 let opt_flags ~unused_vars ~constant_propagation ~gvn : Eir.Opt_flags.t =
-  { unused_vars; constant_propagation; gvn }
+  { unused_vars; constant_propagation; gvn; mem2reg = false }
 ;;
 
 let lower_to_ssa program =

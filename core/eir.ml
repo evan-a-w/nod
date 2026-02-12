@@ -92,5 +92,10 @@ let compile ?opt_flags (input : program) =
   in
   let%bind () = type_check_program program in
   let%map program = lower_aggregate_program ~state program in
-  convert_program program ~state |> optimize ?opt_flags ~state
+  let mem2reg =
+    match opt_flags with
+    | None -> Opt_flags.default.mem2reg
+    | Some flags -> Opt_flags.mem2reg flags
+  in
+  convert_program ~mem2reg program ~state |> optimize ?opt_flags ~state
 ;;
