@@ -1,232 +1,29 @@
 open! Core
 open! Import
-
-module Dominator = struct
-  type t =
-    { parent : int Nod_vec.t
-    ; semi : int Nod_vec.t
-    ; blocks : Block.t Nod_vec.t
-    ; bucket : Int.Hash_set.t Nod_vec.t
-    ; dom : int Nod_vec.t
-    ; ancestor : int Nod_vec.t
-    ; label : int Nod_vec.t
-    ; dominance_frontier : Int.Hash_set.t Nod_vec.t
-    ; fn_state : Fn_state.t
-    }
-  [@@deriving fields]
-
-  let dfs ~fn_state block =
-    let blocks = Nod_vec.create () in
-    let parent = Nod_vec.create () in
-    let semi = Nod_vec.create () in
-    let i = ref 0 in
-    let rec go block =
-      match Block.dfs_id block with
-      | None ->
-        Block.set_dfs_id block (Some !i);
-        Nod_vec.push semi !i;
-        incr i;
-        Nod_vec.push blocks block;
-        Nod_vec.iter (Block.children block) ~f:(fun b ->
-          go b;
-          Nod_vec.fill_to_length
-            parent
-            ~length:(Block.id_exn b + 1)
-            ~f:(fun _ -> -1);
-          Nod_vec.set parent (Block.id_exn b) (Block.id_exn block))
-      | Some _ -> ()
-    in
-    go block;
-    let bucket = Nod_vec.map blocks ~f:(fun _ -> Int.Hash_set.create ()) in
-    let dom = Nod_vec.map blocks ~f:(fun _ -> -1) in
-    let ancestor = Nod_vec.map semi ~f:(fun _ -> -1) in
-    let label = Nod_vec.map semi ~f:Fn.id in
-    let dominance_frontier =
-      Nod_vec.map semi ~f:(fun _ -> Int.Hash_set.create ())
-    in
-    { parent
-    ; blocks
-    ; bucket
-    ; dom
-    ; semi
-    ; ancestor
-    ; label
-    ; dominance_frontier
-    ; fn_state
-    }
-  ;;
-
-  let link st v w = Nod_vec.set st.ancestor w v
-
-  let rec compress st v =
-    if Nod_vec.get st.ancestor (Nod_vec.get st.ancestor v) <> -1
-    then (
-      compress st (Nod_vec.get st.ancestor v);
-      if Nod_vec.get st.semi (Nod_vec.get st.label (Nod_vec.get st.ancestor v))
-         < Nod_vec.get st.semi (Nod_vec.get st.label v)
-      then
-        Nod_vec.set
-          st.label
-          v
-          (Nod_vec.get st.label (Nod_vec.get st.ancestor v));
-      Nod_vec.set
-        st.ancestor
-        v
-        (Nod_vec.get st.ancestor (Nod_vec.get st.ancestor v)))
-  ;;
-
-  let eval st v =
-    if Nod_vec.get st.ancestor v = -1
-    then v
-    else (
-      compress st v;
-      Nod_vec.get st.label v)
-  ;;
-
-  let step_2_3 st =
-    for i = Nod_vec.length st.blocks - 1 downto 1 do
-      let w = Nod_vec.get st.blocks i in
-      Nod_vec.iter (Block.parents w) ~f:(fun v ->
-        let u = eval st (Block.id_exn v) in
-        if Nod_vec.get st.semi u < Nod_vec.get st.semi i
-        then Nod_vec.set st.semi i (Nod_vec.get st.semi u));
-      Hash_set.add (Nod_vec.get st.bucket (Nod_vec.get st.semi i)) i;
-      link st (Nod_vec.get st.parent i) i;
-      List.iter
-        (Hash_set.to_list (Nod_vec.get st.bucket (Nod_vec.get st.parent i)))
-        ~f:(fun v ->
-          Hash_set.remove (Nod_vec.get st.bucket (Nod_vec.get st.parent v)) v;
-          let u = eval st v in
-          Nod_vec.set
-            st.dom
-            v
-            (if Nod_vec.get st.semi u < Nod_vec.get st.semi v
-             then u
-             else Nod_vec.get st.parent i))
-    done;
-    st
-  ;;
-
-  let step_4 st =
-    for i = 1 to Nod_vec.length st.blocks - 1 do
-      if Nod_vec.get st.dom i <> Nod_vec.get st.semi i
-      then Nod_vec.set st.dom i (Nod_vec.get st.dom (Nod_vec.get st.dom i))
-    done;
-    Nod_vec.set st.dom 0 0;
-    st
-  ;;
-
-  let dominance_frontier st =
-    Nod_vec.iter st.blocks ~f:(fun block ->
-      let b = Block.id_exn block in
-      if Nod_vec.length (Block.parents block) >= 2
-      then
-        Nod_vec.iter (Block.parents block) ~f:(fun p ->
-          let runner = ref (Block.id_exn p) in
-          while !runner <> Nod_vec.get st.dom b do
-            Hash_set.add (Nod_vec.get st.dominance_frontier !runner) b;
-            runner := Nod_vec.get st.dom !runner
-          done)
-      else ());
-    st
-  ;;
-
-  let create ~fn_state block =
-    block |> dfs ~fn_state |> step_2_3 |> step_4 |> dominance_frontier
-  ;;
-end
+module Analysis = Ssa_analysis
 
 let var_of_value (value : Value_state.t) = Value_state.var value
 
-module Def_uses = struct
-  type t =
-    { dominator : Dominator.t
-    ; vars : Typed_var.Hash_set.t
-    ; uses : Block.Hash_set.t Typed_var.Table.t
-    ; defs : Block.Hash_set.t Typed_var.Table.t
-    ; root : Block.t
-    }
-  [@@deriving fields]
-
-  let fn_state t = Dominator.fn_state t.dominator
-
-  let update_def_uses t ~block =
-    let update tbl x =
-      Hash_set.add t.vars x;
-      Hash_set.add
-        (Hashtbl.find_or_add tbl x ~default:Block.Hash_set.create)
-        block
-    in
-    Nod_vec.iter (Block.args block) ~f:(update t.defs);
-    Instr_state.iter (Block.instructions block) ~f:(fun instr ->
-      let uses = Ir.uses instr.ir |> List.map ~f:var_of_value in
-      let defs = Ir.defs instr.ir |> List.map ~f:var_of_value in
-      List.iter uses ~f:(update t.uses);
-      List.iter defs ~f:(update t.defs))
-  ;;
-
-  let calc_def_uses t =
-    let seen = Block.Hash_set.create () in
-    let rec go block =
-      if not (Hash_set.mem seen block)
-      then (
-        Hash_set.add seen block;
-        update_def_uses t ~block;
-        Nod_vec.iter (Block.children block) ~f:go)
-    in
-    go t.root;
-    t
-  ;;
-
-  let create ~fn_state root =
-    let t =
-      { dominator = Dominator.create ~fn_state root
-      ; vars = Typed_var.Hash_set.create ()
-      ; uses = Typed_var.Table.create ()
-      ; defs = Typed_var.Table.create ()
-      ; root
-      }
-    in
-    t |> calc_def_uses
-  ;;
-
-  let df t ~block =
-    Nod_vec.get t.dominator.dominance_frontier (Block.id_exn block)
-    |> Hash_set.to_list
-    |> List.map ~f:(fun i -> Nod_vec.get t.dominator.blocks i)
-  ;;
-end
-
+(* Context threading through the SSA construction passes. *)
 type t =
-  { def_uses : Def_uses.t
+  { analysis : Analysis.Def_use.t
   ; numbers : int String.Table.t
-  ; immediate_dominees : Block.Hash_set.t Block.Table.t
+  ; idom_tree : Block.Hash_set.t Block.Table.t
   }
 
-let calculate_dominator_tree t =
-  let seen = Block.Hash_set.create () in
-  let rec go block =
-    if Hash_set.mem seen block
-    then ()
-    else (
-      Hash_set.add seen block;
-      let idom =
-        Nod_vec.get t.def_uses.dominator.dom (Block.id_exn block)
-        |> Nod_vec.get t.def_uses.dominator.blocks
-      in
-      Hash_set.add
-        (Hashtbl.find_or_add
-           t.immediate_dominees
-           idom
-           ~default:Block.Hash_set.create)
-        block;
-      Nod_vec.iter (Block.children block) ~f:go)
-  in
-  go t.def_uses.root;
-  t
+let fn_state t = Analysis.Def_use.fn_state t.analysis
+
+(* Compute immediate-dominee table from dominance info. *)
+let with_idom_tree analysis =
+  { analysis
+  ; numbers = String.Table.create ()
+  ; idom_tree =
+      Analysis.Dominance.idom_tree (Analysis.Def_use.dominance analysis)
+  }
 ;;
 
-let new_name t var =
+(* Generate a fresh SSA name for a variable, using base%N numbering. *)
+let fresh_name t var =
   let base = String.split (Typed_var.name var) ~on:'%' |> List.hd_exn in
   match Hashtbl.find t.numbers base with
   | None ->
@@ -239,19 +36,20 @@ let new_name t var =
       ~type_:(Typed_var.type_ var)
 ;;
 
-let insert_args t =
-  let def_uses = t.def_uses in
-  Hash_set.iter def_uses.vars ~f:(fun var ->
-    match Hashtbl.find def_uses.defs var with
+(* Pass 1: Phi/parameter insertion on dominance frontiers. *)
+let insert_phi_args t =
+  let def_use = t.analysis in
+  Hash_set.iter (Analysis.Def_use.vars def_use) ~f:(fun var ->
+    match Hashtbl.find (Analysis.Def_use.defs def_use) var with
     | None -> ()
     | Some defs ->
       List.iter (Hash_set.to_list defs) ~f:(fun d ->
-        Def_uses.df def_uses ~block:d
+        Analysis.Def_use.df def_use ~block:d
         |> List.iter ~f:(fun block ->
           if not (Nod_vec.mem (Block.args block) var ~compare:Typed_var.compare)
           then
             Fn_state.set_block_args
-              (Def_uses.fn_state t.def_uses)
+              (fn_state t)
               ~block
               ~args:
                 (Nod_vec.of_list (Nod_vec.to_list (Block.args block) @ [ var ]));
@@ -259,8 +57,7 @@ let insert_args t =
   t
 ;;
 
-let fn_state t = Def_uses.fn_state t.def_uses
-
+(* Helper: update all branch/call sites to pass current block-args. *)
 let add_block_args_value_ir t ir =
   Ir.map_call_blocks ir ~f:(fun { Call_block.block; args = _ } ->
     let args =
@@ -270,22 +67,24 @@ let add_block_args_value_ir t ir =
     { Call_block.block; args })
 ;;
 
-let add_args_to_calls t =
+(* Pass 2: Propagate block-args to all successor calls. *)
+let propagate_args_to_calls t =
   let rec go block =
     Fn_state.replace_terminal_ir
       (fn_state t)
       ~block
       ~with_:(add_block_args_value_ir t (Block.terminal block).ir);
     Option.iter
-      (Hashtbl.find t.immediate_dominees block)
+      (Hashtbl.find t.idom_tree block)
       ~f:
-        (Hash_set.iter ~f:(fun block' ->
-           if phys_equal block' block then () else go block'))
+        (Hash_set.iter ~f:(fun child ->
+           if phys_equal child block then () else go child))
   in
-  go t.def_uses.root;
+  go (Analysis.Def_use.root t.analysis);
   t
 ;;
 
+(* Compute variables used in a block excluding call-site arguments. *)
 let uses_in_block_ex_calls ~(block : Block.t) =
   let f (defs, uses) instr =
     let uses =
@@ -312,38 +111,38 @@ let uses_in_block_ex_calls ~(block : Block.t) =
   uses
 ;;
 
-let prune_args t =
-  let rec go acc block =
+(* Pass 3: Prune unused block-args. *)
+let prune_unused_args t =
+  let rec collect acc block =
     let acc = Set.union (uses_in_block_ex_calls ~block) acc in
-    Option.fold
-      ~init:acc
-      (Hashtbl.find t.immediate_dominees block)
-      ~f:(fun init ->
-        Hash_set.fold ~init ~f:(fun acc block' ->
-          if phys_equal block' block then acc else go acc block'))
+    Option.fold ~init:acc (Hashtbl.find t.idom_tree block) ~f:(fun init ->
+      Hash_set.fold ~init ~f:(fun acc child ->
+        if phys_equal child block then acc else collect acc child))
   in
-  let uses = go Typed_var.Set.empty t.def_uses.root in
-  let rec go' block =
+  let root = Analysis.Def_use.root t.analysis in
+  let uses = collect Typed_var.Set.empty root in
+  let rec prune block =
     let new_args = Nod_vec.filter (Block.args block) ~f:(Set.mem uses) in
     if Nod_vec.length new_args <> Nod_vec.length (Block.args block)
     then (
       Fn_state.set_block_args (fn_state t) ~block ~args:new_args;
-      Nod_vec.iter (Block.parents block) ~f:(fun block' ->
+      Nod_vec.iter (Block.parents block) ~f:(fun parent ->
         Fn_state.replace_terminal_ir
           (fn_state t)
-          ~block:block'
-          ~with_:(add_block_args_value_ir t (Block.terminal block').ir)));
+          ~block:parent
+          ~with_:(add_block_args_value_ir t (Block.terminal parent).ir)));
     Option.iter
-      (Hashtbl.find t.immediate_dominees block)
+      (Hashtbl.find t.idom_tree block)
       ~f:
-        (Hash_set.iter ~f:(fun block' ->
-           if phys_equal block' block then () else go' block'))
+        (Hash_set.iter ~f:(fun child ->
+           if phys_equal child block then () else prune child))
   in
-  go' t.def_uses.root;
+  prune root;
   t
 ;;
 
-let rename t =
+(* Pass 4: Rename into SSA using stacks per original variable. *)
+let rename_into_ssa t =
   let stacks = ref Typed_var.Map.empty in
   let push_name var renamed_value =
     let stack = Map.find !stacks var |> Option.value ~default:[] in
@@ -359,7 +158,7 @@ let rename t =
     let replace_uses instr = Ir.map_uses instr ~f:replace_use in
     let replace_def value =
       let var = Value_state.var value in
-      let renamed_var = new_name t var in
+      let renamed_var = fresh_name t var in
       let renamed_value = Fn_state.ensure_value (fn_state t) ~var:renamed_var in
       push_name var renamed_value;
       renamed_value
@@ -367,7 +166,7 @@ let rename t =
     let replace_defs instr = Ir.map_defs instr ~f:replace_def in
     let stacks_before = !stacks in
     let replace_arg var =
-      let renamed_var = new_name t var in
+      let renamed_var = fresh_name t var in
       let renamed_value = Fn_state.ensure_value (fn_state t) ~var:renamed_var in
       push_name var renamed_value;
       renamed_var
@@ -396,34 +195,26 @@ let rename t =
       ~block
       ~with_:(replace_uses (Block.terminal block).ir);
     Option.iter
-      (Hashtbl.find t.immediate_dominees block)
+      (Hashtbl.find t.idom_tree block)
       ~f:
-        (Hash_set.iter ~f:(fun block' ->
-           if phys_equal block' block then () else go block'));
+        (Hash_set.iter ~f:(fun child ->
+           if phys_equal child block then () else go child));
     stacks := stacks_before
   in
-  go t.def_uses.root;
+  go (Analysis.Def_use.root t.analysis);
   t
 ;;
 
-let create_uninit def_uses =
-  { def_uses
-  ; immediate_dominees = Block.Table.create ()
-  ; numbers = String.Table.create ()
-  }
-;;
-
 let create ~fn_state (~root, ~blocks:_, ~in_order:_) =
-  Def_uses.create ~fn_state root
-  |> create_uninit
-  |> calculate_dominator_tree
-  |> insert_args
-  |> add_args_to_calls
-  |> prune_args
-  |> rename
+  Analysis.Def_use.create ~fn_state root
+  |> with_idom_tree
+  |> insert_phi_args
+  |> propagate_args_to_calls
+  |> prune_unused_args
+  |> rename_into_ssa
 ;;
 
-let root t = t.def_uses.root
+let root t = Analysis.Def_use.root t.analysis
 
 let convert_program program ~state =
   let functions =
