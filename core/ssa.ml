@@ -330,9 +330,7 @@ module Mem2reg = struct
     let slots = collect_slots (Analysis.Def_use.root t.analysis) in
     let eligible =
       List.filter slots ~f:(fun s ->
-        (not s.bad_use)
-        && (match s.val_type with Some _ -> true | None -> false)
-        && load_dominated_by_store s ~idom_parent)
+        (not s.bad_use) && Option.is_some s.val_type)
     in
     List.iter eligible ~f:(fun slot ->
       let value_type = Option.value_exn slot.val_type in
@@ -387,7 +385,7 @@ module Mem2reg = struct
   ;;
 end
 
-let mem2reg t = Mem2reg.promote t
+let mem2reg_pass t = Mem2reg.promote t
 
 (* Pass 4: Rename into SSA using stacks per original variable. *)
 let rename_into_ssa t =
@@ -453,12 +451,12 @@ let rename_into_ssa t =
   t
 ;;
 
-let create ~fn_state (~root, ~blocks:_, ~in_order:_) =
+let create ~fn_state ?(mem2reg = false) (~root, ~blocks:_, ~in_order:_) =
   Analysis.Def_use.create ~fn_state root
   |> with_idom_tree
   |> insert_phi_args
-  (* Promote eligible stack slots to registers via mem2reg. *)
-  |> mem2reg
+  (* Promote eligible stack slots to registers via mem2reg (optional). *)
+  |> (fun t -> if mem2reg then mem2reg_pass t else t)
   |> propagate_args_to_calls
   |> prune_unused_args
   |> rename_into_ssa
@@ -466,11 +464,13 @@ let create ~fn_state (~root, ~blocks:_, ~in_order:_) =
 
 let root t = Analysis.Def_use.root t.analysis
 
-let convert_program program ~state =
+let convert_program ?(mem2reg = false) program ~state =
   let functions =
     Map.mapi program.Program.functions ~f:(fun ~key:name ~data:fn ->
       Function.map_root fn ~f:(fun root_data ->
-        let ssa = create ~fn_state:(State.fn_state state name) root_data in
+        let ssa =
+          create ~fn_state:(State.fn_state state name) ~mem2reg root_data
+        in
         root ssa))
   in
   { program with Program.functions }
