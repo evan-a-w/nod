@@ -16,12 +16,21 @@ module Opt_flags = struct
     ; gvn = true
     ; mem2reg = false
     }
+  ;;
 
   let no_opt =
     { unused_vars = false
     ; constant_propagation = false
     ; gvn = false
     ; mem2reg = false
+    }
+  ;;
+
+  let all_opt =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; mem2reg = true
     }
   ;;
 end
