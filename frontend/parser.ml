@@ -467,7 +467,12 @@ let instr' = function
     let%map type_ = parse_type_expr () in
     [ Ir.memcpy { dest; src; type_ } ]
   | "call" ->
-    let%bind fn = ident () in
+    let%bind callee_token = lit_or_var_or_ident () in
+    let callee =
+      match callee_token with
+      | `Ident fn -> Ir.Call_callee.Direct fn
+      | `Lit_or_var operand -> Ir.Call_callee.Indirect operand
+    in
     let%bind (_ : Pos.t) = expect Token.L_paren in
     let%bind args =
       delimited0 ~delimiter:(expect Token.Comma) (lit_or_var ())
@@ -483,7 +488,7 @@ let instr' = function
           (delimited0 ~delimiter:(expect Token.Comma) (var_decl ()))
       | _ -> return []
     in
-    return [ Ir.call ~fn ~results ~args ]
+    return [ Ir.call ~callee ~results ~args ]
   | "mov" | "move" ->
     let%bind dest = var_decl () in
     let%bind (_ : Pos.t) = comma () in

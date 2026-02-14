@@ -433,6 +433,11 @@ let size_of_instr instr ~add_literal =
     let rex = 1 in
     rex + 1 + rm, None
   | Call _ -> 12, None
+  | Call_reg op ->
+    let rm = rm_size op in
+    let rm_code = rm_code_of_operand op in
+    let rex = rex_size ~w:true ~reg:2 ~rm:rm_code in
+    rex + 1 + rm, None
   | Push op ->
     (match op with
      | Reg reg ->
@@ -903,6 +908,11 @@ let encode_instr ~writer ~labels ~literal_offsets ~call_fixups instr_layout =
     Writer.emit_int64_le writer 0L;
     Writer.emit_u8 writer 0xFF;
     Writer.emit_u8 writer 0xD0
+  | Call_reg op ->
+    let rm = rm_of_operand op in
+    emit_rex writer ~w_bit:true ~r:false ~x:false ~b:(rex_b rm = 1);
+    Writer.emit_u8 writer 0xFF;
+    emit_modrm writer ~reg:2 ~rm
   | Push op ->
     (match op with
      | Reg reg ->

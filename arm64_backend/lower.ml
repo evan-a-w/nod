@@ -311,9 +311,12 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
           if is_next_block ~idx_by_block ~current_idx cb.Call_block.block
           then No_emit
           else Emit [ Asm.B (label_of_call_block cb) ]
-        | Call { fn = callee; _ } ->
-          let symbol = symbol_of_fn callee in
-          Emit [ Asm.Bl symbol ]
+        | Call { callee; _ } ->
+          (match callee with
+           | Call_callee.Direct fn ->
+             let symbol = symbol_of_fn fn in
+             Emit [ Asm.Bl symbol ]
+           | Call_callee.Indirect operand -> Emit [ Asm.Blr operand ])
         | Ret _ -> Emit [ Asm.Ret ]
         | Label s ->
           let label = ensure_unique (sanitize_identifier s) in

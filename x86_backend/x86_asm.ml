@@ -32,6 +32,7 @@ type instr =
   | Sete of operand
   | Setl of operand (* set if less than, signed *)
   | Call of symbol
+  | Call_reg of operand
   | Push of operand
   | Pop of reg
   | Jmp of string

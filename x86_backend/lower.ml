@@ -243,9 +243,12 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
            | Reg _ | Mem _ -> Emit [ Asm.Setl dst ]
            | Imm _ | Spill_slot _ | Symbol _ ->
              failwith "setl expects register or memory operand")
-        | CALL { fn = callee; _ } ->
-          let symbol = symbol_of_fn callee in
-          Emit [ Asm.Call symbol ]
+        | CALL { callee; _ } ->
+          (match callee with
+           | Call_callee.Direct fn ->
+             let symbol = symbol_of_fn fn in
+             Emit [ Asm.Call symbol ]
+           | Call_callee.Indirect operand -> Emit [ Asm.Call_reg operand ])
         | PUSH op -> Emit [ Asm.Push op ]
         | POP reg -> Emit [ Asm.Pop reg ]
         | JMP cb ->

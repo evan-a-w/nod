@@ -2,6 +2,13 @@ open! Core
 open! Import
 open! Ir_helpers
 
+module Call_callee = struct
+  type 'var t =
+    | Direct of string
+    | Indirect of 'var Lit_or_var.t
+  [@@deriving sexp, compare, equal, hash]
+end
+
 type ('var, 'block) t =
   | Noop
   | And of 'var arith
@@ -18,7 +25,7 @@ type ('var, 'block) t =
   | Fdiv of 'var arith
   | Alloca of 'var alloca
   | Call of
-      { fn : string
+      { callee : 'var Call_callee.t
       ; results : 'var list
       ; args : 'var Lit_or_var.t list
       }
@@ -47,6 +54,27 @@ type ('var, 'block) t =
   | X86_terminal of ('var, 'block) X86_ir.t list
   | Unreachable
 [@@deriving sexp, compare, equal, variants, hash]
+
+let call_callee_vars = function
+  | Call_callee.Direct _ -> []
+  | Call_callee.Indirect operand -> Lit_or_var.vars operand
+;;
+
+let map_call_callee_vars
+  : type var var2. var Call_callee.t -> f:(var -> var2) -> var2 Call_callee.t
+  =
+  fun callee ~f ->
+  match callee with
+  | Call_callee.Direct fn -> Call_callee.Direct fn
+  | Call_callee.Indirect operand ->
+    Call_callee.Indirect (Lit_or_var.map_vars operand ~f)
+;;
+
+let map_call_callee_lit_or_vars callee ~f =
+  match callee with
+  | Call_callee.Direct _ -> callee
+  | Call_callee.Indirect operand -> Call_callee.Indirect (f operand)
+;;
 
 let filter_map_call_blocks t ~f =
   match t with
@@ -224,7 +252,8 @@ let uses = function
   | Atomic_cmpxchg a ->
     Lit_or_var.vars a.expected @ Lit_or_var.vars a.desired @ Mem.vars a.addr
   | Move (_, src) | Cast (_, src) -> Lit_or_var.vars src
-  | Call { args; _ } -> List.concat_map args ~f:Lit_or_var.vars
+  | Call { callee; args; _ } ->
+    call_callee_vars callee @ List.concat_map args ~f:Lit_or_var.vars
   | Branch b -> Branch.uses b
   | Return var -> Lit_or_var.vars var
   | Unreachable | Noop -> []
@@ -282,8 +311,8 @@ let map_defs t ~f =
   | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg_defs a ~f)
   | Move (var, b) -> Move (f var, b)
   | Cast (var, b) -> Cast (f var, b)
-  | Call { fn; results; args } ->
-    Call { fn; results = List.map results ~f; args }
+  | Call { callee; results; args } ->
+    Call { callee; results = List.map results ~f; args }
   | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_defs arm64_ir ~f)
   | Arm64_terminal arm64_irs ->
     Arm64_terminal (List.map ~f:(Arm64_ir.map_defs ~f) arm64_irs)
@@ -327,8 +356,12 @@ let map_uses t ~f =
   | Return use -> Return (Lit_or_var.map_vars use ~f)
   | Move (var, b) -> Move (var, Lit_or_var.map_vars b ~f)
   | Cast (var, b) -> Cast (var, Lit_or_var.map_vars b ~f)
-  | Call { fn; results; args } ->
-    Call { fn; results; args = List.map args ~f:(Lit_or_var.map_vars ~f) }
+  | Call { callee; results; args } ->
+    Call
+      { callee = map_call_callee_vars callee ~f
+      ; results
+      ; args = List.map args ~f:(Lit_or_var.map_vars ~f)
+      }
   | Branch b -> Branch (Branch.map_uses b ~f)
   | Arm64 arm64_ir -> Arm64 (Arm64_ir.map_uses arm64_ir ~f)
   | Arm64_terminal arm64_irs ->
@@ -340,7 +373,10 @@ let map_uses t ~f =
   | Noop -> Noop
 ;;
 
-let map_vars t ~f =
+let map_vars
+  : type var block var2. (var, block) t -> f:(var -> var2) -> (var2, block) t
+  =
+  fun t ~f ->
   let map_lit_or_var = Lit_or_var.map_vars ~f in
   let map_mem = Mem.map_vars ~f in
   let map_arith { dest; src1; src2 } =
@@ -405,9 +441,9 @@ let map_vars t ~f =
   | Return use -> Return (map_lit_or_var use)
   | Move (var, b) -> Move (f var, map_lit_or_var b)
   | Cast (var, b) -> Cast (f var, map_lit_or_var b)
-  | Call { fn; results; args } ->
+  | Call { callee; results; args } ->
     Call
-      { fn
+      { callee = map_call_callee_vars callee ~f
       ; results = List.map results ~f
       ; args = List.map args ~f:map_lit_or_var
       }
@@ -598,7 +634,12 @@ let map_lit_or_vars t ~f =
   | Atomic_cmpxchg a -> Atomic_cmpxchg (map_atomic_cmpxchg_lit_or_vars a ~f)
   | Move (var, b) -> Move (var, f b)
   | Cast (var, b) -> Cast (var, f b)
-  | Call { fn; results; args } -> Call { fn; results; args = List.map args ~f }
+  | Call { callee; results; args } ->
+    Call
+      { callee = map_call_callee_lit_or_vars callee ~f
+      ; results
+      ; args = List.map args ~f
+      }
   | Branch b -> Branch (Branch.map_lit_or_vars b ~f)
   | Return var -> Return (f var)
   | Noop -> Noop

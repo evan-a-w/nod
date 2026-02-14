@@ -137,6 +137,27 @@ compute_half(%x:i64) {
   ]
 ;;
 
+let function_pointer_call =
+  {|
+root(%fn_ptr:ptr, %x:i64) {
+    call %fn_ptr(%x) -> %res:i64
+    ret %res
+}
+|}
+;;
+
+let function_pointer_via_stack =
+  {|
+root(%fn_ptr:ptr, %x:i64) {
+    alloca %slot:ptr, 8
+    store %slot, %fn_ptr
+    load %loaded:ptr, %slot
+    call %loaded(%x) -> %res:i64
+    ret %res
+}
+|}
+;;
+
 let mutual_recursion =
   [ {|
 root(%n:i64) {
@@ -199,6 +220,52 @@ let%expect_test "factorial 7 - no opt vs opt" =
   in
   assert (String.equal no_opt_result "5040");
   assert (String.equal opt_result "5040")
+;;
+
+let%expect_test "call through function pointer" =
+  let harness =
+    {|
+#include <stdint.h>
+#include <stdio.h>
+
+static int64_t mul_by_three(int64_t x) { return x * 3; }
+
+extern int64_t root(int64_t (*fn)(int64_t), int64_t value);
+
+int main(void) {
+  printf("%lld\n", (long long) root(mul_by_three, 7));
+  return 0;
+}
+|}
+  in
+  let no_opt_result, opt_result =
+    test_both_modes ~harness function_pointer_call
+  in
+  assert (String.equal no_opt_result "21");
+  assert (String.equal opt_result "21")
+;;
+
+let%expect_test "call through stored function pointer" =
+  let harness =
+    {|
+#include <stdint.h>
+#include <stdio.h>
+
+static int64_t minus_five(int64_t x) { return x - 5; }
+
+extern int64_t root(int64_t (*fn)(int64_t), int64_t value);
+
+int main(void) {
+  printf("%lld\n", (long long) root(minus_five, 99));
+  return 0;
+}
+|}
+  in
+  let no_opt_result, opt_result =
+    test_both_modes ~harness function_pointer_via_stack
+  in
+  assert (String.equal no_opt_result "94");
+  assert (String.equal opt_result "94")
 ;;
 
 let%expect_test "fibonacci 10 - no opt vs opt" =

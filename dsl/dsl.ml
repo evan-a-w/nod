@@ -256,7 +256,7 @@ let call_common name fn args =
   let instr =
     Instr.ir
       (Nod_ir.Ir.Call
-         { fn = Fn.name fn
+         { callee = Nod_ir.Ir.Call_callee.Direct (Fn.name fn)
          ; results = [ dest ]
          ; args = List.map args ~f:Atom.lit_or_var
          })

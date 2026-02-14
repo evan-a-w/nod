@@ -165,7 +165,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
               (Ir.Lit_or_var.Lit 41L)
               (Ir.Mem.address (Ir.Lit_or_var.Var slot))
           ; Ir.call
-              ~fn:"child"
+              ~callee:(Ir.Call_callee.Direct "child")
               ~results:[ res ]
               ~args:[ Ir.Lit_or_var.Var slot ]
           ]
@@ -223,7 +223,10 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (*          (Ir.Mem.address (Ir.Lit_or_var.Var slot))); *)
 (*     Vec.push *)
 (*       root_root.instructions *)
-(*       (Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]); *)
+(*       (Ir.call
+          ~callee:(Ir.Call_callee.Direct "child")
+          ~results:[ res ]
+          ~args:[ Ir.Lit_or_var.Var slot ]); *)
 (*     let root = make_fn ~name:"root" ~args:[] ~root:root_root in *)
 (*     String.Map.of_alist_exn [ "root", root; "child", child ] *)
 (*   in *)
@@ -329,7 +332,10 @@ let%expect_test "print helper" =
         ; Ir.store
             (Ir.Lit_or_var.Lit 41L)
             (Ir.Mem.address (Ir.Lit_or_var.Var slot))
-        ; Ir.call ~fn:"child" ~results:[ res ] ~args:[ Ir.Lit_or_var.Var slot ]
+        ; Ir.call
+            ~callee:(Ir.Call_callee.Direct "child")
+            ~results:[ res ]
+            ~args:[ Ir.Lit_or_var.Var slot ]
         ]
   in
   let root =

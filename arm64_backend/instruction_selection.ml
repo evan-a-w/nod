@@ -350,14 +350,15 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
     let pre_mem, addr = mem_operand mem in
     let pre_val, src = int_operand lit_or_var in
     pre_mem @ pre_val @ [ Store { src; addr } ]
-  | Call { fn; results; args } ->
-    assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs =
-      ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.I64)
+  | Call { callee; results; args } ->
+    let call_conv =
+      match callee with
+      | Ir.Call_callee.Direct fn -> call_conv ~fn
+      | Ir.Call_callee.Indirect _ -> Call_conv.Default
     in
-    let fp_arg_regs =
-      ref (Reg.arguments ~call_conv:(call_conv ~fn) Class.F64)
-    in
+    assert (Call_conv.(equal call_conv default));
+    let gp_arg_regs = ref (Reg.arguments ~call_conv Class.I64) in
+    let fp_arg_regs = ref (Reg.arguments ~call_conv Class.F64) in
     Breadcrumbs.arm64_stack_args;
     let take_arg_reg = function
       | Class.I64 ->
@@ -383,12 +384,8 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
       |> List.unzip
     in
     let reg_arg_moves = List.concat reg_arg_moves in
-    let gp_result_regs =
-      ref (Reg.results ~call_conv:(call_conv ~fn) Class.I64)
-    in
-    let fp_result_regs =
-      ref (Reg.results ~call_conv:(call_conv ~fn) Class.F64)
-    in
+    let gp_result_regs = ref (Reg.results ~call_conv Class.I64) in
+    let fp_result_regs = ref (Reg.results ~call_conv Class.F64) in
     let take_result_reg class_ =
       match class_ with
       | Class.I64 ->
@@ -415,9 +412,29 @@ let ir_to_arm64_ir ~this_call_conv t (ir : Ir.t) =
         instr, forced)
       |> List.unzip
     in
+    let ensure_reg_operand operand =
+      match operand with
+      | Reg _ -> [], operand
+      | _ ->
+        let tmp = Reg.allocated ~class_:Class.I64 (fresh_var t "fn_ptr") None in
+        [ Move { dst = tmp; src = operand } ], Reg tmp
+    in
+    let callee_pre, call_callee =
+      match callee with
+      | Ir.Call_callee.Direct fn -> [], Call_callee.Direct fn
+      | Ir.Call_callee.Indirect lit_or_var ->
+        let pre, operand =
+          operand_of_lit_or_var t ~class_:Class.I64 lit_or_var
+        in
+        let extra, reg_operand = ensure_reg_operand operand in
+        pre @ extra, Call_callee.Indirect reg_operand
+    in
     [ Save_clobbers ]
+    @ callee_pre
     @ reg_arg_moves
-    @ [ Call { fn; results = updated_results; args = call_args } ]
+    @ [ Call
+          { callee = call_callee; results = updated_results; args = call_args }
+      ]
     @ post_moves
     @ [ Restore_clobbers ]
   | Alloca { dest; size = Ir.Lit_or_var.Lit i } ->
