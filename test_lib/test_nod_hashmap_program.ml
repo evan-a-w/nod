@@ -8,7 +8,7 @@ let root =
       let state = alloca (lit 16L) in
       let table = alloca (lit 64L) in
       let table_field = ptr_add state (lit 8L) in
-      let table_bits = cast Type.I64 table in
+      let table_bits = cast "table_bits" Type.I64 table in
       seq [ store (lit 4L) state; store table_bits table_field ];
       let init_done = Hashmap.hashmap_init state in
       let entry1 = alloca (lit 16L) in
