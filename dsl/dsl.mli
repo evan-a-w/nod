@@ -5,7 +5,7 @@ type base = Dsl_types.base
 type record = Dsl_types.record
 type int64 = Dsl_types.int64
 type float64 = Dsl_types.float64
-type ptr = Dsl_types.ptr
+type 'a ptr = 'a Dsl_types.ptr
 
 module Type_repr : module type of Type_repr_gen
 
@@ -46,7 +46,7 @@ module Field : sig
   val load_immediate
     :  'record Loader.t
     -> ('record, 'field, _, base) t
-    -> ptr Atom.t
+    -> 'record ptr Atom.t
     -> 'field Atom.t * 'ret Instr.t
 
   val load_record
@@ -63,7 +63,7 @@ module Field : sig
   val store_immediate
     :  ('field, 'record) Storer.t
     -> ('record, 'field, _, base) t
-    -> ptr Atom.t
+    -> 'record ptr Atom.t
     -> 'ret Instr.t
 
   val store_record
@@ -129,7 +129,7 @@ val return : 'a Atom.t -> 'a Instr.t
 val label : string -> 'ret Instr.t
 val lit : Int64.t -> int64 Atom.t
 val var : Typed_var.t -> 'a Atom.t
-val global : Nod_ir.Global.t -> ptr Atom.t
+val global : Nod_ir.Global.t -> _ ptr Atom.t
 val mov : string -> 'a Atom.t -> 'a Atom.t * 'ret Instr.t
 val add : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val sub : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
@@ -139,9 +139,24 @@ val mod_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val and_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val or_ : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
 val lt : string -> int64 Atom.t -> int64 Atom.t -> int64 Atom.t * 'ret Instr.t
-val ptr_add : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
-val ptr_sub : string -> ptr Atom.t -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
-val ptr_diff : string -> ptr Atom.t -> ptr Atom.t -> int64 Atom.t * 'ret Instr.t
+
+val ptr_add
+  :  string
+  -> 'a ptr Atom.t
+  -> int64 Atom.t
+  -> 'a ptr Atom.t * 'ret Instr.t
+
+val ptr_sub
+  :  string
+  -> 'a ptr Atom.t
+  -> int64 Atom.t
+  -> 'a ptr Atom.t * 'ret Instr.t
+
+val ptr_diff
+  :  string
+  -> 'a ptr Atom.t
+  -> 'a ptr Atom.t
+  -> int64 Atom.t * 'ret Instr.t
 
 val fadd
   :  string
@@ -167,15 +182,9 @@ val fdiv
   -> float64 Atom.t
   -> float64 Atom.t * 'ret Instr.t
 
-val load : string -> ptr Atom.t -> int64 Atom.t * 'ret Instr.t
-val load_ptr : string -> ptr Atom.t -> ptr Atom.t * 'ret Instr.t
-val load_f64 : string -> ptr Atom.t -> float64 Atom.t * 'ret Instr.t
-val store : 'a Atom.t -> ptr Atom.t -> 'ret Instr.t
-val load_addr : string -> ptr Atom.t -> int -> int64 Atom.t * 'ret Instr.t
-val load_addr_ptr : string -> ptr Atom.t -> int -> ptr Atom.t * 'ret Instr.t
-val load_addr_f64 : string -> ptr Atom.t -> int -> float64 Atom.t * 'ret Instr.t
-val store_addr : 'a Atom.t -> ptr Atom.t -> int -> 'ret Instr.t
-val alloca : string -> int64 Atom.t -> ptr Atom.t * 'ret Instr.t
+val load : string -> 'a ptr Atom.t -> 'a Atom.t * 'ret Instr.t
+val store : 'a Atom.t -> 'a ptr Atom.t -> 'ret Instr.t
+val alloca : string -> int64 Atom.t -> 'a ptr Atom.t * 'ret Instr.t
 val cast : string -> Type.t -> 'a Atom.t -> 'b Atom.t * 'ret Instr.t
 val call0 : string -> ('ret, 'ret) Fn.t -> 'ret Atom.t * 'block Instr.t
 

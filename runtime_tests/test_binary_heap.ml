@@ -3,9 +3,9 @@ open! Import
 open! Dsl
 
 (* Compare function for i64 elements: returns negative if *a < *b *)
-let compare_i64 : (ptr -> ptr -> int64, int64) Dsl.Fn.t =
+let compare_i64 : (int64 ptr -> int64 ptr -> int64, int64) Dsl.Fn.t =
   [%nod
-    fun (a : ptr) (b : ptr) ->
+    fun (a : int64 ptr) (b : int64 ptr) ->
       let a_val = load a in
       let b_val = load b in
       let diff = sub a_val b_val in
@@ -235,7 +235,8 @@ let compile_and_execute_program_exn program expected =
 
 let%expect_test "heap create and len" =
   compile_and_execute_program_exn test_create_len_program "0";
-  [%expect {| |}]
+  [%expect
+    {| |}]
 ;;
 
 let%expect_test "heap push one" =
@@ -476,7 +477,8 @@ let%expect_test "x86 test push pop program" =
       mov r15, 24
       mov rdi, r15
       call malloc
-      mov r14, rax
+      mov r15, rax
+      mov r14, r15
       mov r15, 8
       mov rax, r13
       imul r15
@@ -497,44 +499,44 @@ let%expect_test "x86 test push pop program" =
       pop rbp
       ret
 
-    .globl nod_fn_193_6
-    nod_fn_193_6:
+    .globl nod_fn_196_6
+    nod_fn_196_6:
       push rbp
       mov rbp, rsp
       push r15
       sub rsp, 8
       mov r15, rdi
-    nod_fn_193_6___entry:
+    nod_fn_196_6___entry:
       mov r15, [r15 + 16]
       mov rax, r15
-    nod_fn_193_6__nod_fn_193_6__epilogue:
+    nod_fn_196_6__nod_fn_196_6__epilogue:
       sub rbp, 8
       mov rsp, rbp
       pop r15
       pop rbp
       ret
 
-    .globl nod_fn_200_6
-    nod_fn_200_6:
+    .globl nod_fn_203_6
+    nod_fn_203_6:
       push rbp
       mov rbp, rsp
       push r15
       sub rsp, 8
       mov r15, rdi
-    nod_fn_200_6___entry:
+    nod_fn_203_6___entry:
       mov rdi, r15
       mov rsi, 0
       call nod_fn_25_6
       mov r15, rax
-    nod_fn_200_6__nod_fn_200_6__epilogue:
+    nod_fn_203_6__nod_fn_203_6__epilogue:
       sub rbp, 8
       mov rsp, rbp
       pop r15
       pop rbp
       ret
 
-    .globl nod_fn_207_6
-    nod_fn_207_6:
+    .globl nod_fn_210_6
+    nod_fn_210_6:
       push rbp
       mov rbp, rsp
       push r12
@@ -543,7 +545,7 @@ let%expect_test "x86 test push pop program" =
       push r15
       mov r12, rsi
       mov r13, rdi
-    nod_fn_207_6___entry:
+    nod_fn_210_6___entry:
       mov r14, [r13 + 16]
       mov rdi, r13
       mov rsi, r14
@@ -562,7 +564,7 @@ let%expect_test "x86 test push pop program" =
       mov r15, rax
       mov r15, 0
       mov rax, r15
-    nod_fn_207_6__nod_fn_207_6__epilogue:
+    nod_fn_210_6__nod_fn_210_6__epilogue:
       sub rbp, 32
       mov rsp, rbp
       pop r15
@@ -572,8 +574,8 @@ let%expect_test "x86 test push pop program" =
       pop rbp
       ret
 
-    .globl nod_fn_220_6
-    nod_fn_220_6:
+    .globl nod_fn_223_6
+    nod_fn_223_6:
       push rbp
       mov rbp, rsp
       push r12
@@ -582,15 +584,15 @@ let%expect_test "x86 test push pop program" =
       push r15
       mov r10, rsi
       mov r11, rdi
-    nod_fn_220_6___entry:
+    nod_fn_223_6___entry:
       mov r12, [r11 + 16]
       cmp r12, 0
-      je nod_fn_220_6__intermediate__entry_to_pop_empty
-    nod_fn_220_6__intermediate__entry_to_pop_has_elements:
-      jmp nod_fn_220_6__pop_has_elements
-    nod_fn_220_6__intermediate__entry_to_pop_empty:
-      jmp nod_fn_220_6__pop_empty
-    nod_fn_220_6__pop_has_elements:
+      je nod_fn_223_6__intermediate__entry_to_pop_empty
+    nod_fn_223_6__intermediate__entry_to_pop_has_elements:
+      jmp nod_fn_223_6__pop_has_elements
+    nod_fn_223_6__intermediate__entry_to_pop_empty:
+      jmp nod_fn_223_6__pop_empty
+    nod_fn_223_6__pop_has_elements:
       mov rdi, r11
       mov rsi, 0
       call nod_fn_25_6
@@ -607,18 +609,18 @@ let%expect_test "x86 test push pop program" =
       sub r14, 1
       mov [r11 + 16], r14
       cmp r14, 0
-      jne nod_fn_220_6__intermediate_pop_has_elements_to_pop_sift
-      jmp nod_fn_220_6__intermediate_pop_has_elements_to_pop_done
-    nod_fn_220_6__pop_empty:
+      jne nod_fn_223_6__intermediate_pop_has_elements_to_pop_sift
+      jmp nod_fn_223_6__intermediate_pop_has_elements_to_pop_done
+    nod_fn_223_6__pop_empty:
       mov r15, r14
-      jmp nod_fn_220_6__pop_done
-    nod_fn_220_6__intermediate_pop_has_elements_to_pop_sift:
-      jmp nod_fn_220_6__pop_sift
-    nod_fn_220_6__intermediate_pop_has_elements_to_pop_done:
+      jmp nod_fn_223_6__pop_done
+    nod_fn_223_6__intermediate_pop_has_elements_to_pop_sift:
+      jmp nod_fn_223_6__pop_sift
+    nod_fn_223_6__intermediate_pop_has_elements_to_pop_done:
       mov r15, r14
       mov r14, r13
-      jmp nod_fn_220_6__pop_done
-    nod_fn_220_6__pop_sift:
+      jmp nod_fn_223_6__pop_done
+    nod_fn_223_6__pop_sift:
       mov rdi, r11
       mov rsi, r14
       call nod_fn_25_6
@@ -637,10 +639,10 @@ let%expect_test "x86 test push pop program" =
       pop r11
       mov r15, r14
       mov r14, r13
-    nod_fn_220_6__pop_done:
+    nod_fn_223_6__pop_done:
       mov r15, 0
       mov rax, r15
-    nod_fn_220_6__nod_fn_220_6__epilogue:
+    nod_fn_223_6__nod_fn_223_6__epilogue:
       sub rbp, 32
       mov rsp, rbp
       pop r15
@@ -915,35 +917,35 @@ let%expect_test "x86 test push pop program" =
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_207_6
+      call nod_fn_210_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 30
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_207_6
+      call nod_fn_210_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 70
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_207_6
+      call nod_fn_210_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 10
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_207_6
+      call nod_fn_210_6
       mov r15, rax
       pop r11
       mov qword ptr [r14], 40
       push r11
       mov rdi, r11
       mov rsi, r14
-      call nod_fn_207_6
+      call nod_fn_210_6
       mov r15, rax
       pop r11
       mov r12, rbp
@@ -951,21 +953,21 @@ let%expect_test "x86 test push pop program" =
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_220_6
+      call nod_fn_223_6
       mov r15, rax
       pop r11
       mov r13, [r12]
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_220_6
+      call nod_fn_223_6
       mov r15, rax
       pop r11
       mov r14, [r12]
       push r11
       mov rdi, r11
       mov rsi, r12
-      call nod_fn_220_6
+      call nod_fn_223_6
       mov r15, rax
       pop r11
       mov r12, [r12]

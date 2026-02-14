@@ -33,7 +33,7 @@ type base = Dsl_types.base
 type record = Dsl_types.record
 type int64 = Dsl_types.int64
 type float64 = Dsl_types.float64
-type ptr = Dsl_types.ptr
+type 'a ptr = 'a Dsl_types.ptr
 |}
 ;;
 
@@ -54,14 +54,14 @@ open! Dsl_import
 type _ t =
   | Int64 : int64 t
   | Float64 : float64 t
-  | Ptr : ptr t
+  | Ptr : 'a t -> 'a ptr t
 %s
 let rec type_ : type a. a t -> Type.t =
  fun (type a) (t : a t) : Type.t ->
   match t with
   | Int64 -> I64
   | Float64 -> F64
-  | Ptr -> Ptr
+  | Ptr inner -> Ptr_typed (type_ inner)
 %s|}
     type_aliases
     tuple_defs
@@ -81,7 +81,7 @@ open! Dsl_import
 type _ t =
   | Int64 : int64 t
   | Float64 : float64 t
-  | Ptr : ptr t
+  | Ptr : 'a t -> 'a ptr t
 %s
 val type_ : 'a t -> Type.t
 |}

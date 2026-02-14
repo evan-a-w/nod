@@ -19,9 +19,9 @@ let%expect_test "nod type expr" =
   let a = [%nod_type_expr: int64] in
   print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
   [%expect {| I64 |}];
-  let a = [%nod_type_expr: a * float64 * ptr] in
+  let a = [%nod_type_expr: a * float64 * a ptr] in
   print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
-  [%expect {| (Tuple (I64 F64 Ptr)) |}]
+  [%expect {| (Tuple (I64 F64 (Ptr_typed I64))) |}]
 ;;
 
 let%expect_test "nod block from let" =
@@ -144,7 +144,7 @@ let%expect_test "nod calls externals with mixed types" =
   let ext_add : (Dsl.int64 -> Dsl.int64 -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
     Dsl.Fn.external_ ~name:"ext_add" ~args:[ Type.I64; Type.I64 ] ~ret:Type.I64
   in
-  let ext_peek : (Dsl.ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
+  let ext_peek : (Dsl.int64 Dsl.ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
     Dsl.Fn.external_ ~name:"ext_peek" ~args:[ Type.Ptr ] ~ret:Type.I64
   in
   let instrs =

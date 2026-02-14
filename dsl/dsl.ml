@@ -165,7 +165,7 @@ let return (type a) (value : a Atom.t) : a Instr.t =
 let label name = Instr.Label name
 let lit value : int64 Atom.t = Ir.Lit_or_var.Lit value
 let var v : 'a Atom.t = Ir.Lit_or_var.Var v
-let global g : ptr Atom.t = Ir.Lit_or_var.Global g
+let global g : _ ptr Atom.t = Ir.Lit_or_var.Global g
 let make_dest name type_ = Typed_var.create ~name ~type_
 let atom_of_var var : _ Atom.t = Ir.Lit_or_var.Var var
 let mem_address ?offset ptr = Nod_ir.Mem.address ?offset (Atom.lit_or_var ptr)
@@ -218,19 +218,14 @@ let load_mem ?(offset = 0) name ptr type_ =
   atom_of_var dest, instr
 ;;
 
-let load name ptr = load_mem name ptr Type.I64
-let load_ptr name ptr = load_mem name ptr Type.Ptr
-let load_f64 name ptr = load_mem name ptr Type.F64
-let load_addr name ptr offset = load_mem ~offset name ptr Type.I64
-let load_addr_ptr name ptr offset = load_mem ~offset name ptr Type.Ptr
-let load_addr_f64 name ptr offset = load_mem ~offset name ptr Type.F64
+let load name ptr =
+  match Atom.type_ ptr with
+  | Ptr_typed type_ -> load_mem name ptr type_
+  | _ -> load_mem name ptr Type.I64
+;;
 
 let store value ptr =
   Instr.ir (Nod_ir.Ir.Store (Atom.lit_or_var value, mem_address ptr))
-;;
-
-let store_addr value ptr offset =
-  Instr.ir (Nod_ir.Ir.Store (Atom.lit_or_var value, mem_address ~offset ptr))
 ;;
 
 let alloca name size =

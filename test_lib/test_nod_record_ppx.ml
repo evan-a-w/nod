@@ -74,7 +74,7 @@ let%expect_test "incl other" =
 let%expect_test "nod load and store field" =
   let fn =
     [%nod
-      fun (a : ptr) ->
+      fun (a : point ptr) ->
         let x = load_record_field point.x a in
         let y = load_record_field point'.point.x a in
         store_record_field point.x a x;

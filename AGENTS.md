@@ -58,7 +58,7 @@ Nod consumes a textual IR, lowers it into SSA form, applies a handful of optimis
 - ppx_nod can be used to write ir, eg.
 ```ocaml
 let fn =
-[%nod fun (t : ptr) ->
+[%nod fun (t : binary_heap ptr) ->
   let len = load_record_field binary_heap.len t in
   let i_slot = alloca (lit 8L) in
   store index i_slot;
