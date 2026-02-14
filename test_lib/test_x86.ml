@@ -1531,13 +1531,15 @@ let%expect_test "fib_rec" =
          (instrs
           (((id (Instr_id 16))
             (ir
-             (Call (fn fib) (results ((Value_id 2))) (args ((Var (Value_id 6)))))))
+             (Call (callee (Direct fib)) (results ((Value_id 2)))
+              (args ((Var (Value_id 6)))))))
            ((id (Instr_id 5))
             (ir
              (Sub ((dest (Value_id 3)) (src1 (Var (Value_id 6))) (src2 (Lit 1))))))
            ((id (Instr_id 2))
             (ir
-             (Call (fn fib) (results ((Value_id 4))) (args ((Var (Value_id 3)))))))
+             (Call (callee (Direct fib)) (results ((Value_id 4)))
+              (args ((Var (Value_id 3)))))))
            ((id (Instr_id 6))
             (ir
              (Add
@@ -1624,7 +1626,7 @@ let%expect_test "fib_rec" =
            ((id (Instr_id 20))
             (ir
              (X86
-              (CALL (fn fib) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct fib)) (results (((reg RAX) (class_ I64))))
                (args ((Reg ((reg R15) (class_ I64)))))))))
            ((id (Instr_id 21))
             (ir
@@ -1643,7 +1645,7 @@ let%expect_test "fib_rec" =
            ((id (Instr_id 25))
             (ir
              (X86
-              (CALL (fn fib) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct fib)) (results (((reg RAX) (class_ I64))))
                (args ((Reg ((reg R15) (class_ I64)))))))))
            ((id (Instr_id 26))
             (ir
@@ -1743,7 +1745,7 @@ let%expect_test "call_chains" =
              (Add ((dest (Value_id 1)) (src1 (Var (Value_id 0))) (src2 (Lit 1))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn fourth) (results ((Value_id 2)))
+             (Call (callee (Direct fourth)) (results ((Value_id 2)))
               (args ((Var (Value_id 1)) (Var (Value_id 0)))))))
            ((id (Instr_id 1)) (ir (Return (Var (Value_id 2))))))))))
       (args (((name x) (type_ I64)))) (name first) (prologue ()) (epilogue ())
@@ -1779,15 +1781,15 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 5))
             (ir
-             (Call (fn first) (results ((Value_id 1)))
+             (Call (callee (Direct first)) (results ((Value_id 1)))
               (args ((Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn second) (results ((Value_id 2)))
+             (Call (callee (Direct second)) (results ((Value_id 2)))
               (args ((Var (Value_id 1)))))))
            ((id (Instr_id 1))
             (ir
-             (Call (fn third) (results ((Value_id 3)))
+             (Call (callee (Direct third)) (results ((Value_id 3)))
               (args ((Var (Value_id 2)) (Var (Value_id 1)))))))
            ((id (Instr_id 2)) (ir (Return (Var (Value_id 3))))))))))
       (args (((name init) (type_ I64)))) (name root) (prologue ()) (epilogue ())
@@ -1799,7 +1801,7 @@ let%expect_test "call_chains" =
          (instrs
           (((id (Instr_id 4))
             (ir
-             (Call (fn third) (results ((Value_id 1)))
+             (Call (callee (Direct third)) (results ((Value_id 1)))
               (args ((Var (Value_id 0)) (Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
@@ -1819,7 +1821,7 @@ let%expect_test "call_chains" =
                (src2 (Var (Value_id 0)))))))
            ((id (Instr_id 0))
             (ir
-             (Call (fn helper) (results ((Value_id 3)))
+             (Call (callee (Direct helper)) (results ((Value_id 3)))
               (args ((Var (Value_id 2)))))))
            ((id (Instr_id 1)) (ir (Return (Var (Value_id 3))))))))))
       (args (((name u) (type_ I64)) ((name v) (type_ I64)))) (name third)
@@ -1871,7 +1873,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 8))
             (ir
              (X86
-              (CALL (fn fourth) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct fourth)) (results (((reg RAX) (class_ I64))))
                (args
                 ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))))
            ((id (Instr_id 9))
@@ -2089,7 +2091,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 9))
             (ir
              (X86
-              (CALL (fn first) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct first)) (results (((reg RAX) (class_ I64))))
                (args ((Reg ((reg R15) (class_ I64)))))))))
            ((id (Instr_id 10))
             (ir
@@ -2102,7 +2104,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 12))
             (ir
              (X86
-              (CALL (fn second) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct second)) (results (((reg RAX) (class_ I64))))
                (args ((Reg ((reg R14) (class_ I64)))))))))
            ((id (Instr_id 13))
             (ir
@@ -2119,7 +2121,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 16))
             (ir
              (X86
-              (CALL (fn third) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct third)) (results (((reg RAX) (class_ I64))))
                (args
                 ((Reg ((reg R15) (class_ I64))) (Reg ((reg R14) (class_ I64)))))))))
            ((id (Instr_id 17))
@@ -2197,7 +2199,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 6))
             (ir
              (X86
-              (CALL (fn third) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct third)) (results (((reg RAX) (class_ I64))))
                (args
                 ((Reg ((reg R15) (class_ I64))) (Reg ((reg R15) (class_ I64)))))))))
            ((id (Instr_id 7))
@@ -2294,7 +2296,7 @@ let%expect_test "call_chains" =
            ((id (Instr_id 7))
             (ir
              (X86
-              (CALL (fn helper) (results (((reg RAX) (class_ I64))))
+              (CALL (callee (Direct helper)) (results (((reg RAX) (class_ I64))))
                (args ((Reg ((reg R15) (class_ I64)))))))))
            ((id (Instr_id 8))
             (ir

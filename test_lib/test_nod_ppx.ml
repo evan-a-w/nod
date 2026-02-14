@@ -164,10 +164,11 @@ let%expect_test "nod calls externals with mixed types" =
        (((id (Instr_id 1)) (ir (Alloca ((dest (Value_id 0)) (size (Lit 8))))))
         ((id (Instr_id 2))
          (ir
-          (Call (fn ext_add) (results ((Value_id 1))) (args ((Lit 5) (Lit 7))))))
+          (Call (callee (Direct ext_add)) (results ((Value_id 1)))
+           (args ((Lit 5) (Lit 7))))))
         ((id (Instr_id 3))
          (ir
-          (Call (fn ext_peek) (results ((Value_id 2)))
+          (Call (callee (Direct ext_peek)) (results ((Value_id 2)))
            (args ((Var (Value_id 0)))))))
         ((id (Instr_id 4))
          (ir

@@ -242,12 +242,12 @@ let%expect_test "fib_rec" =
     (ret_1 (instrs ((Return (Lit 1)))))
     (rec
      (instrs
-      ((Call (fn fib) (results (((name sub1_res) (type_ I64))))
+      ((Call (callee (Direct fib)) (results (((name sub1_res) (type_ I64))))
         (args ((Var ((name m1) (type_ I64))))))
        (Sub
         ((dest ((name m2) (type_ I64))) (src1 (Var ((name m1) (type_ I64))))
          (src2 (Lit 1))))
-       (Call (fn fib) (results (((name sub2_res) (type_ I64))))
+       (Call (callee (Direct fib)) (results (((name sub2_res) (type_ I64))))
         (args ((Var ((name m2) (type_ I64))))))
        (Add
         ((dest ((name res) (type_ I64)))
@@ -276,12 +276,12 @@ let%expect_test "fib_rec" =
            (args (((name m1%0) (type_ I64)))))))))))
     (rec (args ())
      (instrs
-      ((Call (fn fib) (results (((name sub1_res) (type_ I64))))
+      ((Call (callee (Direct fib)) (results (((name sub1_res) (type_ I64))))
         (args ((Var ((name m1%0) (type_ I64))))))
        (Sub
         ((dest ((name m2) (type_ I64))) (src1 (Var ((name m1%0) (type_ I64))))
          (src2 (Lit 1))))
-       (Call (fn fib) (results (((name sub2_res) (type_ I64))))
+       (Call (callee (Direct fib)) (results (((name sub2_res) (type_ I64))))
         (args ((Var ((name m2) (type_ I64))))))
        (Add
         ((dest ((name res) (type_ I64)))
@@ -311,12 +311,12 @@ let%expect_test "fib_rec" =
            (args (((name m1%0) (type_ I64)))))))))))
     (rec (args ())
      (instrs
-      ((Call (fn fib) (results (((name sub1_res) (type_ I64))))
+      ((Call (callee (Direct fib)) (results (((name sub1_res) (type_ I64))))
         (args ((Var ((name m1%0) (type_ I64))))))
        (Sub
         ((dest ((name m2) (type_ I64))) (src1 (Var ((name m1%0) (type_ I64))))
          (src2 (Lit 1))))
-       (Call (fn fib) (results (((name sub2_res) (type_ I64))))
+       (Call (callee (Direct fib)) (results (((name sub2_res) (type_ I64))))
         (args ((Var ((name m2) (type_ I64))))))
        (Add
         ((dest ((name res) (type_ I64)))
