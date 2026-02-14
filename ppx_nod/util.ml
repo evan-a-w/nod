@@ -73,7 +73,7 @@ let rec arg_type_of_core_type ~allow_expr ct =
      | "ptr", [ arg ] -> Ptr (Typed (arg_type_of_core_type ~allow_expr arg))
      | "ptr", _ ->
        errorf ~loc:ct.ptyp_loc "nod: ptr expects exactly one type argument"
-     | other, [] -> Lid { lid; loc; is_type_name = not allow_expr }
+     | _other, [] -> Lid { lid; loc; is_type_name = not allow_expr }
      | other, _ ->
        errorf
          ~loc:ct.ptyp_loc
