@@ -65,7 +65,7 @@ let%expect_test "nod hashmap program compiles" =
              (Address ((base (Var (Value_id 0))) (offset 8))))))
           ((id (Instr_id 3))
            (ir
-            (Call (fn hashmap_init) (results ((Value_id 2)))
+            (Call (callee (Direct hashmap_init)) (results ((Value_id 2)))
              (args ((Var (Value_id 0)))))))
           ((id (Instr_id 4)) (ir (Alloca ((dest (Value_id 3)) (size (Lit 16))))))
           ((id (Instr_id 5))
@@ -74,7 +74,7 @@ let%expect_test "nod hashmap program compiles" =
            (ir (Store (Lit 21) (Address ((base (Var (Value_id 3))) (offset 8))))))
           ((id (Instr_id 7))
            (ir
-            (Call (fn hashmap_put) (results ((Value_id 4)))
+            (Call (callee (Direct hashmap_put)) (results ((Value_id 4)))
              (args ((Var (Value_id 0)) (Var (Value_id 3)))))))
           ((id (Instr_id 8)) (ir (Alloca ((dest (Value_id 5)) (size (Lit 16))))))
           ((id (Instr_id 9))
@@ -84,7 +84,7 @@ let%expect_test "nod hashmap program compiles" =
             (Store (Lit 100) (Address ((base (Var (Value_id 5))) (offset 8))))))
           ((id (Instr_id 11))
            (ir
-            (Call (fn hashmap_put) (results ((Value_id 6)))
+            (Call (callee (Direct hashmap_put)) (results ((Value_id 6)))
              (args ((Var (Value_id 0)) (Var (Value_id 5)))))))
           ((id (Instr_id 12))
            (ir (Alloca ((dest (Value_id 7)) (size (Lit 16))))))
@@ -94,7 +94,7 @@ let%expect_test "nod hashmap program compiles" =
            (ir (Store (Lit 0) (Address ((base (Var (Value_id 7))) (offset 8))))))
           ((id (Instr_id 15))
            (ir
-            (Call (fn hashmap_get) (results ((Value_id 8)))
+            (Call (callee (Direct hashmap_get)) (results ((Value_id 8)))
              (args ((Var (Value_id 0)) (Var (Value_id 7)))))))
           ((id (Instr_id 16))
            (ir (Alloca ((dest (Value_id 9)) (size (Lit 16))))))
@@ -104,7 +104,7 @@ let%expect_test "nod hashmap program compiles" =
            (ir (Store (Lit 5) (Address ((base (Var (Value_id 9))) (offset 8))))))
           ((id (Instr_id 19))
            (ir
-            (Call (fn hashmap_get) (results ((Value_id 10)))
+            (Call (callee (Direct hashmap_get)) (results ((Value_id 10)))
              (args ((Var (Value_id 0)) (Var (Value_id 9)))))))
           ((id (Instr_id 20))
            (ir
@@ -163,7 +163,7 @@ let%expect_test "nod hashmap program compiles" =
             (Load (Value_id 5) (Address ((base (Var (Value_id 3))) (offset 8))))))
           ((id (Instr_id 8))
            (ir
-            (Call (fn hash) (results ((Value_id 6)))
+            (Call (callee (Direct hash)) (results ((Value_id 6)))
              (args ((Var (Value_id 1)) (Var (Value_id 4)))))))
           ((id (Instr_id 9)) (ir (Alloca ((dest (Value_id 7)) (size (Lit 8))))))
           ((id (Instr_id 10))

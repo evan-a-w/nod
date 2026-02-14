@@ -170,6 +170,7 @@ let string_of_instr = function
      | Imm _ | Spill_slot _ | Symbol _ ->
        failwith "setl expects register or memory operand")
   | Call { asm_label; _ } -> sprintf "call %s" asm_label
+  | Call_reg op -> sprintf "call %s" (string_of_operand op)
   | Push op -> sprintf "push %s" (string_of_operand op)
   | Pop reg -> sprintf "pop %s" (string_of_reg reg)
   | Jmp target -> sprintf "jmp %s" target

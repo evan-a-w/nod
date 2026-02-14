@@ -155,6 +155,12 @@ module Aggregate = struct
     | Global _ -> Ok ()
   ;;
 
+  let check_call_callee = function
+    | Call_callee.Direct _ -> Ok ()
+    | Call_callee.Indirect operand ->
+      ensure_pointer_operand operand ~op:"call" ~position:"callee"
+  ;;
+
   let ensure_pointer_target type_ ~expected ~op ~position =
     match Type.ptr_target type_ with
     | None -> Ok ()
@@ -411,6 +417,12 @@ module Type_check = struct
           (Typed_var.name var)
           (Type.to_string (Typed_var.type_ var))
     | Global _ -> Ok ()
+  ;;
+
+  let check_call_callee = function
+    | Call_callee.Direct _ -> Ok ()
+    | Call_callee.Indirect operand ->
+      ensure_pointer_operand operand ~op:"call" ~position:"callee"
   ;;
 
   let ensure_pointer_target type_ ~expected ~op ~position =
@@ -948,7 +960,7 @@ module Type_check = struct
     | Atomic_rmw instr -> check_atomic_rmw instr
     | Atomic_cmpxchg instr -> check_atomic_cmpxchg instr
     | Return _ -> Ok ()
-    | Call _ -> Ok ()
+    | Call { callee; _ } -> check_call_callee callee
     | Branch (Branch.Cond { cond; if_true; if_false }) ->
       let%bind () = check_branch_cond cond in
       let%bind () = check_call_block_args if_true in

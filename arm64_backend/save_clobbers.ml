@@ -17,8 +17,11 @@ let default_clobbers =
 
 let regs_to_save ~state ~call_fn ~live_out =
   let callee_clobbers =
-    match Core.Map.find state call_fn with
-    | Some (state : Calc_clobbers.t) -> state.clobbers
+    match call_fn with
+    | Some fn ->
+      (match Core.Map.find state fn with
+       | Some (state : Calc_clobbers.t) -> state.clobbers
+       | None -> default_clobbers)
     | None -> default_clobbers
   in
   (* TODO: I think this is fine to not filter for [should_save], because the phys calc liveness turns defs into the should save defs etc. This isn't that obvious though *)
@@ -34,7 +37,10 @@ let rec find_following_call
   then None
   else (
     match Nod_vec.get instructions start with
-    | Arm64 (Call { fn; _ }) -> Some fn
+    | Arm64 (Call { callee; _ }) ->
+      (match callee with
+       | Arm64_ir.Call_callee.Direct fn -> Some (Some fn)
+       | Arm64_ir.Call_callee.Indirect _ -> Some None)
     | _ -> find_following_call ~start:(start + 1) ~len ~instructions)
 ;;
 

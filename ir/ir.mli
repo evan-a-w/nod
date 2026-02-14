@@ -2,6 +2,13 @@ open! Core
 open! Import
 open Ir_helpers
 
+module Call_callee : sig
+  type 'var t =
+    | Direct of string
+    | Indirect of 'var Lit_or_var.t
+  [@@deriving sexp, compare, equal, hash]
+end
+
 type ('var, 'block) t =
   | Noop
   | And of 'var arith
@@ -18,7 +25,7 @@ type ('var, 'block) t =
   | Fdiv of 'var arith
   | Alloca of 'var alloca
   | Call of
-      { fn : string
+      { callee : 'var Call_callee.t
       ; results : 'var list
       ; args : 'var Lit_or_var.t list
       }

@@ -76,6 +76,13 @@ let reg_of_operand_exn = function
   | _ -> failwith "operand is not a register"
 ;;
 
+module Call_callee = struct
+  type 'var t =
+    | Direct of string
+    | Indirect of 'var operand
+  [@@deriving sexp, equal, compare, hash]
+end
+
 type ('var, 'block) t =
   | Nop
   | Tag_use of ('var, 'block) t * 'var operand
@@ -133,7 +140,7 @@ type ('var, 'block) t =
       }
   | Jump of ('var, 'block) Call_block.t
   | Call of
-      { fn : string
+      { callee : 'var Call_callee.t
       ; results : 'var Reg.t list
       ; args : 'var operand list
       }
@@ -175,7 +182,8 @@ type ('var, 'block) t =
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
-  | Call { fn; _ } -> Some fn
+  | Call { callee = Call_callee.Direct fn; _ } -> Some fn
+  | Call { callee = Call_callee.Indirect _; _ } -> None
   | Nop
   | Tag_use _
   | Tag_def _
@@ -204,6 +212,110 @@ let fn = function
   | Casal _ -> None
 ;;
 
+let fold_operand op ~f ~init = f init op
+
+let fold_jump_target target ~f ~init =
+  match target with
+  | Jump_target.Reg reg -> fold_operand (Reg reg) ~f ~init
+  | Jump_target.Imm _ | Jump_target.Symbol _ | Jump_target.Label _ -> init
+;;
+
+let fold_call_callee callee ~f ~init =
+  match callee with
+  | Call_callee.Direct _ -> init
+  | Call_callee.Indirect operand -> fold_operand operand ~f ~init
+;;
+
+let map_call_callee
+  : type var var2.
+    var Call_callee.t -> f:(var operand -> var2 operand) -> var2 Call_callee.t
+  =
+  fun callee ~f ->
+  match callee with
+  | Call_callee.Direct fn -> Call_callee.Direct fn
+  | Call_callee.Indirect operand -> Call_callee.Indirect (f operand)
+;;
+
+let rec fold_operands ins ~f ~init =
+  match ins with
+  | Save_clobbers | Restore_clobbers | Nop | Label _ | Dmb -> init
+  | Alloca (dst, _) -> fold_operand dst ~f ~init
+  | Tag_use (ins, op) | Tag_def (ins, op) ->
+    fold_operand op ~f ~init:(fold_operands ins ~f ~init)
+  | Move { dst; src } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand src ~f ~init
+  | Load { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Store { src; addr } ->
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Int_binary { op = _; dst; lhs; rhs }
+  | Float_binary { op = _; dst; lhs; rhs } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    let init = fold_operand lhs ~f ~init in
+    fold_operand rhs ~f ~init
+  | Convert { op = _; dst; src } | Bitcast { dst; src } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand src ~f ~init
+  | Adr { dst; target } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_jump_target target ~f ~init
+  | Comp { lhs; rhs; _ } ->
+    let init = fold_operand lhs ~f ~init in
+    fold_operand rhs ~f ~init
+  | Cset { dst; _ } -> fold_operand (Reg dst) ~f ~init
+  | Ret ops ->
+    List.fold ops ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
+  | Call { callee; results; args } ->
+    let init =
+      List.fold results ~init ~f:(fun acc reg ->
+        fold_operand (Reg reg) ~f ~init:acc)
+    in
+    let init =
+      List.fold args ~init ~f:(fun acc op -> fold_operand op ~f ~init:acc)
+    in
+    fold_call_callee callee ~f ~init
+  | Conditional_branch _ | Jump _ -> init
+  (* Atomic operations *)
+  | Ldar { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Stlr { src; addr } ->
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Ldaxr { dst; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    fold_operand addr ~f ~init
+  | Stlxr { status; src; addr } ->
+    let init = fold_operand (Reg status) ~f ~init in
+    let init = fold_operand src ~f ~init in
+    fold_operand addr ~f ~init
+  | Casal { dst; expected; desired; addr } ->
+    let init = fold_operand (Reg dst) ~f ~init in
+    let init = fold_operand expected ~f ~init in
+    let init = fold_operand desired ~f ~init in
+    fold_operand addr ~f ~init
+;;
+
+let rebuild_virtual_reg (reg : 'var Reg.t) ~var =
+  match Reg.raw reg with
+  | Raw.Unallocated _ -> Reg.unallocated ~class_:(Reg.class_ reg) var
+  | Raw.Allocated (_, forced) ->
+    let forced =
+      Option.map forced ~f:(fun raw -> Reg.create ~class_:(Reg.class_ reg) ~raw)
+    in
+    Reg.allocated ~class_:(Reg.class_ reg) var forced
+  | _ -> reg
+;;
+
+let map_reg (reg : 'var Reg.t) ~f =
+  match Reg.raw reg with
+  | Raw.Unallocated v | Raw.Allocated (v, _) ->
+    Reg (rebuild_virtual_reg reg ~var:(f v))
+  | _ -> Reg reg
+;;
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
@@ -268,9 +380,9 @@ let rec map_var_operands ins ~f =
     Adr { dst = map_reg_definition dst; target = map_jump target }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
   | Cset { condition; dst } -> Cset { condition; dst = map_reg_definition dst }
-  | Call { fn; results; args } ->
+  | Call { callee; results; args } ->
     Call
-      { fn
+      { callee = map_call_callee callee ~f:map_op
       ; results = List.map results ~f:map_reg_definition
       ; args = List.map args ~f:map_op
       }
@@ -363,7 +475,13 @@ let rec reg_uses ins =
   | Adr { target; _ } -> regs_of_jump_target target
   | Comp { lhs; rhs; _ } -> regs_of_operand lhs @ regs_of_operand rhs
   | Cset _ -> []
-  | Call { args; _ } -> List.concat_map args ~f:regs_of_operand
+  | Call { callee; args; _ } ->
+    let callee_regs =
+      match callee with
+      | Call_callee.Direct _ -> []
+      | Call_callee.Indirect operand -> regs_of_operand operand
+    in
+    callee_regs @ List.concat_map args ~f:regs_of_operand
   | Ret ops -> List.concat_map ops ~f:regs_of_operand @ [ Reg.lr ]
   | Conditional_branch { then_; else_; _ } ->
     let then_uses = Call_block.uses then_ |> List.map ~f:Reg.unallocated in
@@ -488,8 +606,12 @@ let rec map_defs t ~f =
   | Adr { dst; target } -> Adr { dst = map_def_reg dst ~f; target }
   | Comp cmp -> Comp cmp
   | Cset { condition; dst } -> Cset { condition; dst = map_def_reg dst ~f }
-  | Call { fn; results; args } ->
-    Call { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
+  | Call { callee; results; args } ->
+    Call
+      { callee
+      ; results = List.map results ~f:(fun r -> map_def_reg r ~f)
+      ; args
+      }
   | Ret ops -> Ret ops
   | Conditional_branch branch -> Conditional_branch branch
   | Jump cb -> Jump cb
@@ -532,8 +654,12 @@ let rec map_uses t ~f =
     Adr { dst; target = map_jump_target target ~f:(fun r -> map_use_reg r ~f) }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
   | Cset cs -> Cset cs
-  | Call { fn; results; args } ->
-    Call { fn; results; args = List.map args ~f:map_op }
+  | Call { callee; results; args } ->
+    Call
+      { callee = map_call_callee callee ~f:map_op
+      ; results
+      ; args = List.map args ~f:map_op
+      }
   | Ret ops -> Ret (List.map ops ~f:map_op)
   | Conditional_branch { condition; then_; else_ } ->
     Conditional_branch
@@ -593,14 +719,14 @@ let rec map_operands t ~f =
     Adr { dst = map_reg_operand dst; target }
   | Comp { kind; lhs; rhs } -> Comp { kind; lhs = map_op lhs; rhs = map_op rhs }
   | Cset { condition; dst } -> Cset { condition; dst = map_reg_operand dst }
-  | Call { fn; results; args } ->
+  | Call { callee; results; args } ->
     let map_result r =
       match f (Reg r) with
       | Reg r' -> r'
       | _ -> failwith "expected register operand"
     in
     Call
-      { fn
+      { callee = map_call_callee callee ~f:map_op
       ; results = List.map results ~f:map_result
       ; args = List.map args ~f:map_op
       }
@@ -773,8 +899,12 @@ module For_backend = struct
     | Comp { kind; lhs; rhs } ->
       Comp { kind; lhs = map_use_operand lhs; rhs = map_use_operand rhs }
     | Cset cs -> Cset cs
-    | Call { fn; results; args } ->
-      Call { fn; results; args = List.map args ~f:map_use_operand }
+    | Call { callee; results; args } ->
+      Call
+        { callee = map_call_callee callee ~f:map_use_operand
+        ; results
+        ; args = List.map args ~f:map_use_operand
+        }
     | Ret ops -> Ret (List.map ops ~f:map_use_operand)
     | Conditional_branch { condition; then_; else_ } ->
       Conditional_branch
@@ -836,8 +966,8 @@ module For_backend = struct
     | Adr { dst; target } -> Adr { dst = map_reg dst; target }
     | Comp cmp -> Comp cmp
     | Cset { condition; dst } -> Cset { condition; dst = map_reg dst }
-    | Call { fn; results; args } ->
-      Call { fn; results = List.map results ~f:map_reg; args }
+    | Call { callee; results; args } ->
+      Call { callee; results = List.map results ~f:map_reg; args }
     | Ret ops -> Ret ops
     | Conditional_branch branch -> Conditional_branch branch
     | Jump cb -> Jump (map_cb cb)

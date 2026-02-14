@@ -68,12 +68,17 @@ module Pp = struct
     | Store (val_, mem) -> sprintf "store %s -> %s" (pp_lov val_) (pp_mem mem)
     | Move (dest, src) -> sprintf "%s = move %s" (pp_tv dest) (pp_lov src)
     | Cast (dest, src) -> sprintf "%s = cast %s" (pp_tv dest) (pp_lov src)
-    | Call { fn; results; args } ->
+    | Call { callee; results; args } ->
       let results_str = List.map results ~f:pp_tv |> String.concat ~sep:", " in
       let args_str = List.map args ~f:pp_lov |> String.concat ~sep:", " in
+      let callee_str =
+        match callee with
+        | Nod_ir.Ir.Call_callee.Direct fn -> fn
+        | Nod_ir.Ir.Call_callee.Indirect operand -> sprintf "*%s" (pp_lov operand)
+      in
       if String.is_empty results_str
-      then sprintf "call %s(%s)" fn args_str
-      else sprintf "%s = call %s(%s)" results_str fn args_str
+      then sprintf "call %s(%s)" callee_str args_str
+      else sprintf "%s = call %s(%s)" results_str callee_str args_str
     | Branch (Cond { cond; if_true; if_false }) ->
       sprintf "br %s, %s, %s" (pp_lov cond) if_true.block if_false.block
     | Branch (Uncond { block; args = _ }) -> sprintf "jmp %s" block

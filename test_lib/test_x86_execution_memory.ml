@@ -78,7 +78,7 @@ let%expect_test "alloca passed to child; child loads value" =
               (Ir.Lit_or_var.Lit 41L)
               (Ir.Mem.address (Ir.Lit_or_var.Var slot))
           ; Ir.call
-              ~fn:"child"
+              ~callee:(Ir.Call_callee.Direct "child")
               ~results:[ res ]
               ~args:[ Ir.Lit_or_var.Var slot ]
           ]
@@ -127,7 +127,7 @@ let%expect_test "alloca passed to child; child stores value; parent observes" =
               (Ir.Lit_or_var.Lit 1L)
               (Ir.Mem.address (Ir.Lit_or_var.Var slot))
           ; Ir.call
-              ~fn:"child"
+              ~callee:(Ir.Call_callee.Direct "child")
               ~results:[ tmp ]
               ~args:[ Ir.Lit_or_var.Var slot ]
           ; Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var slot))
@@ -180,7 +180,7 @@ let%expect_test "alloca + pointer arithmetic; pass element pointer to child" =
               (Ir.Lit_or_var.Lit 123L)
               (Ir.Mem.address (Ir.Lit_or_var.Var elem1))
           ; Ir.call
-              ~fn:"child"
+              ~callee:(Ir.Call_callee.Direct "child")
               ~results:[ tmp ]
               ~args:[ Ir.Lit_or_var.Var elem1 ]
           ; Ir.move res (Ir.Lit_or_var.Var tmp)
@@ -228,7 +228,10 @@ let%expect_test "call returning two values (RAX/RDX)" =
         ~id_hum:"%root"
         ~terminal:(Ir.return (Ir.Lit_or_var.Var sum))
         ~instrs:
-          [ Ir.call ~fn:"two" ~results:[ r0; r1 ] ~args:[]
+          [ Ir.call
+              ~callee:(Ir.Call_callee.Direct "two")
+              ~results:[ r0; r1 ]
+              ~args:[]
           ; Ir.add
               { dest = sum
               ; src1 = Ir.Lit_or_var.Var r0

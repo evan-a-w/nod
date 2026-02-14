@@ -20,6 +20,13 @@ type 'var operand =
 val reg_of_operand_exn : 'var operand -> 'var Reg.t
 val var_of_reg : 'var Reg.t -> 'var option
 
+module Call_callee : sig
+  type 'var t =
+    | Direct of string
+    | Indirect of 'var operand
+  [@@deriving sexp, equal, compare, hash]
+end
+
 type ('var, 'block) t =
   | NOOP
   | Tag_use of ('var, 'block) t * 'var operand
@@ -55,7 +62,7 @@ type ('var, 'block) t =
   | Save_clobbers
   | Restore_clobbers
   | CALL of
-      { fn : string
+      { callee : 'var Call_callee.t
       ; results : 'var Reg.t list
       ; args : 'var operand list
       }

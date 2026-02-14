@@ -258,6 +258,7 @@ let string_of_instr = function
   | Bcond { condition; target } ->
     sprintf "b.%s %s" (string_of_condition condition) target
   | Bl { asm_label; _ } -> sprintf "bl %s" asm_label
+  | Blr op -> sprintf "blr %s" (string_of_operand op)
   | Ret -> "ret"
 ;;
 

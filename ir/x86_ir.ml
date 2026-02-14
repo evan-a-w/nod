@@ -24,6 +24,13 @@ let reg_of_operand_exn = function
   | _ -> failwith "Not operand reg"
 ;;
 
+module Call_callee = struct
+  type 'var t =
+    | Direct of string
+    | Indirect of 'var operand
+  [@@deriving sexp, equal, compare, hash]
+end
+
 type ('var, 'block) t =
   | NOOP
   (* Use this tag things for regalloc bs where we mint temp vars and make them allocated to a particular hw reg when we need *)
@@ -69,7 +76,7 @@ type ('var, 'block) t =
   | Save_clobbers
   | Restore_clobbers
   | CALL of
-      { fn : string
+      { callee : 'var Call_callee.t
       ; results : 'var Reg.t list
       ; args : 'var operand list
       }
@@ -87,7 +94,8 @@ type ('var, 'block) t =
 [@@deriving sexp, equal, compare, hash, variants]
 
 let fn = function
-  | CALL { fn; _ } -> Some fn
+  | CALL { callee = Call_callee.Direct fn; _ } -> Some fn
+  | CALL { callee = Call_callee.Indirect _; _ } -> None
   | NOOP
   | Tag_use (_, _)
   | Tag_def (_, _)
@@ -121,6 +129,69 @@ let fn = function
   | ALLOCA (_, _) -> None
 ;;
 
+let fold_operand op ~f ~init = f init op
+
+let fold_call_callee callee ~f ~init =
+  match callee with
+  | Call_callee.Direct _ -> init
+  | Call_callee.Indirect operand -> fold_operand operand ~f ~init
+;;
+
+let map_call_callee
+  : type var var2.
+    var Call_callee.t -> f:(var operand -> var2 operand) -> var2 Call_callee.t
+  =
+  fun callee ~f ->
+  match callee with
+  | Call_callee.Direct fn -> Call_callee.Direct fn
+  | Call_callee.Indirect operand -> Call_callee.Indirect (f operand)
+;;
+
+let fold_operands ins ~f ~init =
+  match ins with
+  | Save_clobbers | Restore_clobbers | MFENCE -> init
+  | ALLOCA (r, _) | Tag_use (_, r) | Tag_def (_, r) -> f init r
+  | MOV (dst, src)
+  | AND (dst, src)
+  | OR (dst, src)
+  | ADD (dst, src)
+  | SUB (dst, src)
+  | CMP (dst, src)
+  | ADDSD (dst, src)
+  | SUBSD (dst, src)
+  | MULSD (dst, src)
+  | DIVSD (dst, src)
+  | MOVSD (dst, src)
+  | MOVQ (dst, src)
+  | CVTSI2SD (dst, src)
+  | CVTTSD2SI (dst, src)
+  | XCHG (dst, src)
+  | LOCK_ADD (dst, src)
+  | LOCK_SUB (dst, src)
+  | LOCK_AND (dst, src)
+  | LOCK_OR (dst, src)
+  | LOCK_XOR (dst, src) ->
+    let init = fold_operand dst ~f ~init in
+    fold_operand src ~f ~init
+  | SETE dst | SETL dst -> fold_operand dst ~f ~init
+  | LOCK_CMPXCHG { dest; expected; desired } ->
+    let init = fold_operand dest ~f ~init in
+    let init = fold_operand expected ~f ~init in
+    fold_operand desired ~f ~init
+  | IMUL op | IDIV op | MOD op -> fold_operand op ~f ~init
+  | RET ops -> List.fold ops ~init ~f:(fun acc -> fold_operand ~f ~init:acc)
+  | CALL { callee; results; args } ->
+    let init = List.fold results ~init ~f:(fun acc reg -> f acc (Reg reg)) in
+    let init = List.fold args ~init ~f:(fun acc op -> f acc op) in
+    fold_call_callee callee ~f ~init
+  | PUSH op ->
+    let init = fold_operand op ~f ~init in
+    fold_operand (Reg Reg.rsp) ~f ~init
+  | POP reg ->
+    let init = fold_operand (Reg reg) ~f ~init in
+    fold_operand (Reg Reg.rsp) ~f ~init
+  | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
+;;
 let map_var_operand op ~f =
   match op with
   | Reg r -> Reg (Reg.map_vars r ~f)
@@ -130,7 +201,10 @@ let map_var_operand op ~f =
   | Mem (r, disp) -> Mem (Reg.map_vars r ~f, disp)
 ;;
 
-let rec map_var_operands ins ~f =
+let rec map_var_operands
+  : type var block var2. (var, block) t -> f:(var -> var2) -> (var2, block) t
+  =
+  fun ins ~f ->
   match ins with
   | Save_clobbers -> Save_clobbers
   | Restore_clobbers -> Restore_clobbers
@@ -175,14 +249,14 @@ let rec map_var_operands ins ~f =
   | IDIV op -> IDIV (map_var_operand op ~f)
   | IMUL op -> IMUL (map_var_operand op ~f)
   | MOD op -> MOD (map_var_operand op ~f)
-  | CALL { fn; results; args } ->
+  | CALL { callee; results; args } ->
     let map_result r =
       match map_var_operand (Reg r) ~f with
       | Reg r' -> r'
       | _ -> failwith "expected reg operand in CALL results"
     in
     CALL
-      { fn
+      { callee = map_call_callee callee ~f:(fun op -> map_var_operand op ~f)
       ; results = List.map results ~f:map_result
       ; args = List.map args ~f:(fun op -> map_var_operand op ~f)
       }
@@ -330,7 +404,13 @@ let rec reg_uses ins =
   | RET ops -> List.concat_map ops ~f:regs_of_operand
   | PUSH op -> Reg.rsp :: regs_of_operand op
   | POP _ -> [ Reg.rsp ]
-  | CALL { args; _ } -> List.concat_map args ~f:regs_of_operand
+  | CALL { callee; args; _ } ->
+    let callee_regs =
+      match callee with
+      | Call_callee.Direct _ -> []
+      | Call_callee.Indirect operand -> regs_of_operand operand
+    in
+    callee_regs @ List.concat_map args ~f:regs_of_operand
   | JE (a, b) | JNE (a, b) ->
     Call_block.uses a
     @ (Option.map b ~f:Call_block.uses |> Option.value ~default:[])
@@ -511,8 +591,12 @@ let rec map_defs t ~f =
   | LOCK_XOR (dst, src) -> LOCK_XOR (map_dst dst, src)
   | LOCK_CMPXCHG { dest; expected; desired } ->
     LOCK_CMPXCHG { dest = map_dst dest; expected = map_dst expected; desired }
-  | CALL { fn; results; args } ->
-    CALL { fn; results = List.map results ~f:(fun r -> map_def_reg r ~f); args }
+  | CALL { callee; results; args } ->
+    CALL
+      { callee
+      ; results = List.map results ~f:(fun r -> map_def_reg r ~f)
+      ; args
+      }
   | POP reg -> POP (map_def_reg reg ~f)
   | PUSH _ -> t
   | NOOP | IDIV _ | MOD _ | LABEL _ | IMUL _
@@ -563,8 +647,12 @@ let rec map_uses t ~f =
   | MOD op -> MOD (map_op op)
   | CMP (a, b) -> CMP (map_op a, map_op b)
   | RET ops -> RET (List.map ~f:map_op ops)
-  | CALL { fn; results; args } ->
-    CALL { fn; results; args = List.map args ~f:map_op }
+  | CALL { callee; results; args } ->
+    CALL
+      { callee = map_call_callee callee ~f:map_op
+      ; results
+      ; args = List.map args ~f:map_op
+      }
   | PUSH op -> PUSH (map_op op)
   | POP reg -> POP reg
   | JE (lbl, next) -> JE (map_call_block lbl, Option.map next ~f:map_call_block)
@@ -610,14 +698,17 @@ let rec map_operands t ~f =
   | MOD op -> MOD (f op)
   | CMP (a, b) -> CMP (f a, f b)
   | RET ops -> RET (List.map ~f ops)
-  | CALL { fn; results; args } ->
+  | CALL { callee; results; args } ->
     let map_result r =
       match f (Reg r) with
       | Reg r' -> r'
       | _ -> failwith "expected reg operand when mapping CALL results"
     in
     CALL
-      { fn; results = List.map results ~f:map_result; args = List.map args ~f }
+      { callee = map_call_callee callee ~f
+      ; results = List.map results ~f:map_result
+      ; args = List.map args ~f
+      }
   | PUSH op -> PUSH (f op)
   | POP reg ->
     (match f (Reg reg) with

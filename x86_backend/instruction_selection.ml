@@ -411,9 +411,14 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
   | Mul arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:imul
   | Div arith -> mul_div_mod arith ~take_reg:Reg.rax ~make_instr:idiv
   | Mod arith -> mul_div_mod arith ~take_reg:Reg.rdx ~make_instr:mod_
-  | Call { fn; results; args } ->
-    assert (Call_conv.(equal (call_conv ~fn) default));
-    let gp_arg_regs = Reg.arguments ~call_conv:(call_conv ~fn) Class.I64 in
+  | Call { callee; results; args } ->
+    let call_conv =
+      match callee with
+      | Ir.Call_callee.Direct fn -> call_conv ~fn
+      | Ir.Call_callee.Indirect _ -> Call_conv.Default
+    in
+    assert (Call_conv.(equal call_conv default));
+    let gp_arg_regs = Reg.arguments ~call_conv Class.I64 in
     let arg_infos =
       List.map args ~f:(operand_of_lit_or_var t ~class_:Class.I64)
     in
@@ -442,9 +447,26 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
       then []
       else [ sub (Reg Reg.rsp) (Imm (Int64.of_int extra_align)) ]
     in
+    let ensure_reg_operand operand =
+      match operand with
+      | Reg _ -> [], operand
+      | _ ->
+        let tmp = Reg.allocated ~class_:Class.I64 (fresh_var t "fn_ptr") None in
+        [ mov (Reg tmp) operand ], Reg tmp
+    in
+    let callee_pre, call_callee =
+      match callee with
+      | Ir.Call_callee.Direct fn -> [], X86_ir.Call_callee.Direct fn
+      | Ir.Call_callee.Indirect lit_or_var ->
+        let pre, operand =
+          operand_of_lit_or_var t ~class_:Class.I64 lit_or_var
+        in
+        let extra, reg_operand = ensure_reg_operand operand in
+        pre @ extra, X86_ir.Call_callee.Indirect reg_operand
+    in
     let pre_moves = align_stack @ stack_arg_pushes @ reg_arg_moves in
     assert (List.length results <= 2);
-    let gp_result_regs = Reg.results ~call_conv:(call_conv ~fn) Class.I64 in
+    let gp_result_regs = Reg.results ~call_conv Class.I64 in
     let post_moves, results_with_physical =
       Sequence.zip_full
         (Sequence.of_list results)
@@ -475,8 +497,14 @@ let ir_to_x86_ir ~this_call_conv t (ir : Ir.t) =
       else [ add (Reg Reg.rsp) (Imm (Int64.of_int pushed_bytes_with_align)) ]
     in
     [ save_clobbers ]
+    @ callee_pre
     @ pre_moves
-    @ [ CALL { fn; results = updated_results; args = arg_operands } ]
+    @ [ CALL
+          { callee = call_callee
+          ; results = updated_results
+          ; args = arg_operands
+          }
+      ]
     @ post_moves
     @ post_pop
     @ [ restore_clobbers ]

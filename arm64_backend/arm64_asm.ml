@@ -158,6 +158,7 @@ type instr =
       ; target : string
       }
   | Bl of symbol
+  | Blr of operand
   | Ret
 [@@deriving sexp, equal]
 
