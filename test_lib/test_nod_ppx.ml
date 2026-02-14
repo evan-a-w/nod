@@ -144,7 +144,7 @@ let%expect_test "nod calls externals with mixed types" =
   let ext_add : (Dsl.int64 -> Dsl.int64 -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
     Dsl.Fn.external_ ~name:"ext_add" ~args:[ Type.I64; Type.I64 ] ~ret:Type.I64
   in
-  let ext_peek : (Dsl.int64 ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
+  let ext_peek : (Dsl.int64 Dsl.ptr -> Dsl.int64, Dsl.int64) Dsl.Fn.t =
     Dsl.Fn.external_ ~name:"ext_peek" ~args:[ Type.Ptr ] ~ret:Type.I64
   in
   let instrs =
