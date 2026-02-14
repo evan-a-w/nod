@@ -17,7 +17,7 @@ let hashmap_init =
       let capacity = load state in
       let table_field = ptr_add state (lit 8L) in
       let table = load table_field in
-      let table = cast Type.Ptr table in
+      let table = cast "table" Type.Ptr table in
       let idx_slot = alloca (lit 8L) in
       seq [ store (lit 0L) idx_slot ];
       label init_loop;
@@ -45,7 +45,7 @@ let hashmap_put =
       let capacity = load state in
       let table_field = ptr_add state (lit 8L) in
       let table = load table_field in
-      let table = cast Type.Ptr table in
+      let table = cast "table" Type.Ptr table in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
       store idx0 idx_slot;
@@ -84,7 +84,7 @@ let hashmap_get =
       let capacity = load state in
       let table_field = ptr_add state (lit 8L) in
       let table = load table_field in
-      let table = cast Type.Ptr table in
+      let table = cast "table" Type.Ptr table in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
       seq [ store idx0 idx_slot ];

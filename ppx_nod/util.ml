@@ -28,7 +28,13 @@ type arg_type =
   | F64
   | Ptr of ptr_kind
   | Tuple of arg_type list
-  | Lid of longident * location
+  | Lid of lid_info
+
+and lid_info =
+  { lid : Longident.t
+  ; loc : location
+  ; is_type_name : bool
+  }
 
 and ptr_kind =
   | Untyped
@@ -64,11 +70,10 @@ let rec arg_type_of_core_type ~allow_expr ct =
            ~loc:ct.ptyp_loc
            "nod: ptr types must specify the pointed-to type"
        else Ptr Untyped
-     | "ptr", [ arg ] ->
-       Ptr (Typed (arg_type_of_core_type ~allow_expr:true arg))
+     | "ptr", [ arg ] -> Ptr (Typed (arg_type_of_core_type ~allow_expr arg))
      | "ptr", _ ->
        errorf ~loc:ct.ptyp_loc "nod: ptr expects exactly one type argument"
-     | other, [] -> Lid (lid, loc)
+     | other, [] -> Lid { lid; loc; is_type_name = not allow_expr }
      | other, _ ->
        errorf
          ~loc:ct.ptyp_loc
@@ -89,7 +94,14 @@ let rec type_expr ~loc =
   | Tuple l ->
     let l = List.map (type_expr ~loc) l in
     [%expr Nod_common.Type.Tuple [%e elist ~loc l]]
-  | Lid (lid, loc) -> [%expr Dsl.Type_repr.type_ [%e ident lid loc]]
+  | Lid { lid; loc; is_type_name } ->
+    let base = ident lid loc in
+    let repr_expr =
+      if is_type_name
+      then Builder.pexp_field ~loc base { loc; txt = Longident.parse "repr" }
+      else base
+    in
+    [%expr Dsl.Type_repr.type_ [%e repr_expr]]
 ;;
 
 let tuple_n_expr ~loc args =
@@ -117,12 +129,12 @@ let rec type_repr_expr ~in_record_context ~loc = function
   | Ptr (Typed inner) ->
     let inner = type_repr_expr ~in_record_context ~loc inner in
     [%expr Dsl.Type_repr.Ptr [%e inner]]
-  | Lid (lid, loc) when in_record_context ->
+  | Lid { lid; loc; is_type_name } when in_record_context || is_type_name ->
     Builder.pexp_field
       ~loc
       (ident lid loc)
       { loc; txt = Longident.parse "repr" }
-  | Lid (lid, loc) -> ident lid loc
+  | Lid { lid; loc; _ } -> ident lid loc
   | Tuple [ ty ] -> type_repr_expr ~in_record_context ~loc ty
   | Tuple tys ->
     let args = List.map (type_repr_expr ~in_record_context ~loc) tys in
@@ -139,7 +151,7 @@ let rec arg_type_to_core_type ~loc = function
   | Tuple tys ->
     let tuple_types = List.map (arg_type_to_core_type ~loc) tys in
     Builder.ptyp_tuple ~loc tuple_types
-  | Lid (lid, loc) ->
+  | Lid { lid; loc; _ } ->
     Builder.ptyp_constr
       ~loc
       { txt = longident_append_suffix lid ~suffix:record_type_suffix; loc }
@@ -156,7 +168,7 @@ let field_type_info_kind_type ~loc = function
 let field_type_info_type ~loc = function
   | I64 | F64 | Ptr _ | Tuple _ ->
     Builder.ptyp_constr ~loc { txt = Longident.parse "unit"; loc } []
-  | Lid (lid, loc) ->
+  | Lid { lid; loc; _ } ->
     Builder.ptyp_constr
       ~loc
       { txt = longident_append_suffix lid ~suffix:value_type_suffix; loc }
@@ -165,5 +177,5 @@ let field_type_info_type ~loc = function
 
 let field_type_info_value ~loc = function
   | I64 | F64 | Ptr _ | Tuple _ -> [%expr ()]
-  | Lid (lid, loc) -> ident lid loc
+  | Lid { lid; loc; _ } -> ident lid loc
 ;;

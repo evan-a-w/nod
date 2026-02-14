@@ -22,7 +22,7 @@ struct
 
   let array_offset =
     [%nod
-      fun (t : ptr) (index : int64) ->
+      fun (t : binary_heap ptr) (index : int64) ->
         let each_elt = mov (lit elt_bytes) in
         let offset = mul each_elt index in
         let array = load_record_field binary_heap.array t in
@@ -32,7 +32,7 @@ struct
 
   let compare_indices =
     [%nod
-      fun (t : ptr) (index1 : int64) (index2 : int64) ->
+      fun (t : binary_heap ptr) (index1 : int64) (index2 : int64) ->
         let ptr1 = array_offset t index1 in
         let ptr2 = array_offset t index2 in
         let res = compare ptr1 ptr2 in
@@ -63,7 +63,7 @@ struct
 
   let swap =
     [%nod
-      fun (t : ptr) (index1 : int64) (index2 : int64) ->
+      fun (t : binary_heap ptr) (index1 : int64) (index2 : int64) ->
         let ptr1 = array_offset t index1 in
         let ptr2 = array_offset t index2 in
         let tmp = alloca (lit elt_bytes) in
@@ -100,7 +100,7 @@ struct
 
   let sift_up =
     [%nod
-      fun (t : ptr) (index : int64) ->
+      fun (t : binary_heap ptr) (index : int64) ->
         let i_slot = alloca (lit 8L) in
         store index i_slot;
         label sift_up_loop;
@@ -123,7 +123,7 @@ struct
 
   let sift_down =
     [%nod
-      fun (t : ptr) (index : int64) ->
+      fun (t : binary_heap ptr) (index : int64) ->
         let len = load_record_field binary_heap.len t in
         let i_slot = alloca (lit 8L) in
         store index i_slot;
@@ -196,21 +196,21 @@ struct
 
   let len =
     [%nod
-      fun (t : ptr) ->
+      fun (t : binary_heap ptr) ->
         let len = load_record_field binary_heap.len t in
         return len]
   ;;
 
   let peek =
     [%nod
-      fun (t : ptr) ->
+      fun (t : binary_heap ptr) ->
         let ptr = array_offset t (lit 0L) in
         return ptr]
   ;;
 
   let push =
     [%nod
-      fun (t : ptr) (elt : int64 ptr) ->
+      fun (t : binary_heap ptr) (elt : int64 ptr) ->
         let current_len = load_record_field binary_heap.len t in
         (* TODO: check capacity and grow if needed *)
         let insert_ptr = array_offset t current_len in
@@ -223,7 +223,7 @@ struct
 
   let pop =
     [%nod
-      fun (t : ptr) (out : int64 ptr) ->
+      fun (t : binary_heap ptr) (out : int64 ptr) ->
         let current_len = load_record_field binary_heap.len t in
         (* if len == 0, return error or undefined *)
         branch_to current_len ~if_true:"pop_has_elements" ~if_false:"pop_empty";
