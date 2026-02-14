@@ -1,5 +1,6 @@
 (library
  (name ppx_nod)
+ (public_name nod.ppx_nod)
  (kind ppx_rewriter)
  (libraries ppxlib core unix)
  (preprocess
