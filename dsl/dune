@@ -1,5 +1,6 @@
 (library
  (name nod_dsl)
+ (public_name nod.dsl)
  (wrapped false)
  (modules :standard \ gen_type_repr)
  (preprocess
@@ -10,7 +11,7 @@
   core_unix
   nod_frontend
   nod_core
-  vec
+  nod_vec
   feel
   nod_x86_backend
   nod_arm64_backend

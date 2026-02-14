@@ -4,27 +4,27 @@ module Parser_comb = Parser_comb.Make (Token)
 open Parser_comb
 
 type unprocessed_cfg =
-  instrs_by_label:(Typed_var.t, string) Ir.t Vec.t Core.String.Map.t
-  * labels:string Vec.t
+  instrs_by_label:(Typed_var.t, string) Ir.t Nod_vec.t Core.String.Map.t
+  * labels:string Nod_vec.t
 [@@deriving sexp]
 
 type output = (Typed_var.t, unprocessed_cfg) Program.t [@@deriving sexp]
 
 module State = struct
   type t =
-    { instrs_by_label : (Typed_var.t, string) Ir.t Vec.t String.Map.t
-    ; labels : string Vec.t
+    { instrs_by_label : (Typed_var.t, string) Ir.t Nod_vec.t String.Map.t
+    ; labels : string Nod_vec.t
     ; current_block : string
-    ; current_instrs : (Typed_var.t, string) Ir.t Vec.t
+    ; current_instrs : (Typed_var.t, string) Ir.t Nod_vec.t
     ; var_types : Type.t String.Table.t
     ; globals : Global.t String.Table.t
     }
 
   let create () =
     { instrs_by_label = String.Map.empty
-    ; labels = Vec.create ()
+    ; labels = Nod_vec.create ()
     ; current_block = "%root"
-    ; current_instrs = Vec.create ()
+    ; current_instrs = Nod_vec.create ()
     ; var_types = String.Table.create ()
     ; globals = String.Table.create ()
     }
@@ -346,18 +346,18 @@ let seen_label ~label =
     then fail (`Duplicate_label label)
     else return ()
   in
-  if Vec.length state.State.current_instrs = 0
+  if Nod_vec.length state.State.current_instrs = 0
   then set_state { state with State.current_block = label }
   else (
-    Vec.push state.State.labels state.current_block;
-    let vec = Vec.create () in
+    Nod_vec.push state.State.labels state.current_block;
+    let vec = Nod_vec.create () in
     let%bind state =
       match
         Map.add state.State.instrs_by_label ~key:state.current_block ~data:vec
       with
       | `Duplicate -> fail (`Duplicate_label state.current_block)
       | `Ok instrs_by_label ->
-        Vec.switch vec state.current_instrs;
+        Nod_vec.switch vec state.current_instrs;
         return { state with instrs_by_label; current_block = label }
     in
     set_state state)
@@ -524,7 +524,7 @@ let instructions_parser () =
       let%bind instrs = instr () in
       let%bind state = get_state () in
       List.iter instrs ~f:(fun instr ->
-        Vec.push state.State.current_instrs instr);
+        Nod_vec.push state.State.current_instrs instr);
       go ()
   in
   let%bind () = go () in
@@ -560,9 +560,9 @@ let function_parser_with_reset () =
     set_state
       { state with
         State.instrs_by_label = String.Map.empty
-      ; labels = Vec.create ()
+      ; labels = Nod_vec.create ()
       ; current_block = "%root"
-      ; current_instrs = Vec.create ()
+      ; current_instrs = Nod_vec.create ()
       ; var_types = String.Table.create ()
       }
   in

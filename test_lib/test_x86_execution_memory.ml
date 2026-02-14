@@ -30,7 +30,7 @@ let run_functions ?harness mk_functions expected =
 
 let make_fn ~fn_state ~name ~args ~root =
   (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-  Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
+  Fn_state.set_block_args fn_state ~block:root ~args:(Nod_vec.of_list args);
   Block.set_dfs_id root (Some 0);
   Function.create ~name ~args ~root
 ;;
@@ -266,7 +266,7 @@ let%expect_test "phi/parallel-move cycle: swap two values across edge" =
     Fn_state.set_block_args
       fn_state
       ~block:swap_block
-      ~args:(Vec.of_list [ a; b ]);
+      ~args:(Nod_vec.of_list [ a; b ]);
     Fn_state.append_ir
       fn_state
       ~block:swap_block

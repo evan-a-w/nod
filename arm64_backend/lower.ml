@@ -69,12 +69,12 @@ let rec unwrap_tags = function
 
 let order_blocks root =
   let idx_by_block = Block.Table.create () in
-  let blocks = Vec.create () in
+  let blocks = Nod_vec.create () in
   let try_push block =
-    let idx = Vec.length blocks in
+    let idx = Nod_vec.length blocks in
     match Hashtbl.add idx_by_block ~key:block ~data:idx with
     | `Duplicate -> ()
-    | `Ok -> Vec.push blocks block
+    | `Ok -> Nod_vec.push blocks block
   in
   let seen = Block.Hash_set.create () in
   let q = Queue.of_list [ root ] in
@@ -87,11 +87,11 @@ let order_blocks root =
        | false ->
          Hash_set.add seen block;
          try_push block;
-         Vec.iter (Block.children block) ~f:(fun child ->
-           if Vec.length (Block.parents child) = 1
+         Nod_vec.iter (Block.children block) ~f:(fun child ->
+           if Nod_vec.length (Block.parents child) = 1
               && not (Hashtbl.mem idx_by_block child)
            then try_push child);
-         Vec.iter (Block.children block) ~f:(Queue.enqueue q);
+         Nod_vec.iter (Block.children block) ~f:(Queue.enqueue q);
          go ())
   in
   go ();
@@ -196,7 +196,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
       let fn_label = ensure_unique fn_label_base in
       let ~idx_by_block, ~blocks = order_blocks fn.root in
       let label_by_block = Block.Table.create () in
-      Vec.iteri blocks ~f:(fun idx block ->
+      Nod_vec.iteri blocks ~f:(fun idx block ->
         let base_label =
           if idx = 0
           then fn_label
@@ -359,7 +359,7 @@ let lower_to_items ~system (functions : Function.t String.Map.t) =
           handle_branch ~current_idx cond cb else_opt
         | Emit lines -> List.iter lines ~f:emit_instruction
       in
-      Vec.iteri blocks ~f:(fun idx block ->
+      Nod_vec.iteri blocks ~f:(fun idx block ->
         let label = label_of_block block in
         emit_label label;
         let instructions = Instr_state.to_ir_list (Block.instructions block) in

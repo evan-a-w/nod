@@ -17,22 +17,22 @@ val iter_and_update_bookkeeping : t -> f:(t -> unit) -> unit
 val iter_instructions : t -> f:(t Instr_state.t -> unit) -> unit
 val instructions : t -> t Instr_state.t option
 val terminal : t -> t Instr_state.t
-val args : t -> (Typed_var.t, [ `Read ]) Vec.permissioned
+val args : t -> (Typed_var.t, [ `Read ]) Nod_vec.permissioned
 val insert_phi_moves : t -> bool
 val to_sexp_verbose : t -> Sexp.t
-val children : t -> (t, [ `Read ]) Vec.permissioned
-val parents : t -> (t, [ `Read ]) Vec.permissioned
+val children : t -> (t, [ `Read ]) Nod_vec.permissioned
+val parents : t -> (t, [ `Read ]) Nod_vec.permissioned
 
 (** doesn't keep in track var state etc. *)
 module Expert : sig
   val set_terminal : t -> t Instr_state.t -> unit
   val set_instructions : t -> t Instr_state.t option -> unit
-  val set_args : t -> Typed_var.t Vec.t -> unit
+  val set_args : t -> Typed_var.t Nod_vec.t -> unit
   val set_insert_phi_moves : t -> bool -> unit
   val add_child : t -> child:t -> unit
   val add_parent : t -> parent:t -> unit
-  val children : t -> t Vec.t
-  val parents : t -> t Vec.t
+  val children : t -> t Nod_vec.t
+  val parents : t -> t Nod_vec.t
 end
 
 module Pair : sig

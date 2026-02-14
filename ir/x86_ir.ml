@@ -192,7 +192,6 @@ let fold_operands ins ~f ~init =
     fold_operand (Reg Reg.rsp) ~f ~init
   | NOOP | LABEL _ | JE _ | JNE _ | JMP _ -> init
 ;;
-
 let map_var_operand op ~f =
   match op with
   | Reg r -> Reg (Reg.map_vars r ~f)
@@ -283,18 +282,6 @@ let var_of_reg (reg : 'var Reg.t) =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
-;;
-
-let vars_of_reg (reg : 'var Reg.t) =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
-  | _ -> []
-;;
-
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ | Symbol _ -> []
-  | Mem (r, _disp) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
@@ -571,8 +558,6 @@ let rec filter_map_call_blocks t ~f =
   | JE (lbl, next) | JNE (lbl, next) ->
     (f lbl |> Option.to_list) @ (Option.bind next ~f |> Option.to_list)
 ;;
-
-let unreachable = NOOP
 
 let rec map_defs t ~f =
   let map_dst op = map_def_operand op ~f in

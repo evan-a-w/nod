@@ -1,13 +1,7 @@
 open! Ssa
 open! Core
 open! Import
-
-type raw_block =
-  instrs_by_label:(Typed_var.t, string) Nod_ir.Ir.t Vec.t String.Map.t
-  * labels:string Vec.t
-
-type input = (raw_block Program.t', Nod_error.t) Result.t
-
+include Eir0
 module Opt_flags = Eir_opt.Opt_flags
 
 let map_program_roots_with_state program ~state ~f =
@@ -26,7 +20,7 @@ let set_entry_block_args program ~state =
     Fn_state.set_block_args
       (State.fn_state state name)
       ~block
-      ~args:(Vec.of_list args));
+      ~args:(Nod_vec.of_list args));
   program
 ;;
 
@@ -52,7 +46,7 @@ let type_check_cfg (~root, ~blocks:_, ~in_order:_) =
     else (
       Hash_set.add seen (Block.id_hum block);
       let%bind () = type_check_block block in
-      Vec.fold (Block.children block) ~init:(Ok ()) ~f:(fun acc child ->
+      Nod_vec.fold (Block.children block) ~init:(Ok ()) ~f:(fun acc child ->
         let%bind () = acc in
         go child))
   in
@@ -89,18 +83,19 @@ let optimize ?opt_flags ~state program =
   Eir_opt.optimize ?opt_flags ~state program
 ;;
 
-let compile ?opt_flags (input : input) =
+let compile ?opt_flags (input : program) =
+  let open Result.Let_syntax in
   let state = State.create () in
-  match
-    Result.map input ~f:(map_program_roots_with_state ~state ~f:Cfg.process)
-    |> Result.map ~f:(set_entry_block_args ~state)
-    |> Result.bind ~f:(fun program ->
-      type_check_program program |> Result.map ~f:(fun () -> program))
-    |> Result.bind ~f:(lower_aggregate_program ~state)
-    |> Result.map ~f:(fun program -> convert_program program ~state)
-  with
-  | Error _ as e -> e
-  | Ok program ->
-    let program = optimize ?opt_flags ~state program in
-    Ok program
+  let program =
+    map_program_roots_with_state ~state ~f:Cfg.process input
+    |> set_entry_block_args ~state
+  in
+  let%bind () = type_check_program program in
+  let%map program = lower_aggregate_program ~state program in
+  let mem2reg =
+    match opt_flags with
+    | None -> Opt_flags.default.mem2reg
+    | Some flags -> Opt_flags.mem2reg flags
+  in
+  convert_program ~mem2reg program ~state |> optimize ?opt_flags ~state
 ;;

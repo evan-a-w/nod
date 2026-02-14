@@ -15,7 +15,7 @@ type nonrec t = (Typed_var.t, Block.t) t [@@deriving sexp, compare, equal, hash]
 
 let add_block_args =
   let on_call_block { Call_block.block; args = _ } =
-    { Call_block.block; args = Vec.to_list (Block.args block) }
+    { Call_block.block; args = Nod_vec.to_list (Block.args block) }
   in
   function
   | ( Add _
@@ -904,7 +904,7 @@ module Type_check = struct
   ;;
 
   let check_call_block_args (call_block : (Typed_var.t, Block.t) Call_block.t) =
-    let formal_args = Vec.to_list (Block.args call_block.block) in
+    let formal_args = Nod_vec.to_list (Block.args call_block.block) in
     let actual_args = call_block.args in
     if Int.O.(List.length formal_args <> List.length actual_args)
     then
@@ -981,13 +981,13 @@ let lower_aggregates ~fn_state ~root =
       else (
         Core.Hash_set.Poly.add seen block;
         let acc = block :: acc in
-        Vec.fold (Block.children block) ~init:acc ~f:collect)
+        Nod_vec.fold (Block.children block) ~init:acc ~f:collect)
     in
     collect [] root |> List.rev
   in
   let used_names = String.Hash_set.create () in
   List.iter blocks ~f:(fun block ->
-    Block.args block |> Vec.iter ~f:(add_var used_names);
+    Block.args block |> Nod_vec.iter ~f:(add_var used_names);
     let add_instr_vars instr =
       List.iter (Nod_ir.Ir.vars instr.Instr_state.ir) ~f:(fun value ->
         add_var used_names (Value_state.var value))

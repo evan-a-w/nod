@@ -27,7 +27,7 @@ let test s =
       ~f:
         (fun
           { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
-        Vec.iter blocks ~f:(fun block ->
+        Nod_vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
             |> List.map ~f:Fn_state.var_ir

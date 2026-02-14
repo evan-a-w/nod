@@ -6,13 +6,32 @@ module Opt_flags = struct
     { unused_vars : bool
     ; constant_propagation : bool
     ; gvn : bool
+    ; mem2reg : bool
     }
   [@@deriving fields]
 
-  let default = { unused_vars = true; constant_propagation = true; gvn = true }
+  let default =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; mem2reg = false
+    }
+  ;;
 
   let no_opt =
-    { unused_vars = false; constant_propagation = false; gvn = false }
+    { unused_vars = false
+    ; constant_propagation = false
+    ; gvn = false
+    ; mem2reg = false
+    }
+  ;;
+
+  let all_opt =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; mem2reg = true
+    }
   ;;
 end
 
@@ -47,7 +66,7 @@ module Dominance = struct
         if phys_equal block root
         then ()
         else (
-          let preds = Block.parents block |> Vec.to_list in
+          let preds = Block.parents block |> Nod_vec.to_list in
           if List.is_empty preds
           then ()
           else (
@@ -154,8 +173,8 @@ let def_block_exn ctx (value : Value_state.t) =
 (* if [block] is unnecessary, remove it *)
 let kill_block (_ : context) ~block:_ = ()
 
-let defining_values_for_block_arg ctx ~block ~arg_index =
-  Vec.filter_map (Block.parents block) ~f:(fun parent ->
+let defining_values_for_block_arg ~block ~arg_index =
+  Nod_vec.filter_map (Block.parents block) ~f:(fun parent ->
     let parent_terminal = Block.terminal parent in
     match
       Ir.filter_map_call_blocks
@@ -167,7 +186,7 @@ let defining_values_for_block_arg ctx ~block ~arg_index =
     with
     | [] -> None
     | xs -> Some xs)
-  |> Vec.to_list
+  |> Nod_vec.to_list
   |> List.concat
 ;;
 
@@ -222,11 +241,11 @@ module Transform = struct
   and remove_arg ctx ~block ~arg_index =
     mark_changed ctx;
     let args = Block.args block in
-    let new_args = Vec.create () in
-    Vec.iteri args ~f:(fun i arg ->
-      if not (Int.equal i arg_index) then Vec.push new_args arg);
+    let new_args = Nod_vec.create () in
+    Nod_vec.iteri args ~f:(fun i arg ->
+      if not (Int.equal i arg_index) then Nod_vec.push new_args arg);
     Fn_state.set_block_args ctx.fn_state ~block ~args:new_args;
-    Vec.iter (Block.parents block) ~f:(fun parent ->
+    Nod_vec.iter (Block.parents block) ~f:(fun parent ->
       remove_arg_from_parent ctx ~parent ~idx:arg_index ~from_block:block)
 
   and kill_definition ctx (value : Value_state.t) =
@@ -258,12 +277,14 @@ module Transform = struct
       | 1, Def_site.Block_arg { block_id; arg } ->
         let block = Hashtbl.find_exn ctx.block_by_id block_id in
         let use_id = Set.min_elt_exn value.Value_state.uses in
-        let arg_value = value_of_var_exn ctx (Vec.get (Block.args block) arg) in
+        let arg_value =
+          value_of_var_exn ctx (Nod_vec.get (Block.args block) arg)
+        in
         if Instr_id.equal use_id (Block.terminal block).Instr_state.id
            && List.equal
                 Value_state.equal
                 [ arg_value ]
-                (defining_values_for_block_arg ctx ~block ~arg_index:arg)
+                (defining_values_for_block_arg ~block ~arg_index:arg)
         then kill_definition ctx value
         else ()
       | _, _ -> ())
@@ -300,11 +321,11 @@ module Transform = struct
         not (List.mem new_blocks block' ~equal:phys_equal))
     in
     mark_changed ctx;
-    Vec.switch (Block.Expert.children block) (Vec.of_list new_blocks);
+    Nod_vec.switch (Block.Expert.children block) (Nod_vec.of_list new_blocks);
     List.iter diff ~f:(fun block' ->
-      Vec.switch
+      Nod_vec.switch
         (Block.Expert.parents block')
-        (Vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
+        (Nod_vec.filter (Block.parents block') ~f:(Fn.non (phys_equal block))));
     Fn_state.replace_terminal_ir ctx.fn_state ~block ~with_:new_terminal_ir;
     update_uses ctx ~old_ir:old_terminal.Instr_state.ir ~new_ir:new_terminal_ir
   ;;
@@ -352,7 +373,7 @@ let replace_value_uses
 ;;
 
 (* --- Constant propagation helpers --- *)
-let constant_fold ctx ~instr =
+let constant_fold _ctx ~instr =
   let substituted = ref false in
   let mapped =
     Ir.map_lit_or_vars instr ~f:(fun lit_or_var ->
@@ -391,7 +412,7 @@ let rec refine_type ctx ~(value : Value_state.t) =
      | Def_site.Undefined -> ())
 
 and refine_type_block_arg ctx ~value ~block ~arg_index =
-  defining_values_for_block_arg ctx ~block ~arg_index
+  defining_values_for_block_arg ~block ~arg_index
   |> List.map ~f:(fun x -> x.opt_tags.constant)
   |> function
   | [] -> ()
@@ -499,7 +520,7 @@ module Pass_runner = struct
                 pass.visit ctx value
               | Def_site.Undefined -> ()))
         in
-        Vec.iter ctx.fn_state.values ~f:(function
+        Nod_vec.iter ctx.fn_state.values ~f:(function
           | None -> ()
           | Some value -> go value);
         if pass.fixpoint && ctx.changed && iteration < max_fixpoint_iterations
@@ -576,9 +597,9 @@ let pass_phi_simplify =
     ; enabled = Opt_flags.constant_propagation
     ; visit =
         (fun ctx block ->
-          Vec.iteri (Block.args block) ~f:(fun arg_index arg ->
+          Nod_vec.iteri (Block.args block) ~f:(fun arg_index arg ->
             let value = value_of_var_exn ctx arg in
-            match defining_values_for_block_arg ctx ~block ~arg_index with
+            match defining_values_for_block_arg ~block ~arg_index with
             | [] -> ()
             | first :: rest ->
               if first.Value_state.active

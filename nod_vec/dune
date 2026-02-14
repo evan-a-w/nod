@@ -1,5 +1,7 @@
 (library
- (name vec)
+ (name nod_vec)
+ (wrapped false)
+ (public_name nod.vec)
  (preprocess
   (pps ppx_jane))
  (inline_tests)

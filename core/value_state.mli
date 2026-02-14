@@ -10,7 +10,7 @@ type t = private
   ; mutable uses : Instr_id.Set.t
   ; mutable active : bool
   }
-[@@deriving sexp]
+[@@deriving sexp, compare, equal]
 
 val create
   :  id:Value_id.t
@@ -22,8 +22,6 @@ val create
   -> active:bool
   -> t
 
-val compare : t -> t -> int
-val equal : t -> t -> bool
 val var : t -> Typed_var.t
 
 (** should only be used by [Fn_state] *)

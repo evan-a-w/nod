@@ -7,6 +7,7 @@ type ('var, 'block) t =
   }
 [@@deriving sexp]
 
+let empty = { globals = []; functions = String.Map.empty }
 let map_functions t ~f = { t with functions = Map.map t.functions ~f }
 
 let map_function_roots t ~f =

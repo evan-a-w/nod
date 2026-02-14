@@ -313,7 +313,7 @@ let replace_regs
          ~which:`Both
          { live_in = live_out; live_out = block_liveness.overall.live_in });
     let instructions = Instr_state.to_list (Block.instructions block) in
-    let liveness = Vec.to_list block_liveness.instructions in
+    let liveness = Nod_vec.to_list block_liveness.instructions in
     List.iter2_exn instructions liveness ~f:(fun instruction liveness ->
       update_slots ~which:`Open liveness;
       let ir = map_ir instruction.Instr_state.ir in

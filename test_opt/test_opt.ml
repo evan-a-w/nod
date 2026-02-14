@@ -3,7 +3,7 @@ open! Import
 open! Dsl
 
 let opt_flags ~unused_vars ~constant_propagation ~gvn : Eir.Opt_flags.t =
-  { unused_vars; constant_propagation; gvn }
+  { unused_vars; constant_propagation; gvn; mem2reg = false }
 ;;
 
 let lower_to_ssa program =
@@ -36,7 +36,7 @@ let dump_program program =
       print_s
         [%message
           (Block.id_hum block)
-            ~args:(Block.args block : Typed_var.t Vec.read)
+            ~args:(Block.args block : Typed_var.t Nod_vec.read)
             (instrs : Ir.t list)]))
 ;;
 
@@ -53,11 +53,10 @@ let run_program ?opt_flags program =
 ;;
 
 let run_dsl ?opt_flags functions =
-  match
-    Dsl.program ~globals:[] ~functions:(List.map functions ~f:Dsl.Fn.pack)
-  with
-  | Ok program -> run_program ?opt_flags program
-  | Error err -> failwith (Nod_error.to_string err)
+  Dsl.program ~globals:[] ~functions:(List.map functions ~f:Dsl.Fn.pack)
+  |> Result.map_error ~f:Nod_error.to_string
+  |> Result.ok_or_failwith
+  |> run_program ?opt_flags
 ;;
 
 let run_dsl' ?opt_flags irs =
@@ -377,7 +376,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
   let fn =
     [%nod
       fun (input : int64) ->
-        let cleared = and_ input (lit 0L) in
+        let _cleared = and_ input (lit 0L) in
         let masked = and_ input (lit (-1L)) in
         let merged = or_ masked (lit 0L) in
         let saturated = or_ merged (lit (-1L)) in
@@ -393,7 +392,7 @@ let%expect_test "bitwise and/or peepholes fold constants" =
     (%entry (args (((name input) (type_ I64))))
      (instrs
       ((And
-        ((dest ((name cleared) (type_ I64)))
+        ((dest ((name _cleared) (type_ I64)))
          (src1 (Var ((name input) (type_ I64)))) (src2 (Lit 0))))
        (And
         ((dest ((name masked) (type_ I64)))

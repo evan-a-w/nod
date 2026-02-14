@@ -199,7 +199,7 @@ let test_push_pop_multiple_program =
 ;;
 
 let compile_and_print_x86_program program =
-  let compiled = Dsl.compile_program_exn program in
+  let compiled = Dsl.compile_program_exn' program in
   let asm =
     compile_and_lower_functions
       ~arch:`X86_64
@@ -212,7 +212,7 @@ let compile_and_print_x86_program program =
 
 let compile_and_execute_program_exn program expected =
   List.iter test_architectures ~f:(fun arch ->
-    let compiled = Dsl.compile_program_exn program in
+    let compiled = Dsl.compile_program_exn' program in
     let asm =
       compile_and_lower_functions
         ~arch

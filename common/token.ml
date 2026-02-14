@@ -21,6 +21,7 @@ type t =
   | Greater_equal
   | Percent
   | At
+  | Bang
   | Arrow
   | Colon
   | Semi_colon

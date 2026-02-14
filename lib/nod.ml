@@ -24,7 +24,6 @@ module X86_backend = Nod_x86_backend.X86_backend
 module X86_jit = Nod_x86_backend.Jit
 module Arm64_asm = Nod_arm64_backend.Arm64_asm
 module Arm64_backend = Nod_arm64_backend.Arm64_backend
-module Examples = Nod_examples.Examples
 
 type arch =
   [ `Arm64
@@ -55,7 +54,7 @@ module Eir = struct
 
   let compile ?opt_flags program =
     Parser.parse_string program
-    |> Result.bind ~f:(fun parsed -> compile_parsed ?opt_flags (Ok parsed))
+    |> Result.bind ~f:(fun parsed -> compile_parsed ?opt_flags parsed)
   ;;
 end
 
@@ -141,6 +140,25 @@ let compile_and_lower_functions
   | `X86_64 -> X86_backend.compile_to_asm ~system ~globals functions
   | `Arm64 -> Arm64_backend.compile_to_asm ~system ~globals functions
   | `Other -> failwith "unsupported target architecture"
+;;
+
+let compile_and_lower_program'
+  ?opt_flags
+  ~(arch : [ `X86_64 | `Arm64 | `Other ])
+  ~(system : [ `Darwin | `Linux | `Other ])
+  program
+  =
+  let program =
+    match Eir.compile_parsed ?opt_flags program with
+    | Ok program -> program
+    | Error err ->
+      Error.raise_s [%message "Failed to compile" (err : Nod_error.t)]
+  in
+  compile_and_lower_functions
+    ~arch
+    ~system
+    ~globals:program.Program.globals
+    program.Program.functions
 ;;
 
 type lowered_items =

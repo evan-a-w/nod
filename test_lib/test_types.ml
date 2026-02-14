@@ -19,7 +19,7 @@ let test s =
       let { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } =
         data
       in
-      Vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
+      Nod_vec.fold blocks ~init:(Ok ()) ~f:(fun acc block ->
         let%bind.Result () = acc in
         List.fold
           (Instr_state.to_ir_list (Block.instructions block)

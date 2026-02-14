@@ -316,7 +316,6 @@ let map_reg (reg : 'var Reg.t) ~f =
     Reg (rebuild_virtual_reg reg ~var:(f v))
   | _ -> Reg reg
 ;;
-
 let map_jump_target target ~f =
   match target with
   | Jump_target.Reg reg -> Jump_target.Reg (f reg)
@@ -418,18 +417,6 @@ let var_of_reg (reg : 'var Reg.t) =
   match Reg.raw reg with
   | Raw.Unallocated v | Raw.Allocated (v, _) -> Some v
   | _ -> None
-;;
-
-let vars_of_reg (reg : 'var Reg.t) =
-  match Reg.raw reg with
-  | Raw.Unallocated v | Raw.Allocated (v, _) -> [ v ]
-  | _ -> []
-;;
-
-let vars_of_operand = function
-  | Reg r -> vars_of_reg r
-  | Imm _ | Spill_slot _ -> []
-  | Mem (r, _) -> vars_of_reg r
 ;;
 
 let regs_of_operand = function
@@ -684,7 +671,7 @@ let rec map_operands t ~f =
   let map_reg_operand reg =
     match f (Reg reg) with
     | Reg reg' -> reg'
-    | op -> Error.raise_s [%message "expected register operand"]
+    | _op -> Error.raise_s [%message "expected register operand"]
   in
   let map_op op = f op in
   match t with

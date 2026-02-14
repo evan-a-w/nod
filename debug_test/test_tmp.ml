@@ -27,7 +27,7 @@ let test_cfg s =
       ~f:
         (fun
           { Nod_ir.Function.root = ~root:_, ~blocks:_, ~in_order:blocks; _ } ->
-        Vec.iter blocks ~f:(fun block ->
+        Nod_vec.iter blocks ~f:(fun block ->
           let instrs =
             Instr_state.to_ir_list (Block.instructions block)
             |> List.map ~f:Fn_state.var_ir
@@ -61,7 +61,7 @@ let test_ssa ?don't_opt s =
           print_s
             [%message
               (Block.id_hum block)
-                ~args:(Block.args block : Typed_var.t Vec.read)
+                ~args:(Block.args block : Typed_var.t Nod_vec.read)
                 (instrs : Ir.t list)]))
     in
     go program;
@@ -119,7 +119,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
   in
   let make_fn ~fn_state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
+    Fn_state.set_block_args fn_state ~block:root ~args:(Nod_vec.of_list args);
     Block.set_dfs_id root (Some 0);
     Function.create ~name ~args ~root
   in
@@ -181,7 +181,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (* let%expect_test "temp memory asm" = *)
 (*   let make_fn ~name ~args ~root = *)
 (*     (\* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *\) *)
-(*     List.iter args ~f:(Vec.push root.Block.args); *)
+(*     List.iter args ~f:(Nod_vec.push root.Block.args); *)
 (*     root.dfs_id <- Some 0; *)
 (*     Function.create ~name ~args ~root *)
 (*   in *)
@@ -204,7 +204,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (*         ~id_hum:"%root" *)
 (*         ~terminal:(Ir.return (Ir.Lit_or_var.Var loaded)) *)
 (*     in *)
-(*     Vec.push *)
+(*     Nod_vec.push *)
 (*       child_root.instructions *)
 (*       (Ir.load loaded (Ir.Mem.address (Ir.Lit_or_var.Var p))); *)
 (*     let child = make_fn ~name:"child" ~args:[ p ] ~root:child_root in *)
@@ -213,15 +213,15 @@ let%expect_test "temp alloca passed to child; child loads value" =
 (*     let root_root = *)
 (*       Block.create ~id_hum:"%root" ~terminal:(Ir.return (Ir.Lit_or_var.Var res)) *)
 (*     in *)
-(*     Vec.push *)
+(*     Nod_vec.push *)
 (*       root_root.instructions *)
 (*       (Ir.alloca { dest = slot; size = Ir.Lit_or_var.Lit 8L }); *)
-(*     Vec.push *)
+(*     Nod_vec.push *)
 (*       root_root.instructions *)
 (*       (Ir.store *)
 (*          (Ir.Lit_or_var.Lit 41L) *)
 (*          (Ir.Mem.address (Ir.Lit_or_var.Var slot))); *)
-(*     Vec.push *)
+(*     Nod_vec.push *)
 (*       root_root.instructions *)
 (*       (Ir.call
           ~callee:(Ir.Call_callee.Direct "child")
@@ -288,7 +288,7 @@ let%expect_test "temp alloca passed to child; child loads value" =
 let%expect_test "print helper" =
   let make_fn ~fn_state ~name ~args ~root =
     (* Mirror [Eir.set_entry_block_args] for hand-constructed CFGs. *)
-    Fn_state.set_block_args fn_state ~block:root ~args:(Vec.of_list args);
+    Fn_state.set_block_args fn_state ~block:root ~args:(Nod_vec.of_list args);
     Block.set_dfs_id root (Some 0);
     Function.create ~name ~args ~root
   in
