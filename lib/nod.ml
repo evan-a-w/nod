@@ -143,12 +143,13 @@ let compile_and_lower_functions
 ;;
 
 let compile_and_lower_program'
+  ?opt_flags
   ~(arch : [ `X86_64 | `Arm64 | `Other ])
   ~(system : [ `Darwin | `Linux | `Other ])
   program
   =
   let program =
-    match Eir.compile_parsed program with
+    match Eir.compile_parsed ?opt_flags program with
     | Ok program -> program
     | Error err ->
       Error.raise_s [%message "Failed to compile" (err : Nod_error.t)]

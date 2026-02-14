@@ -6,13 +6,32 @@ module Opt_flags = struct
     { unused_vars : bool
     ; constant_propagation : bool
     ; gvn : bool
+    ; mem2reg : bool
     }
   [@@deriving fields]
 
-  let default = { unused_vars = true; constant_propagation = true; gvn = true }
+  let default =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; mem2reg = false
+    }
+  ;;
 
   let no_opt =
-    { unused_vars = false; constant_propagation = false; gvn = false }
+    { unused_vars = false
+    ; constant_propagation = false
+    ; gvn = false
+    ; mem2reg = false
+    }
+  ;;
+
+  let all_opt =
+    { unused_vars = true
+    ; constant_propagation = true
+    ; gvn = true
+    ; mem2reg = true
+    }
   ;;
 end
 
