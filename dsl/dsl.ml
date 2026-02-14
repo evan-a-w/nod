@@ -218,7 +218,11 @@ let load_mem ?(offset = 0) name ptr type_ =
   atom_of_var dest, instr
 ;;
 
-let load name ptr = load_mem name ptr Type.I64
+let load name ptr =
+  match Atom.type_ ptr with
+  | Ptr_typed type_ -> load_mem name ptr type_
+  | _ -> load_mem name ptr Type.I64
+;;
 
 let store value ptr =
   Instr.ir (Nod_ir.Ir.Store (Atom.lit_or_var value, mem_address ptr))

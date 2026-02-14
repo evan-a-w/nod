@@ -235,7 +235,8 @@ let compile_and_execute_program_exn program expected =
 
 let%expect_test "heap create and len" =
   compile_and_execute_program_exn test_create_len_program "0";
-  [%expect {|
+  [%expect
+    {|
     2026-02-15 00:08:52.088 xcodebuild[55415:3014354]  DVTFilePathFSEvents: Failed to start fs event stream.
     2026-02-15 00:08:52.214 xcodebuild[55415:3014352] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
     |}]

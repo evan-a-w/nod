@@ -7,25 +7,62 @@ let root =
     [%nod
       let state = alloca (lit 16L) in
       let table = alloca (lit 64L) in
-      let table_field = ptr_add state (lit 8L) in
-      let table_bits = cast Type.I64 table in
-      seq [ store (lit 4L) state; store table_bits table_field ];
+      let state =
+        cast (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap.repr)) state
+      in
+      let table =
+        cast
+          (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap_entry.repr))
+          table
+      in
+      seq
+        [ store_record_field Hashmap.hashmap.capacity state (lit 4L)
+        ; store_record_field Hashmap.hashmap.table state table
+        ];
       let init_done = Hashmap.hashmap_init state in
       let entry1 = alloca (lit 16L) in
-      let entry1_value = ptr_add entry1 (lit 8L) in
-      seq [ store (lit 7L) entry1; store (lit 21L) entry1_value ];
+      let entry1 =
+        cast
+          (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap_entry.repr))
+          entry1
+      in
+      seq
+        [ store_record_field Hashmap.hashmap_entry.key entry1 (lit 7L)
+        ; store_record_field Hashmap.hashmap_entry.value entry1 (lit 21L)
+        ];
       let put1 = Hashmap.hashmap_put state entry1 in
       let entry2 = alloca (lit 16L) in
-      let entry2_value = ptr_add entry2 (lit 8L) in
-      seq [ store (lit 42L) entry2; store (lit 100L) entry2_value ];
+      let entry2 =
+        cast
+          (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap_entry.repr))
+          entry2
+      in
+      seq
+        [ store_record_field Hashmap.hashmap_entry.key entry2 (lit 42L)
+        ; store_record_field Hashmap.hashmap_entry.value entry2 (lit 100L)
+        ];
       let put2 = Hashmap.hashmap_put state entry2 in
       let query_hit = alloca (lit 16L) in
-      let query_hit_value = ptr_add query_hit (lit 8L) in
-      seq [ store (lit 7L) query_hit; store (lit 0L) query_hit_value ];
+      let query_hit =
+        cast
+          (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap_query.repr))
+          query_hit
+      in
+      seq
+        [ store_record_field Hashmap.hashmap_query.key query_hit (lit 7L)
+        ; store_record_field Hashmap.hashmap_query.default query_hit (lit 0L)
+        ];
       let hit = Hashmap.hashmap_get state query_hit in
       let query_miss = alloca (lit 16L) in
-      let query_miss_value = ptr_add query_miss (lit 8L) in
-      seq [ store (lit 99L) query_miss; store (lit 5L) query_miss_value ];
+      let query_miss =
+        cast
+          (Type.Ptr_typed (Dsl.Type_repr.type_ Hashmap.hashmap_query.repr))
+          query_miss
+      in
+      seq
+        [ store_record_field Hashmap.hashmap_query.key query_miss (lit 99L)
+        ; store_record_field Hashmap.hashmap_query.default query_miss (lit 5L)
+        ];
       let miss = Hashmap.hashmap_get state query_miss in
       let total = add hit miss in
       let total = add total init_done in

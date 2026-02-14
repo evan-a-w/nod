@@ -1,5 +1,28 @@
 open! Core
 open! Import
+open! Dsl
+
+type hashmap_entry =
+  { key : int64
+  ; value : int64
+  }
+[@@deriving nod_record]
+
+type hashmap_query =
+  { key : int64
+  ; default : int64
+  }
+[@@deriving nod_record]
+
+type hashmap =
+  { capacity : int64
+  ; table : hashmap_entry ptr
+  }
+[@@deriving nod_record]
+
+let entry_bytes =
+  Type.size_in_bytes (Type_repr.type_ hashmap_entry.repr) |> Int64.of_int
+;;
 
 let hash_fn =
   [%nod
@@ -13,24 +36,24 @@ let hash_fn =
 
 let hashmap_init =
   [%nod
-    fun (state : int64 ptr) ->
-      let capacity = load state in
-      let table_field = ptr_add state (lit 8L) in
-      let table = load table_field in
-      let table = cast Type.Ptr table in
+    fun (state : hashmap ptr) ->
+      let entry_size = mov (lit entry_bytes) in
+      let capacity = load_record_field hashmap.capacity state in
+      let table = load_record_field hashmap.table state in
       let idx_slot = alloca (lit 8L) in
-      seq [ store (lit 0L) idx_slot ];
+      store (lit 0L) idx_slot;
       label init_loop;
       let idx = load idx_slot in
       let cond = sub idx capacity in
-      seq [ branch_to cond ~if_true:"init_body" ~if_false:"init_done" ];
+      branch_to cond ~if_true:"init_body" ~if_false:"init_done";
       label init_body;
-      let offset = mul idx (lit 16L) in
+      let offset = mul idx entry_size in
       let slot = ptr_add table offset in
-      let slot_value = ptr_add slot (lit 8L) in
-      seq [ store (lit 0L) slot; store (lit 0L) slot_value ];
+      store_record_field hashmap_entry.key slot (lit 0L);
+      store_record_field hashmap_entry.value slot (lit 0L);
       let idx_next = add idx (lit 1L) in
-      seq [ store idx_next idx_slot; jump_to "init_loop" ];
+      store idx_next idx_slot;
+      jump_to "init_loop";
       label init_done;
       return (lit 0L)]
   |> Dsl.Fn.renamed ~name:"hashmap_init"
@@ -38,73 +61,67 @@ let hashmap_init =
 
 let hashmap_put =
   [%nod
-    fun (state : int64 ptr) (entry : int64 ptr) ->
-      let key = load entry in
-      let entry_value = ptr_add entry (lit 8L) in
-      let value = load entry_value in
-      let capacity = load state in
-      let table_field = ptr_add state (lit 8L) in
-      let table = load table_field in
-      let table = cast Type.Ptr table in
+    fun (state : hashmap ptr) (entry_ptr : hashmap_entry ptr) ->
+      let entry_size = mov (lit entry_bytes) in
+      let key = load_record_field hashmap_entry.key entry_ptr in
+      let value = load_record_field hashmap_entry.value entry_ptr in
+      let capacity = load_record_field hashmap.capacity state in
+      let table = load_record_field hashmap.table state in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
       store idx0 idx_slot;
       label probe;
       let idx = load idx_slot in
-      let offset = mul idx (lit 16L) in
+      let offset = mul idx entry_size in
       let slot = ptr_add table offset in
-      let slot_key = load slot in
+      let slot_key = load_record_field hashmap_entry.key slot in
       branch_to slot_key ~if_true:"check_key" ~if_false:"insert";
       label check_key;
       let diff = sub slot_key key in
-      seq [ branch_to diff ~if_true:"probe_next" ~if_false:"update" ];
+      branch_to diff ~if_true:"probe_next" ~if_false:"update";
       label probe_next;
       let idx_inc = add idx (lit 1L) in
       let idx_wrap = mod_ idx_inc capacity in
       store idx_wrap idx_slot;
       jump_to "probe";
       label insert;
-      let slot_value = ptr_add slot (lit 8L) in
-      store key slot;
-      store value slot_value;
+      store_record_field hashmap_entry.key slot key;
+      store_record_field hashmap_entry.value slot value;
       return value;
       label update;
-      let slot_value = ptr_add slot (lit 8L) in
-      store value slot_value;
+      store_record_field hashmap_entry.value slot value;
       return value]
   |> Dsl.Fn.renamed ~name:"hashmap_put"
 ;;
 
 let hashmap_get =
   [%nod
-    fun (state : int64 ptr) (query : int64 ptr) ->
-      let key = load query in
-      let query_default = ptr_add query (lit 8L) in
-      let default = load query_default in
-      let capacity = load state in
-      let table_field = ptr_add state (lit 8L) in
-      let table = load table_field in
-      let table = cast Type.Ptr table in
+    fun (state : hashmap ptr) (query_ptr : hashmap_query ptr) ->
+      let entry_size = mov (lit entry_bytes) in
+      let key = load_record_field hashmap_query.key query_ptr in
+      let default = load_record_field hashmap_query.default query_ptr in
+      let capacity = load_record_field hashmap.capacity state in
+      let table = load_record_field hashmap.table state in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
-      seq [ store idx0 idx_slot ];
+      store idx0 idx_slot;
       label probe;
       let idx = load idx_slot in
-      let offset = mul idx (lit 16L) in
+      let offset = mul idx entry_size in
       let slot = ptr_add table offset in
-      let slot_key = load slot in
-      seq [ branch_to slot_key ~if_true:"check_key" ~if_false:"miss" ];
+      let slot_key = load_record_field hashmap_entry.key slot in
+      branch_to slot_key ~if_true:"check_key" ~if_false:"miss";
       label check_key;
       let diff = sub slot_key key in
-      seq [ branch_to diff ~if_true:"probe_next" ~if_false:"hit" ];
+      branch_to diff ~if_true:"probe_next" ~if_false:"hit";
       label probe_next;
       let idx_inc = add idx (lit 1L) in
       let idx_wrap = mod_ idx_inc capacity in
-      seq [ store idx_wrap idx_slot; jump_to "probe" ];
+      store idx_wrap idx_slot;
+      jump_to "probe";
       label hit;
-      let slot_value = ptr_add slot (lit 8L) in
-      let value = load slot_value in
-      seq [ return value ];
+      let value = load_record_field hashmap_entry.value slot in
+      return value;
       label miss;
       return default]
   |> Dsl.Fn.renamed ~name:"hashmap_get"
