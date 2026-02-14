@@ -181,10 +181,7 @@ struct
         (* 3 fields * 8 bytes each *)
         let heap_ptr_raw = Libc.malloc heap_size in
         let heap_ptr =
-          cast
-            "heap_ptr"
-            (Type.Ptr_typed (Type_repr.type_ binary_heap.repr))
-            heap_ptr_raw
+          cast (Type.Ptr_typed (Type_repr.type_ binary_heap.repr)) heap_ptr_raw
         in
         let array_size = mul initial_capacity (lit elt_bytes) in
         let array_ptr = Libc.malloc array_size in
