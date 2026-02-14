@@ -219,18 +219,9 @@ let load_mem ?(offset = 0) name ptr type_ =
 ;;
 
 let load name ptr = load_mem name ptr Type.I64
-let load_ptr name ptr = load_mem name ptr Type.Ptr
-let load_f64 name ptr = load_mem name ptr Type.F64
-let load_addr name ptr offset = load_mem ~offset name ptr Type.I64
-let load_addr_ptr name ptr offset = load_mem ~offset name ptr Type.Ptr
-let load_addr_f64 name ptr offset = load_mem ~offset name ptr Type.F64
 
 let store value ptr =
   Instr.ir (Nod_ir.Ir.Store (Atom.lit_or_var value, mem_address ptr))
-;;
-
-let store_addr value ptr offset =
-  Instr.ir (Nod_ir.Ir.Store (Atom.lit_or_var value, mem_address ~offset ptr))
 ;;
 
 let alloca name size =

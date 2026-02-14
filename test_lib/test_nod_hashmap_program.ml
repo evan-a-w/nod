@@ -7,20 +7,25 @@ let root =
     [%nod
       let state = alloca (lit 16L) in
       let table = alloca (lit 64L) in
-      seq [ store_addr (lit 4L) state 0; store_addr table state 8 ];
+      let table_field = ptr_add state (lit 8L) in
+      let table_bits = cast Type.I64 table in
+      seq [ store (lit 4L) state; store table_bits table_field ];
       let init_done = Hashmap.hashmap_init state in
       let entry1 = alloca (lit 16L) in
-      seq [ store_addr (lit 7L) entry1 0; store_addr (lit 21L) entry1 8 ];
+      let entry1_value = ptr_add entry1 (lit 8L) in
+      seq [ store (lit 7L) entry1; store (lit 21L) entry1_value ];
       let put1 = Hashmap.hashmap_put state entry1 in
       let entry2 = alloca (lit 16L) in
-      seq [ store_addr (lit 42L) entry2 0; store_addr (lit 100L) entry2 8 ];
+      let entry2_value = ptr_add entry2 (lit 8L) in
+      seq [ store (lit 42L) entry2; store (lit 100L) entry2_value ];
       let put2 = Hashmap.hashmap_put state entry2 in
       let query_hit = alloca (lit 16L) in
-      seq [ store_addr (lit 7L) query_hit 0; store_addr (lit 0L) query_hit 8 ];
+      let query_hit_value = ptr_add query_hit (lit 8L) in
+      seq [ store (lit 7L) query_hit; store (lit 0L) query_hit_value ];
       let hit = Hashmap.hashmap_get state query_hit in
       let query_miss = alloca (lit 16L) in
-      seq
-        [ store_addr (lit 99L) query_miss 0; store_addr (lit 5L) query_miss 8 ];
+      let query_miss_value = ptr_add query_miss (lit 8L) in
+      seq [ store (lit 99L) query_miss; store (lit 5L) query_miss_value ];
       let miss = Hashmap.hashmap_get state query_miss in
       let total = add hit miss in
       let total = add total init_done in

@@ -13,9 +13,11 @@ let hash_fn =
 
 let hashmap_init =
   [%nod
-    fun (state : ptr) ->
-      let capacity = load_addr state 0 in
-      let table = load_addr_ptr state 8 in
+    fun (state : int64 ptr) ->
+      let capacity = load state in
+      let table_field = ptr_add state (lit 8L) in
+      let table = load table_field in
+      let table = cast Type.Ptr table in
       let idx_slot = alloca (lit 8L) in
       seq [ store (lit 0L) idx_slot ];
       label init_loop;
@@ -25,7 +27,8 @@ let hashmap_init =
       label init_body;
       let offset = mul idx (lit 16L) in
       let slot = ptr_add table offset in
-      seq [ store_addr (lit 0L) slot 0; store_addr (lit 0L) slot 8 ];
+      let slot_value = ptr_add slot (lit 8L) in
+      seq [ store (lit 0L) slot; store (lit 0L) slot_value ];
       let idx_next = add idx (lit 1L) in
       seq [ store idx_next idx_slot; jump_to "init_loop" ];
       label init_done;
@@ -35,11 +38,14 @@ let hashmap_init =
 
 let hashmap_put =
   [%nod
-    fun (state : ptr) (entry : ptr) ->
-      let key = load_addr entry 0 in
-      let value = load_addr entry 8 in
-      let capacity = load_addr state 0 in
-      let table = load_addr_ptr state 8 in
+    fun (state : int64 ptr) (entry : int64 ptr) ->
+      let key = load entry in
+      let entry_value = ptr_add entry (lit 8L) in
+      let value = load entry_value in
+      let capacity = load state in
+      let table_field = ptr_add state (lit 8L) in
+      let table = load table_field in
+      let table = cast Type.Ptr table in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
       store idx0 idx_slot;
@@ -47,7 +53,7 @@ let hashmap_put =
       let idx = load idx_slot in
       let offset = mul idx (lit 16L) in
       let slot = ptr_add table offset in
-      let slot_key = load_addr slot 0 in
+      let slot_key = load slot in
       branch_to slot_key ~if_true:"check_key" ~if_false:"insert";
       label check_key;
       let diff = sub slot_key key in
@@ -58,22 +64,27 @@ let hashmap_put =
       store idx_wrap idx_slot;
       jump_to "probe";
       label insert;
-      store_addr key slot 0;
-      store_addr value slot 8;
+      let slot_value = ptr_add slot (lit 8L) in
+      store key slot;
+      store value slot_value;
       return value;
       label update;
-      store_addr value slot 8;
+      let slot_value = ptr_add slot (lit 8L) in
+      store value slot_value;
       return value]
   |> Dsl.Fn.renamed ~name:"hashmap_put"
 ;;
 
 let hashmap_get =
   [%nod
-    fun (state : ptr) (query : ptr) ->
-      let key = load_addr query 0 in
-      let default = load_addr query 8 in
-      let capacity = load_addr state 0 in
-      let table = load_addr_ptr state 8 in
+    fun (state : int64 ptr) (query : int64 ptr) ->
+      let key = load query in
+      let query_default = ptr_add query (lit 8L) in
+      let default = load query_default in
+      let capacity = load state in
+      let table_field = ptr_add state (lit 8L) in
+      let table = load table_field in
+      let table = cast Type.Ptr table in
       let idx0 = hash_fn key capacity in
       let idx_slot = alloca (lit 8L) in
       seq [ store idx0 idx_slot ];
@@ -81,7 +92,7 @@ let hashmap_get =
       let idx = load idx_slot in
       let offset = mul idx (lit 16L) in
       let slot = ptr_add table offset in
-      let slot_key = load_addr slot 0 in
+      let slot_key = load slot in
       seq [ branch_to slot_key ~if_true:"check_key" ~if_false:"miss" ];
       label check_key;
       let diff = sub slot_key key in
@@ -91,7 +102,8 @@ let hashmap_get =
       let idx_wrap = mod_ idx_inc capacity in
       seq [ store idx_wrap idx_slot; jump_to "probe" ];
       label hit;
-      let value = load_addr slot 8 in
+      let slot_value = ptr_add slot (lit 8L) in
+      let value = load slot_value in
       seq [ return value ];
       label miss;
       return default]

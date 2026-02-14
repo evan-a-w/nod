@@ -184,8 +184,6 @@ val fdiv
 
 val load : string -> 'a ptr Atom.t -> 'a Atom.t * 'ret Instr.t
 val store : 'a Atom.t -> 'a ptr Atom.t -> 'ret Instr.t
-val load_addr : string -> 'a ptr Atom.t -> int -> 'a Atom.t * 'ret Instr.t
-val store_addr : 'a Atom.t -> 'a ptr Atom.t -> int -> 'ret Instr.t
 val alloca : string -> int64 Atom.t -> 'a ptr Atom.t * 'ret Instr.t
 val cast : string -> Type.t -> 'a Atom.t -> 'b Atom.t * 'ret Instr.t
 val call0 : string -> ('ret, 'ret) Fn.t -> 'ret Atom.t * 'block Instr.t

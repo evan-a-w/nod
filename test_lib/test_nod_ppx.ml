@@ -19,9 +19,9 @@ let%expect_test "nod type expr" =
   let a = [%nod_type_expr: int64] in
   print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
   [%expect {| I64 |}];
-  let a = [%nod_type_expr: a * float64 * ptr] in
+  let a = [%nod_type_expr: a * float64 * a ptr] in
   print_s [%sexp (Dsl.Type_repr.type_ a : Type.t)];
-  [%expect {| (Tuple (I64 F64 Ptr)) |}]
+  [%expect {| (Tuple (I64 F64 (Ptr_typed I64))) |}]
 ;;
 
 let%expect_test "nod block from let" =

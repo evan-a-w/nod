@@ -74,7 +74,8 @@ module Pp = struct
       let callee_str =
         match callee with
         | Nod_ir.Ir.Call_callee.Direct fn -> fn
-        | Nod_ir.Ir.Call_callee.Indirect operand -> sprintf "*%s" (pp_lov operand)
+        | Nod_ir.Ir.Call_callee.Indirect operand ->
+          sprintf "*%s" (pp_lov operand)
       in
       if String.is_empty results_str
       then sprintf "call %s(%s)" callee_str args_str

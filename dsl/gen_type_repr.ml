@@ -61,7 +61,7 @@ let rec type_ : type a. a t -> Type.t =
   match t with
   | Int64 -> I64
   | Float64 -> F64
-  | Ptr _ -> Ptr
+  | Ptr inner -> Ptr_typed (type_ inner)
 %s|}
     type_aliases
     tuple_defs

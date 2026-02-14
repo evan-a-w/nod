@@ -3,9 +3,9 @@ open! Import
 open! Dsl
 
 (* Compare function for i64 elements: returns negative if *a < *b *)
-let compare_i64 : (ptr -> ptr -> int64, int64) Dsl.Fn.t =
+let compare_i64 : (int64 ptr -> int64 ptr -> int64, int64) Dsl.Fn.t =
   [%nod
-    fun (a : ptr) (b : ptr) ->
+    fun (a : int64 ptr) (b : int64 ptr) ->
       let a_val = load a in
       let b_val = load b in
       let diff = sub a_val b_val in
