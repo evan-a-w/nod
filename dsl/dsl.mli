@@ -7,6 +7,8 @@ type int64 = Dsl_types.int64
 type float64 = Dsl_types.float64
 type 'a ptr = 'a Dsl_types.ptr
 
+val base : base
+
 module Type_repr : module type of Type_repr_gen
 
 module Atom : sig

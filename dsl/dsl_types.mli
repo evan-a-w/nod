@@ -4,3 +4,5 @@ type record
 type int64
 type float64
 type !+'a ptr
+
+val base : base
